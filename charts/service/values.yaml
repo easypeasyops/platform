@@ -181,9 +181,13 @@ canary:
     # Judged on the CANARY's pods only (label rollouts_pod_template_hash), over [1m].
     minRequestRate: 0.5 # req/s: below this there's too little traffic to judge: fail
     maxErrorRatio: 0.01 # 5xx share of all non-probe requests; one bad measurement aborts
-    maxRedirectP99Seconds: 0.25 # coarse: small samples make p99 noisy; 2 bad ones abort
+    # p99 latency checks, one analysis metric each, judged like the error ratio. `selector`
+    # narrows http_request_duration_seconds to a route; p99 is coarse on small samples, so
+    # a check aborts only after `failureLimit` + 1 bad measurements (default 1, so 2).
+    #   - { name: redirect-p99, selector: 'method="GET", route="/{code}"', maxP99Seconds: 0.25 }
+    latencyChecks: []
     # Requests to judge the canary on: a k6 Job runs beside each analysis step, sending this
-    # many req/s through the Gateway with the first gateway hostname (files/canary-traffic.js).
+    # many req/s through the Gateway with the first gateway hostname (`script`, below).
     # Part of the analysis, so a canary started by anyone (Argo CD, deploy.sh) gets it.
     # A prod with real users turns it off; then `minRequestRate` guards a quiet hour.
     syntheticTraffic:
@@ -191,6 +195,9 @@ canary:
       rate: 20
       image: grafana/k6:2.3.0
       url: http://shortly-gateway.envoy-gateway-system.svc
+      # The k6 script (the app's: which routes, in what mix), run with BASE_URL, HOST, RATE
+      # and DURATION in its environment. Required when syntheticTraffic is enabled.
+      script: ""
   pauseWithoutAnalysis: 60s
 
 resources:
@@ -221,6 +228,14 @@ monitoring:
   # `by (namespace)`, so they cover all environments. Exactly ONE release per cluster may
   # ship them (prod); two copies would evaluate every recording rule twice and collide.
   clusterWide: false
+  # The app's alert rules, rendered where clusterWide is: one PrometheusRule per entry, named
+  # <release>-<key>; each entry is the text of a Prometheus rule file (`groups: ...`), so
+  # the file the app tests with promtool is exactly what ships. SLO rules generated from the
+  # app's SLO spec are one more entry.
+  rules: {}
+  # Grafana dashboards, rendered where clusterWide is: <file name>: <dashboard JSON>, in one
+  # ConfigMap that Grafana's sidecar loads.
+  dashboards: {}
 
 nodeSelector: {}
 tolerations: []

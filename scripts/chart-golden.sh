@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Golden manifests for the service chart: what it renders for each app in
-# charts/service/tests/<app>/, checked in beside the values as <env>.golden.yaml.
+# charts/service/tests/<app>/, checked in beside the values as <env>.golden.yaml. An app's
+# values.yaml (what every environment shares) is layered under its <env>-values.yaml, as
+# its Argo CD Application will layer them.
 #
 #   scripts/chart-golden.sh            # fail, with a diff, if a render differs from its golden
 #   UPDATE=1 scripts/chart-golden.sh   # rewrite the golden files after an intended change
@@ -20,16 +22,26 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CHART="$ROOT/charts/service"
 PLACEHOLDER_DIGEST="sha256:$(printf '0%.0s' {1..64})"
 
+values_args() { # <app> <env>
+  local common="$CHART/tests/$1/values.yaml"
+  if [[ -f "$common" ]]; then printf '%s\n' --values "$common"; fi
+  printf '%s\n' --values "$CHART/tests/$1/$2-values.yaml"
+}
+
 render() { # <app> <env>
+  local args
+  mapfile -t args < <(values_args "$1" "$2")
   helm template "$1" "$CHART" \
     --namespace "$1-$2" \
-    --values "$CHART/tests/$1/$2-values.yaml" \
+    "${args[@]}" \
     --set "image.digest=$PLACEHOLDER_DIGEST" \
     --kube-version 1.37.0 \
     --api-versions monitoring.coreos.com/v1/ServiceMonitor \
     --api-versions monitoring.coreos.com/v1/PrometheusRule |
     sed -E 's/(helm\.sh\/chart: service-)[^ ]+/\1<version>/'
 }
+
+if [[ "${1:-}" == --values-args ]]; then values_args "$2" "$3"; exit; fi # for CI's lint
 
 status=0
 for values in "$CHART"/tests/*/*-values.yaml; do

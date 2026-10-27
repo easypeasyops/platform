@@ -101,17 +101,19 @@ spec:
                   - name: tmp
                     emptyDir: { sizeLimit: 64Mi }
 {{- end }}{{ end }}
-    - name: redirect-p99
+{{- range $a.latencyChecks }}
+    - name: {{ .name }}
       initialDelay: {{ $a.initialDelay }}
       interval: {{ $a.interval }}
       count: {{ $a.count }}
-      failureLimit: 1
-      successCondition: result[0] <= {{ $a.maxRedirectP99Seconds }}
+      failureLimit: {{ .failureLimit | default 1 }}
+      successCondition: result[0] <= {{ required "canary.analysis.latencyChecks[].maxP99Seconds" .maxP99Seconds }}
       provider:
         prometheus:
           address: {{ $a.prometheusUrl }}
           query: |
-            histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{ {{- $sel }}, method="GET", route="/{code}"}[1m])))
+            histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{ {{- $sel }}, {{ required "canary.analysis.latencyChecks[].selector" .selector }}}[1m])))
+{{- end }}
 {{- if $a.syntheticTraffic.enabled }}
 ---
 apiVersion: v1
@@ -122,6 +124,6 @@ metadata:
     {{- include "service.labels" . | nindent 4 }}
 data:
   canary-traffic.js: |
-    {{- .Files.Get "files/canary-traffic.js" | nindent 4 }}
+    {{- required "canary.analysis.syntheticTraffic.script: the k6 script that sends the canary its traffic" $a.syntheticTraffic.script | nindent 4 }}
 {{- end }}
 {{- end }}

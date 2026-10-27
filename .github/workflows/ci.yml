@@ -85,7 +85,9 @@ jobs:
       - name: Lint
         run: |
           for values in charts/service/tests/*/*-values.yaml; do
-            helm lint charts/service --strict --values "$values" --set image.tag=ci
+            app=$(basename "$(dirname "$values")"); env=$(basename "$values" -values.yaml)
+            mapfile -t args < <(scripts/chart-golden.sh --values-args "$app" "$env")
+            helm lint charts/service --strict "${args[@]}" --set image.tag=ci
           done
 
       - name: Renders match the golden files

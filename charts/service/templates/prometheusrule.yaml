@@ -1,15 +1,15 @@
 {{- if and .Values.monitoring.enabled .Values.monitoring.clusterWide (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1/PrometheusRule") }}
-{{- /* One PrometheusRule per file in rules/: the same files compose's Prometheus loads and
-       promtool tests, so what is tested is what ships. */}}
-{{- range $path, $_ := .Files.Glob "rules/*.yaml" }}
+{{- /* One PrometheusRule per entry in monitoring.rules, in key order: the entry is the rule
+       file's text, so the file the app tests with promtool is what ships. */}}
+{{- range $name, $rules := .Values.monitoring.rules }}
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
-  name: {{ include "service.fullname" $ }}-{{ base $path | trimSuffix ".yaml" }}
+  name: {{ include "service.fullname" $ }}-{{ $name }}
   labels:
     {{- include "service.labels" $ | nindent 4 }}
 spec:
-  {{- $.Files.Get $path | nindent 2 }}
+  {{- $rules | nindent 2 }}
 {{- end }}
 {{- end }}

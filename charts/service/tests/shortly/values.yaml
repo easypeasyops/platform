@@ -1,0 +1,1117 @@
+# shortly's values for the service chart, used by both environments (the env files are
+# layered on top). In links these were the chart's own files; an app supplies them as values
+# (platform plan 3.2, option A). Moved from links@32d2136:
+#   monitoring.rules.shortly            <- deploy/helm/shortly/rules/shortly.yaml (hand-written)
+#   monitoring.rules.slo                <- deploy/helm/shortly/rules/slo.yaml (generated from
+#                                          deploy/prometheus/slos.yaml by gen_slo_rules.py)
+#   monitoring.dashboards               <- deploy/helm/shortly/dashboards/slo.json
+#   canary.analysis.syntheticTraffic    <- deploy/helm/shortly/files/canary-traffic.js
+#   canary.analysis.latencyChecks       <- the chart's redirect-p99 metric
+canary:
+  analysis:
+    latencyChecks:
+      - name: redirect-p99
+        selector: 'method="GET", route="/{code}"'
+        maxP99Seconds: 0.25 # coarse: small samples make p99 noisy; 2 bad ones abort
+    syntheticTraffic:
+      script: |
+        // Synthetic traffic for canary analysis (templates/analysistemplate.yaml): a steady mix of
+        // redirects (90%) and creates (10%) through the Gateway, as users would arrive, so the
+        // canary's share has requests to be judged on. It never fails on its own: errors are what
+        // the analysis measures, not this script's business. Seeding retries until it has codes.
+        //
+        //   k6 run -e BASE_URL=... -e HOST=sho.rt.localhost -e RATE=20 -e DURATION=180s canary-traffic.js
+        import http from "k6/http";
+        import { sleep } from "k6";
+
+        const BASE = __ENV.BASE_URL;
+        const RATE = Number(__ENV.RATE || 20);
+        const DURATION = __ENV.DURATION || "180s";
+        const HOST = { Host: __ENV.HOST };
+        const createRate = Math.max(1, Math.round(RATE / 10));
+
+        export const options = {
+          discardResponseBodies: true,
+          scenarios: {
+            redirects: {
+              executor: "constant-arrival-rate", exec: "redirect", rate: RATE - createRate,
+              timeUnit: "1s", duration: DURATION, preAllocatedVUs: 10, maxVUs: 50,
+            },
+            creates: {
+              executor: "constant-arrival-rate", exec: "create", rate: createRate,
+              timeUnit: "1s", duration: DURATION, preAllocatedVUs: 2, maxVUs: 10,
+            },
+          },
+        };
+
+        // A random client per create (RFC 2544 benchmark range), so the per-client rate limit
+        // sees many clients, as in production. The app trusts X-Forwarded-For from the pod network.
+        const client = () => `198.18.${Math.floor(Math.random() * 256)}.${1 + Math.floor(Math.random() * 254)}`;
+        const createParams = () => ({
+          headers: { ...HOST, "content-type": "application/json", "x-forwarded-for": client() },
+          responseType: "text",
+        });
+
+        export function setup() {
+          const codes = [];
+          for (let i = 0; codes.length < 20 && i < 200; i++) {
+            const res = http.post(`${BASE}/links`, JSON.stringify({ url: `https://example.com/canary/${i}` }), createParams());
+            if (res.status === 201) codes.push(res.json("code"));
+            else sleep(0.2);
+          }
+          return { codes };
+        }
+
+        export function redirect(data) {
+          if (data.codes.length === 0) return;
+          const code = data.codes[Math.floor(Math.random() * data.codes.length)];
+          http.get(`${BASE}/${code}`, { redirects: 0, headers: HOST, tags: { name: "GET /{code}" } });
+        }
+
+        export function create() {
+          http.post(`${BASE}/links`, JSON.stringify({ url: `https://example.com/canary/${__VU}/${__ITER}` }), createParams());
+        }
+monitoring:
+  rules:
+    shortly: |
+      # Cause-based alerts for shortly, hand-written. The SLO alerts (slo.yaml, generated) say
+      # "users are hurting"; these cover what an SLO cannot see, or warn before it is spent.
+      # Every runbook_url anchor must exist in docs/RUNBOOK.md (tests/test_alert_rules.py checks).
+      groups:
+        - name: shortly-health
+          rules:
+            # The SLO is computed FROM the app's own metrics: if no pod is scraped, there is no
+            # traffic data, every ratio is empty, and no burn-rate alert can fire. A full outage
+            # would be silent without this one.
+            - alert: ShortlyDown
+              expr: sum(up{job="shortly"}) == 0 or absent(up{job="shortly"})
+              for: 2m
+              labels:
+                severity: page
+              annotations:
+                summary: No shortly target is being scraped
+                description: Prometheus has no healthy shortly target, so the SLO alerts are blind. Treat it as a full outage until proven otherwise.
+                runbook_url: https://github.com/statsguy/shortly/blob/main/docs/RUNBOOK.md#shortlydown
+
+            # Needs kube-state-metrics. One environment with zero available pods is down, even
+            # though another one is still being scraped (ShortlyDown only catches "nothing anywhere").
+            # Counted over the ReplicaSets ("shortly-<pod hash>"), which a Deployment (staging) and
+            # an Argo Rollout (prod) both create: kube-state-metrics knows nothing about Rollouts.
+            - alert: ShortlyNoAvailablePods
+              expr: sum by (namespace) (kube_replicaset_status_ready_replicas{replicaset=~"shortly-[a-z0-9]+"}) == 0
+              for: 1m
+              labels:
+                severity: page
+              annotations:
+                summary: shortly has no available pods
+                description: The Deployment or Rollout has zero ready replicas in this namespace, so every request to it fails.
+                runbook_url: https://github.com/statsguy/shortly/blob/main/docs/RUNBOOK.md#shortlynoavailablepods
+
+            # Pods that fail readiness are removed from the Service. Users then get errors at the
+            # load balancer, which the app never sees, so the availability SLI stays green.
+            - alert: ShortlyNotReady
+              expr: |-
+                sum by (namespace) (rate(http_requests_total{route="/readyz", status="503"}[5m]))
+                  / sum by (namespace) (rate(http_requests_total{route="/readyz"}[5m])) > 0.5
+              for: 5m
+              labels:
+                severity: page
+              annotations:
+                summary: Most readiness checks are failing
+                description: Over half of /readyz checks return 503 (usually the database is unreachable). Pods are out of rotation; user requests fail before they reach the app.
+                runbook_url: https://github.com/statsguy/shortly/blob/main/docs/RUNBOOK.md#pods-not-ready-readyz-returns-503
+
+            # 503 + Retry-After because no DB connection freed up in time. Usually a slow database.
+            # It also burns the availability budget; this alert names the cause.
+            - alert: ShortlyLoadShedding
+              # One alert per reason: "concurrency" is too much traffic for the pods (the HPA's
+              # job), "pool" and "db_timeout" point at the database. Different fixes, so the
+              # ticket says which.
+              expr: sum by (namespace, reason) (rate(load_shed_total[5m])) > 0
+              for: 5m
+              labels:
+                severity: ticket
+              annotations:
+                summary: Requests are being shed with 503 ({{ $labels.reason }})
+                description: Requests have been shed for 5 minutes, reason {{ $labels.reason }}. concurrency means pods at their in-flight limit (traffic above capacity); pool or db_timeout mean a slow database. Check the database before adding replicas.
+                runbook_url: https://github.com/statsguy/shortly/blob/main/docs/RUNBOOK.md#saturation-load-shed-or-hpa-at-max
+
+            # Needs kube-state-metrics in the cluster (not part of the local stack). At max, the
+            # next traffic increase becomes latency: raise maxReplicas or add capacity.
+            - alert: ShortlyAtMaxReplicas
+              expr: |-
+                kube_horizontalpodautoscaler_status_current_replicas{horizontalpodautoscaler="shortly"}
+                  >= kube_horizontalpodautoscaler_spec_max_replicas{horizontalpodautoscaler="shortly"}
+              for: 15m
+              labels:
+                severity: ticket
+              annotations:
+                summary: The HPA has been at maxReplicas for 15 minutes
+                description: Autoscaling has no headroom left. See Capacity in the design doc for the sizing rule and the DB connection budget.
+                runbook_url: https://github.com/statsguy/shortly/blob/main/docs/RUNBOOK.md#saturation-load-shed-or-hpa-at-max
+
+            # 429s are the limiter working, so they never burn the availability SLO. A large,
+            # sustained share is still worth a look: one client hammering creates (abuse, or a
+            # buggy integration in a loop), or a limit too tight for many users behind one
+            # address (corporate or carrier-grade NAT).
+            - alert: ShortlyRateLimiting
+              expr: |-
+                sum by (namespace) (rate(rate_limited_total[15m]))
+                  / sum by (namespace) (rate(http_requests_total{method="POST", route="/links"}[15m])) > 0.1
+              for: 30m
+              labels:
+                severity: ticket
+              annotations:
+                summary: Over 10% of link creations are rate limited
+                description: For 30 minutes, more than 1 in 10 POST /links requests got 429. Find out whether it is abuse or a limit that is too tight for legitimate clients.
+                runbook_url: https://github.com/statsguy/shortly/blob/main/docs/RUNBOOK.md#rate-limiting-429-on-post-links
+
+            # Fault injection is for drills, which last minutes. Still on after 15 minutes means a
+            # drill was abandoned or the setting leaked into a release: users are getting 500s on
+            # purpose. The availability SLO burns too, but this names the cause.
+            - alert: ShortlyFaultInjectionOn
+              expr: sum by (namespace) (rate(faults_injected_total[5m])) > 0
+              for: 15m
+              labels:
+                severity: ticket
+              annotations:
+                summary: Fault injection is failing requests on purpose
+                description: SHORTLY_FAULT_ERROR_RATIO is set in {{ $labels.namespace }} and has been failing requests for 15 minutes. Remove config.faultErrorRatio and redeploy.
+                runbook_url: https://github.com/statsguy/shortly/blob/main/docs/RUNBOOK.md#fault-injection-left-on
+
+            # Needs kube-state-metrics. A cron job that stops running fails silently: nothing
+            # breaks for weeks, then the table is huge. Fires when the last success is over
+            # 3 hours old (3 missed hourly runs), or the CronJob has existed for 3 hours
+            # without ever succeeding (a new install whose first runs all fail).
+            - alert: ShortlyCleanupNotRunning
+              expr: |-
+                time() - max by (namespace) (kube_cronjob_status_last_successful_time{cronjob="shortly-cleanup"}) > 3 * 3600
+                  or (
+                    time() - max by (namespace) (kube_cronjob_created{cronjob="shortly-cleanup"}) > 3 * 3600
+                      unless max by (namespace) (kube_cronjob_status_last_successful_time{cronjob="shortly-cleanup"})
+                  )
+              for: 15m
+              labels:
+                severity: ticket
+              annotations:
+                summary: Expired-link cleanup hasn't succeeded for over 3 hours
+                description: The shortly-cleanup CronJob has missed at least 3 runs, or has never succeeded. Expired links pile up until it runs again.
+                runbook_url: https://github.com/statsguy/shortly/blob/main/docs/RUNBOOK.md#cleanup-job-not-running
+
+            # Needs kube-state-metrics. Backups that silently stopped are found during the
+            # incident that needs them. Hourly job (RPO 1 h): fires after 2 missed runs, or if it
+            # has never succeeded in 2 hours. Only where a postgres-backup CronJob exists (the
+            # kind setup); a managed database's backups are watched through its provider.
+            - alert: ShortlyBackupNotRunning
+              expr: |-
+                time() - max by (namespace) (kube_cronjob_status_last_successful_time{cronjob="postgres-backup"}) > 2 * 3600
+                  or (
+                    time() - max by (namespace) (kube_cronjob_created{cronjob="postgres-backup"}) > 2 * 3600
+                      unless max by (namespace) (kube_cronjob_status_last_successful_time{cronjob="postgres-backup"})
+                  )
+              for: 15m
+              labels:
+                severity: ticket
+              annotations:
+                summary: Postgres backups haven't succeeded for over 2 hours
+                description: The postgres-backup CronJob has missed at least 2 runs, or has never succeeded. Data written since the last good backup can't be recovered if the database is lost.
+                runbook_url: https://github.com/statsguy/shortly/blob/main/docs/RUNBOOK.md#backup-job-not-running
+    slo: |
+      # GENERATED by scripts/gen_slo_rules.py from deploy/prometheus/slos.yaml. Do not edit:
+      # change the spec and re-run the script (a test fails if this file is stale).
+      groups:
+      - name: slo-redirect-availability
+        rules:
+        - record: slo:objective:ratio
+          expr: '0.999'
+          labels:
+            slo: redirect-availability
+        - record: slo:sli_error:ratio_rate5m
+          expr: (sum by (namespace) (rate(http_requests_total{method="GET", route="/{code}", status=~"5.."}[5m])) or 0 * sum by (namespace) (rate(http_requests_total{method="GET", route="/{code}"}[5m]))) / sum
+            by (namespace) (rate(http_requests_total{method="GET", route="/{code}"}[5m]))
+          labels:
+            slo: redirect-availability
+        - record: slo:sli_error:ratio_rate30m
+          expr: (sum by (namespace) (rate(http_requests_total{method="GET", route="/{code}", status=~"5.."}[30m])) or 0 * sum by (namespace) (rate(http_requests_total{method="GET", route="/{code}"}[30m]))) /
+            sum by (namespace) (rate(http_requests_total{method="GET", route="/{code}"}[30m]))
+          labels:
+            slo: redirect-availability
+        - record: slo:sli_error:ratio_rate1h
+          expr: (sum by (namespace) (rate(http_requests_total{method="GET", route="/{code}", status=~"5.."}[1h])) or 0 * sum by (namespace) (rate(http_requests_total{method="GET", route="/{code}"}[1h]))) / sum
+            by (namespace) (rate(http_requests_total{method="GET", route="/{code}"}[1h]))
+          labels:
+            slo: redirect-availability
+        - record: slo:sli_error:ratio_rate2h
+          expr: (sum by (namespace) (rate(http_requests_total{method="GET", route="/{code}", status=~"5.."}[2h])) or 0 * sum by (namespace) (rate(http_requests_total{method="GET", route="/{code}"}[2h]))) / sum
+            by (namespace) (rate(http_requests_total{method="GET", route="/{code}"}[2h]))
+          labels:
+            slo: redirect-availability
+        - record: slo:sli_error:ratio_rate6h
+          expr: (sum by (namespace) (rate(http_requests_total{method="GET", route="/{code}", status=~"5.."}[6h])) or 0 * sum by (namespace) (rate(http_requests_total{method="GET", route="/{code}"}[6h]))) / sum
+            by (namespace) (rate(http_requests_total{method="GET", route="/{code}"}[6h]))
+          labels:
+            slo: redirect-availability
+        - record: slo:sli_error:ratio_rate1d
+          expr: (sum by (namespace) (rate(http_requests_total{method="GET", route="/{code}", status=~"5.."}[1d])) or 0 * sum by (namespace) (rate(http_requests_total{method="GET", route="/{code}"}[1d]))) / sum
+            by (namespace) (rate(http_requests_total{method="GET", route="/{code}"}[1d]))
+          labels:
+            slo: redirect-availability
+        - record: slo:sli_error:ratio_rate3d
+          expr: (sum by (namespace) (rate(http_requests_total{method="GET", route="/{code}", status=~"5.."}[3d])) or 0 * sum by (namespace) (rate(http_requests_total{method="GET", route="/{code}"}[3d]))) / sum
+            by (namespace) (rate(http_requests_total{method="GET", route="/{code}"}[3d]))
+          labels:
+            slo: redirect-availability
+        - record: slo:sli_error:ratio_rate30d
+          expr: (sum by (namespace) (rate(http_requests_total{method="GET", route="/{code}", status=~"5.."}[30d])) or 0 * sum by (namespace) (rate(http_requests_total{method="GET", route="/{code}"}[30d]))) /
+            sum by (namespace) (rate(http_requests_total{method="GET", route="/{code}"}[30d]))
+          labels:
+            slo: redirect-availability
+        - record: slo:sli_events:increase1h
+          expr: sum by (namespace) (increase(http_requests_total{method="GET", route="/{code}"}[1h]))
+          labels:
+            slo: redirect-availability
+        - record: slo:sli_events:increase6h
+          expr: sum by (namespace) (increase(http_requests_total{method="GET", route="/{code}"}[6h]))
+          labels:
+            slo: redirect-availability
+        - record: slo:sli_events:increase1d
+          expr: sum by (namespace) (increase(http_requests_total{method="GET", route="/{code}"}[1d]))
+          labels:
+            slo: redirect-availability
+        - record: slo:sli_events:increase3d
+          expr: sum by (namespace) (increase(http_requests_total{method="GET", route="/{code}"}[3d]))
+          labels:
+            slo: redirect-availability
+        - record: slo:error_budget_remaining:ratio
+          expr: 1 - slo:sli_error:ratio_rate30d{slo="redirect-availability"} / 0.001
+          labels:
+            slo: redirect-availability
+        - alert: RedirectAvailabilityBudgetBurn
+          expr: |-
+            (slo:sli_error:ratio_rate1h{slo="redirect-availability"} > 0.0144 and slo:sli_error:ratio_rate5m{slo="redirect-availability"} > 0.0144 and slo:sli_error:ratio_rate1h{slo="redirect-availability"} * slo:sli_events:increase1h{slo="redirect-availability"} >= 5)
+            or (slo:sli_error:ratio_rate6h{slo="redirect-availability"} > 0.006 and slo:sli_error:ratio_rate30m{slo="redirect-availability"} > 0.006 and slo:sli_error:ratio_rate6h{slo="redirect-availability"} * slo:sli_events:increase6h{slo="redirect-availability"} >= 5)
+          for: 2m
+          labels:
+            severity: page
+            slo: redirect-availability
+          annotations:
+            summary: 'redirect-availability: error budget burning fast (14.4x over 1h or 6x over 6h)'
+            description: 'GET /{code} answers without a server error: objective 0.999 over 30 days. At this pace the whole budget lasts only 2 to 5 days.'
+            runbook_url: https://github.com/statsguy/shortly/blob/main/docs/RUNBOOK.md#slo-burn-rate-alerts
+        - alert: RedirectAvailabilityBudgetBurn
+          expr: |-
+            (slo:sli_error:ratio_rate1d{slo="redirect-availability"} > 0.003 and slo:sli_error:ratio_rate2h{slo="redirect-availability"} > 0.003 and slo:sli_error:ratio_rate1d{slo="redirect-availability"} * slo:sli_events:increase1d{slo="redirect-availability"} >= 5)
+            or (slo:sli_error:ratio_rate3d{slo="redirect-availability"} > 0.001 and slo:sli_error:ratio_rate6h{slo="redirect-availability"} > 0.001 and slo:sli_error:ratio_rate3d{slo="redirect-availability"} * slo:sli_events:increase3d{slo="redirect-availability"} >= 5)
+          for: 15m
+          labels:
+            severity: ticket
+            slo: redirect-availability
+          annotations:
+            summary: 'redirect-availability: error budget burning steadily (3x over 1d or 1x over 3d)'
+            description: 'GET /{code} answers without a server error: objective 0.999 over 30 days. At this pace the whole budget lasts only 10 to 30 days.'
+            runbook_url: https://github.com/statsguy/shortly/blob/main/docs/RUNBOOK.md#slo-burn-rate-alerts
+      - name: slo-redirect-latency
+        rules:
+        - record: slo:objective:ratio
+          expr: '0.99'
+          labels:
+            slo: redirect-latency
+        - record: slo:sli_error:ratio_rate5m
+          expr: 1 - (sum by (namespace) (rate(http_request_duration_seconds_bucket{method="GET", route="/{code}", le="0.05"}[5m])) / sum by (namespace) (rate(http_request_duration_seconds_count{method="GET",
+            route="/{code}"}[5m])))
+          labels:
+            slo: redirect-latency
+        - record: slo:sli_error:ratio_rate30m
+          expr: 1 - (sum by (namespace) (rate(http_request_duration_seconds_bucket{method="GET", route="/{code}", le="0.05"}[30m])) / sum by (namespace) (rate(http_request_duration_seconds_count{method="GET",
+            route="/{code}"}[30m])))
+          labels:
+            slo: redirect-latency
+        - record: slo:sli_error:ratio_rate1h
+          expr: 1 - (sum by (namespace) (rate(http_request_duration_seconds_bucket{method="GET", route="/{code}", le="0.05"}[1h])) / sum by (namespace) (rate(http_request_duration_seconds_count{method="GET",
+            route="/{code}"}[1h])))
+          labels:
+            slo: redirect-latency
+        - record: slo:sli_error:ratio_rate2h
+          expr: 1 - (sum by (namespace) (rate(http_request_duration_seconds_bucket{method="GET", route="/{code}", le="0.05"}[2h])) / sum by (namespace) (rate(http_request_duration_seconds_count{method="GET",
+            route="/{code}"}[2h])))
+          labels:
+            slo: redirect-latency
+        - record: slo:sli_error:ratio_rate6h
+          expr: 1 - (sum by (namespace) (rate(http_request_duration_seconds_bucket{method="GET", route="/{code}", le="0.05"}[6h])) / sum by (namespace) (rate(http_request_duration_seconds_count{method="GET",
+            route="/{code}"}[6h])))
+          labels:
+            slo: redirect-latency
+        - record: slo:sli_error:ratio_rate1d
+          expr: 1 - (sum by (namespace) (rate(http_request_duration_seconds_bucket{method="GET", route="/{code}", le="0.05"}[1d])) / sum by (namespace) (rate(http_request_duration_seconds_count{method="GET",
+            route="/{code}"}[1d])))
+          labels:
+            slo: redirect-latency
+        - record: slo:sli_error:ratio_rate3d
+          expr: 1 - (sum by (namespace) (rate(http_request_duration_seconds_bucket{method="GET", route="/{code}", le="0.05"}[3d])) / sum by (namespace) (rate(http_request_duration_seconds_count{method="GET",
+            route="/{code}"}[3d])))
+          labels:
+            slo: redirect-latency
+        - record: slo:sli_error:ratio_rate30d
+          expr: 1 - (sum by (namespace) (rate(http_request_duration_seconds_bucket{method="GET", route="/{code}", le="0.05"}[30d])) / sum by (namespace) (rate(http_request_duration_seconds_count{method="GET",
+            route="/{code}"}[30d])))
+          labels:
+            slo: redirect-latency
+        - record: slo:sli_events:increase1h
+          expr: sum by (namespace) (increase(http_request_duration_seconds_count{method="GET", route="/{code}"}[1h]))
+          labels:
+            slo: redirect-latency
+        - record: slo:sli_events:increase6h
+          expr: sum by (namespace) (increase(http_request_duration_seconds_count{method="GET", route="/{code}"}[6h]))
+          labels:
+            slo: redirect-latency
+        - record: slo:sli_events:increase1d
+          expr: sum by (namespace) (increase(http_request_duration_seconds_count{method="GET", route="/{code}"}[1d]))
+          labels:
+            slo: redirect-latency
+        - record: slo:sli_events:increase3d
+          expr: sum by (namespace) (increase(http_request_duration_seconds_count{method="GET", route="/{code}"}[3d]))
+          labels:
+            slo: redirect-latency
+        - record: slo:error_budget_remaining:ratio
+          expr: 1 - slo:sli_error:ratio_rate30d{slo="redirect-latency"} / 0.01
+          labels:
+            slo: redirect-latency
+        - alert: RedirectLatencyBudgetBurn
+          expr: |-
+            (slo:sli_error:ratio_rate1h{slo="redirect-latency"} > 0.144 and slo:sli_error:ratio_rate5m{slo="redirect-latency"} > 0.144 and slo:sli_error:ratio_rate1h{slo="redirect-latency"} * slo:sli_events:increase1h{slo="redirect-latency"} >= 5)
+            or (slo:sli_error:ratio_rate6h{slo="redirect-latency"} > 0.06 and slo:sli_error:ratio_rate30m{slo="redirect-latency"} > 0.06 and slo:sli_error:ratio_rate6h{slo="redirect-latency"} * slo:sli_events:increase6h{slo="redirect-latency"} >= 5)
+          for: 2m
+          labels:
+            severity: page
+            slo: redirect-latency
+          annotations:
+            summary: 'redirect-latency: error budget burning fast (14.4x over 1h or 6x over 6h)'
+            description: 'GET /{code} answers in under 50 ms: objective 0.99 over 30 days. At this pace the whole budget lasts only 2 to 5 days.'
+            runbook_url: https://github.com/statsguy/shortly/blob/main/docs/RUNBOOK.md#slo-burn-rate-alerts
+        - alert: RedirectLatencyBudgetBurn
+          expr: |-
+            (slo:sli_error:ratio_rate1d{slo="redirect-latency"} > 0.03 and slo:sli_error:ratio_rate2h{slo="redirect-latency"} > 0.03 and slo:sli_error:ratio_rate1d{slo="redirect-latency"} * slo:sli_events:increase1d{slo="redirect-latency"} >= 5)
+            or (slo:sli_error:ratio_rate3d{slo="redirect-latency"} > 0.01 and slo:sli_error:ratio_rate6h{slo="redirect-latency"} > 0.01 and slo:sli_error:ratio_rate3d{slo="redirect-latency"} * slo:sli_events:increase3d{slo="redirect-latency"} >= 5)
+          for: 15m
+          labels:
+            severity: ticket
+            slo: redirect-latency
+          annotations:
+            summary: 'redirect-latency: error budget burning steadily (3x over 1d or 1x over 3d)'
+            description: 'GET /{code} answers in under 50 ms: objective 0.99 over 30 days. At this pace the whole budget lasts only 10 to 30 days.'
+            runbook_url: https://github.com/statsguy/shortly/blob/main/docs/RUNBOOK.md#slo-burn-rate-alerts
+      - name: slo-create-availability
+        rules:
+        - record: slo:objective:ratio
+          expr: '0.995'
+          labels:
+            slo: create-availability
+        - record: slo:sli_error:ratio_rate5m
+          expr: (sum by (namespace) (rate(http_requests_total{method="POST", route="/links", status=~"5.."}[5m])) or 0 * sum by (namespace) (rate(http_requests_total{method="POST", route="/links"}[5m]))) / sum
+            by (namespace) (rate(http_requests_total{method="POST", route="/links"}[5m]))
+          labels:
+            slo: create-availability
+        - record: slo:sli_error:ratio_rate30m
+          expr: (sum by (namespace) (rate(http_requests_total{method="POST", route="/links", status=~"5.."}[30m])) or 0 * sum by (namespace) (rate(http_requests_total{method="POST", route="/links"}[30m]))) /
+            sum by (namespace) (rate(http_requests_total{method="POST", route="/links"}[30m]))
+          labels:
+            slo: create-availability
+        - record: slo:sli_error:ratio_rate1h
+          expr: (sum by (namespace) (rate(http_requests_total{method="POST", route="/links", status=~"5.."}[1h])) or 0 * sum by (namespace) (rate(http_requests_total{method="POST", route="/links"}[1h]))) / sum
+            by (namespace) (rate(http_requests_total{method="POST", route="/links"}[1h]))
+          labels:
+            slo: create-availability
+        - record: slo:sli_error:ratio_rate2h
+          expr: (sum by (namespace) (rate(http_requests_total{method="POST", route="/links", status=~"5.."}[2h])) or 0 * sum by (namespace) (rate(http_requests_total{method="POST", route="/links"}[2h]))) / sum
+            by (namespace) (rate(http_requests_total{method="POST", route="/links"}[2h]))
+          labels:
+            slo: create-availability
+        - record: slo:sli_error:ratio_rate6h
+          expr: (sum by (namespace) (rate(http_requests_total{method="POST", route="/links", status=~"5.."}[6h])) or 0 * sum by (namespace) (rate(http_requests_total{method="POST", route="/links"}[6h]))) / sum
+            by (namespace) (rate(http_requests_total{method="POST", route="/links"}[6h]))
+          labels:
+            slo: create-availability
+        - record: slo:sli_error:ratio_rate1d
+          expr: (sum by (namespace) (rate(http_requests_total{method="POST", route="/links", status=~"5.."}[1d])) or 0 * sum by (namespace) (rate(http_requests_total{method="POST", route="/links"}[1d]))) / sum
+            by (namespace) (rate(http_requests_total{method="POST", route="/links"}[1d]))
+          labels:
+            slo: create-availability
+        - record: slo:sli_error:ratio_rate3d
+          expr: (sum by (namespace) (rate(http_requests_total{method="POST", route="/links", status=~"5.."}[3d])) or 0 * sum by (namespace) (rate(http_requests_total{method="POST", route="/links"}[3d]))) / sum
+            by (namespace) (rate(http_requests_total{method="POST", route="/links"}[3d]))
+          labels:
+            slo: create-availability
+        - record: slo:sli_error:ratio_rate30d
+          expr: (sum by (namespace) (rate(http_requests_total{method="POST", route="/links", status=~"5.."}[30d])) or 0 * sum by (namespace) (rate(http_requests_total{method="POST", route="/links"}[30d]))) /
+            sum by (namespace) (rate(http_requests_total{method="POST", route="/links"}[30d]))
+          labels:
+            slo: create-availability
+        - record: slo:sli_events:increase1h
+          expr: sum by (namespace) (increase(http_requests_total{method="POST", route="/links"}[1h]))
+          labels:
+            slo: create-availability
+        - record: slo:sli_events:increase6h
+          expr: sum by (namespace) (increase(http_requests_total{method="POST", route="/links"}[6h]))
+          labels:
+            slo: create-availability
+        - record: slo:sli_events:increase1d
+          expr: sum by (namespace) (increase(http_requests_total{method="POST", route="/links"}[1d]))
+          labels:
+            slo: create-availability
+        - record: slo:sli_events:increase3d
+          expr: sum by (namespace) (increase(http_requests_total{method="POST", route="/links"}[3d]))
+          labels:
+            slo: create-availability
+        - record: slo:error_budget_remaining:ratio
+          expr: 1 - slo:sli_error:ratio_rate30d{slo="create-availability"} / 0.005
+          labels:
+            slo: create-availability
+        - alert: CreateAvailabilityBudgetBurn
+          expr: |-
+            (slo:sli_error:ratio_rate1h{slo="create-availability"} > 0.072 and slo:sli_error:ratio_rate5m{slo="create-availability"} > 0.072 and slo:sli_error:ratio_rate1h{slo="create-availability"} * slo:sli_events:increase1h{slo="create-availability"} >= 5)
+            or (slo:sli_error:ratio_rate6h{slo="create-availability"} > 0.03 and slo:sli_error:ratio_rate30m{slo="create-availability"} > 0.03 and slo:sli_error:ratio_rate6h{slo="create-availability"} * slo:sli_events:increase6h{slo="create-availability"} >= 5)
+          for: 2m
+          labels:
+            severity: page
+            slo: create-availability
+          annotations:
+            summary: 'create-availability: error budget burning fast (14.4x over 1h or 6x over 6h)'
+            description: 'POST /links answers without a server error: objective 0.995 over 30 days. At this pace the whole budget lasts only 2 to 5 days.'
+            runbook_url: https://github.com/statsguy/shortly/blob/main/docs/RUNBOOK.md#slo-burn-rate-alerts
+        - alert: CreateAvailabilityBudgetBurn
+          expr: |-
+            (slo:sli_error:ratio_rate1d{slo="create-availability"} > 0.015 and slo:sli_error:ratio_rate2h{slo="create-availability"} > 0.015 and slo:sli_error:ratio_rate1d{slo="create-availability"} * slo:sli_events:increase1d{slo="create-availability"} >= 5)
+            or (slo:sli_error:ratio_rate3d{slo="create-availability"} > 0.005 and slo:sli_error:ratio_rate6h{slo="create-availability"} > 0.005 and slo:sli_error:ratio_rate3d{slo="create-availability"} * slo:sli_events:increase3d{slo="create-availability"} >= 5)
+          for: 15m
+          labels:
+            severity: ticket
+            slo: create-availability
+          annotations:
+            summary: 'create-availability: error budget burning steadily (3x over 1d or 1x over 3d)'
+            description: 'POST /links answers without a server error: objective 0.995 over 30 days. At this pace the whole budget lasts only 10 to 30 days.'
+            runbook_url: https://github.com/statsguy/shortly/blob/main/docs/RUNBOOK.md#slo-burn-rate-alerts
+      - name: slo-create-latency
+        rules:
+        - record: slo:objective:ratio
+          expr: '0.99'
+          labels:
+            slo: create-latency
+        - record: slo:sli_error:ratio_rate5m
+          expr: 1 - (sum by (namespace) (rate(http_request_duration_seconds_bucket{method="POST", route="/links", le="0.1"}[5m])) / sum by (namespace) (rate(http_request_duration_seconds_count{method="POST",
+            route="/links"}[5m])))
+          labels:
+            slo: create-latency
+        - record: slo:sli_error:ratio_rate30m
+          expr: 1 - (sum by (namespace) (rate(http_request_duration_seconds_bucket{method="POST", route="/links", le="0.1"}[30m])) / sum by (namespace) (rate(http_request_duration_seconds_count{method="POST",
+            route="/links"}[30m])))
+          labels:
+            slo: create-latency
+        - record: slo:sli_error:ratio_rate1h
+          expr: 1 - (sum by (namespace) (rate(http_request_duration_seconds_bucket{method="POST", route="/links", le="0.1"}[1h])) / sum by (namespace) (rate(http_request_duration_seconds_count{method="POST",
+            route="/links"}[1h])))
+          labels:
+            slo: create-latency
+        - record: slo:sli_error:ratio_rate2h
+          expr: 1 - (sum by (namespace) (rate(http_request_duration_seconds_bucket{method="POST", route="/links", le="0.1"}[2h])) / sum by (namespace) (rate(http_request_duration_seconds_count{method="POST",
+            route="/links"}[2h])))
+          labels:
+            slo: create-latency
+        - record: slo:sli_error:ratio_rate6h
+          expr: 1 - (sum by (namespace) (rate(http_request_duration_seconds_bucket{method="POST", route="/links", le="0.1"}[6h])) / sum by (namespace) (rate(http_request_duration_seconds_count{method="POST",
+            route="/links"}[6h])))
+          labels:
+            slo: create-latency
+        - record: slo:sli_error:ratio_rate1d
+          expr: 1 - (sum by (namespace) (rate(http_request_duration_seconds_bucket{method="POST", route="/links", le="0.1"}[1d])) / sum by (namespace) (rate(http_request_duration_seconds_count{method="POST",
+            route="/links"}[1d])))
+          labels:
+            slo: create-latency
+        - record: slo:sli_error:ratio_rate3d
+          expr: 1 - (sum by (namespace) (rate(http_request_duration_seconds_bucket{method="POST", route="/links", le="0.1"}[3d])) / sum by (namespace) (rate(http_request_duration_seconds_count{method="POST",
+            route="/links"}[3d])))
+          labels:
+            slo: create-latency
+        - record: slo:sli_error:ratio_rate30d
+          expr: 1 - (sum by (namespace) (rate(http_request_duration_seconds_bucket{method="POST", route="/links", le="0.1"}[30d])) / sum by (namespace) (rate(http_request_duration_seconds_count{method="POST",
+            route="/links"}[30d])))
+          labels:
+            slo: create-latency
+        - record: slo:sli_events:increase1h
+          expr: sum by (namespace) (increase(http_request_duration_seconds_count{method="POST", route="/links"}[1h]))
+          labels:
+            slo: create-latency
+        - record: slo:sli_events:increase6h
+          expr: sum by (namespace) (increase(http_request_duration_seconds_count{method="POST", route="/links"}[6h]))
+          labels:
+            slo: create-latency
+        - record: slo:sli_events:increase1d
+          expr: sum by (namespace) (increase(http_request_duration_seconds_count{method="POST", route="/links"}[1d]))
+          labels:
+            slo: create-latency
+        - record: slo:sli_events:increase3d
+          expr: sum by (namespace) (increase(http_request_duration_seconds_count{method="POST", route="/links"}[3d]))
+          labels:
+            slo: create-latency
+        - record: slo:error_budget_remaining:ratio
+          expr: 1 - slo:sli_error:ratio_rate30d{slo="create-latency"} / 0.01
+          labels:
+            slo: create-latency
+        - alert: CreateLatencyBudgetBurn
+          expr: |-
+            (slo:sli_error:ratio_rate1h{slo="create-latency"} > 0.144 and slo:sli_error:ratio_rate5m{slo="create-latency"} > 0.144 and slo:sli_error:ratio_rate1h{slo="create-latency"} * slo:sli_events:increase1h{slo="create-latency"} >= 5)
+            or (slo:sli_error:ratio_rate6h{slo="create-latency"} > 0.06 and slo:sli_error:ratio_rate30m{slo="create-latency"} > 0.06 and slo:sli_error:ratio_rate6h{slo="create-latency"} * slo:sli_events:increase6h{slo="create-latency"} >= 5)
+          for: 2m
+          labels:
+            severity: page
+            slo: create-latency
+          annotations:
+            summary: 'create-latency: error budget burning fast (14.4x over 1h or 6x over 6h)'
+            description: 'POST /links answers in under 100 ms: objective 0.99 over 30 days. At this pace the whole budget lasts only 2 to 5 days.'
+            runbook_url: https://github.com/statsguy/shortly/blob/main/docs/RUNBOOK.md#slo-burn-rate-alerts
+        - alert: CreateLatencyBudgetBurn
+          expr: |-
+            (slo:sli_error:ratio_rate1d{slo="create-latency"} > 0.03 and slo:sli_error:ratio_rate2h{slo="create-latency"} > 0.03 and slo:sli_error:ratio_rate1d{slo="create-latency"} * slo:sli_events:increase1d{slo="create-latency"} >= 5)
+            or (slo:sli_error:ratio_rate3d{slo="create-latency"} > 0.01 and slo:sli_error:ratio_rate6h{slo="create-latency"} > 0.01 and slo:sli_error:ratio_rate3d{slo="create-latency"} * slo:sli_events:increase3d{slo="create-latency"} >= 5)
+          for: 15m
+          labels:
+            severity: ticket
+            slo: create-latency
+          annotations:
+            summary: 'create-latency: error budget burning steadily (3x over 1d or 1x over 3d)'
+            description: 'POST /links answers in under 100 ms: objective 0.99 over 30 days. At this pace the whole budget lasts only 10 to 30 days.'
+            runbook_url: https://github.com/statsguy/shortly/blob/main/docs/RUNBOOK.md#slo-burn-rate-alerts
+  dashboards:
+    slo.json: |
+      {
+        "uid": "shortly-slo",
+        "title": "shortly / SLOs",
+        "tags": [
+          "shortly",
+          "slo"
+        ],
+        "timezone": "browser",
+        "description": "Error budgets, burn rates and their likely causes. Generated rules: deploy/helm/shortly/rules/slo.yaml.",
+        "schemaVersion": 39,
+        "version": 1,
+        "editable": true,
+        "refresh": "30s",
+        "time": {
+          "from": "now-6h",
+          "to": "now"
+        },
+        "templating": {
+          "list": [
+            {
+              "name": "datasource",
+              "type": "datasource",
+              "query": "prometheus",
+              "label": "Data source",
+              "current": {}
+            },
+            {
+              "name": "namespace",
+              "type": "query",
+              "label": "Environment",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "query": {
+                "query": "label_values(slo:sli_error:ratio_rate5m, namespace)",
+                "refId": "ns"
+              },
+              "definition": "label_values(slo:sli_error:ratio_rate5m, namespace)",
+              "refresh": 2,
+              "current": {
+                "text": "shortly-prod",
+                "value": "shortly-prod"
+              }
+            }
+          ]
+        },
+        "links": [
+          {
+            "title": "Runbook",
+            "type": "link",
+            "url": "https://github.com/statsguy/shortly/blob/main/docs/RUNBOOK.md#slo-burn-rate-alerts",
+            "targetBlank": true
+          }
+        ],
+        "panels": [
+          {
+            "id": 100,
+            "type": "row",
+            "title": "Error budgets (30 days)",
+            "gridPos": {
+              "x": 0,
+              "y": 0,
+              "w": 24,
+              "h": 1
+            },
+            "collapsed": false,
+            "panels": []
+          },
+          {
+            "id": 1,
+            "type": "stat",
+            "title": "Error budget remaining",
+            "description": "Share of each SLO's 30-day error budget still unspent. 100% = untouched; below 0 = overspent (freeze features, fix reliability).",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "gridPos": {
+              "x": 0,
+              "y": 1,
+              "w": 24,
+              "h": 5
+            },
+            "targets": [
+              {
+                "refId": "A",
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "${datasource}"
+                },
+                "expr": "slo:error_budget_remaining:ratio{namespace=\"$namespace\"}",
+                "legendFormat": "{{slo}}"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 0
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 0.25
+                    },
+                    {
+                      "color": "green",
+                      "value": 0.5
+                    }
+                  ]
+                },
+                "min": -1,
+                "max": 1,
+                "unit": "percentunit"
+              },
+              "overrides": []
+            },
+            "options": {
+              "reduceOptions": {
+                "calcs": [
+                  "lastNotNull"
+                ],
+                "fields": "",
+                "values": false
+              },
+              "colorMode": "background",
+              "graphMode": "none",
+              "textMode": "value_and_name",
+              "orientation": "horizontal"
+            }
+          },
+          {
+            "id": 2,
+            "type": "timeseries",
+            "title": "Burn rate (1h)",
+            "description": "How fast each budget is being spent. 1 = on pace to use exactly the 30-day budget. Pages need 14.4 (over 1h and 5m) or 6 (over 6h and 30m).",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "gridPos": {
+              "x": 0,
+              "y": 6,
+              "w": 12,
+              "h": 8
+            },
+            "targets": [
+              {
+                "refId": "A",
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "${datasource}"
+                },
+                "expr": "slo:sli_error:ratio_rate1h{namespace=\"$namespace\"} / on(slo) group_left () (1 - slo:objective:ratio)",
+                "legendFormat": "{{slo}}"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "custom": {
+                  "thresholdsStyle": {
+                    "mode": "line+area"
+                  }
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 6
+                    },
+                    {
+                      "color": "red",
+                      "value": 14.4
+                    }
+                  ]
+                },
+                "min": 0
+              },
+              "overrides": []
+            },
+            "options": {}
+          },
+          {
+            "id": 3,
+            "type": "timeseries",
+            "title": "Error ratio (5m) vs budget",
+            "description": "Share of bad events right now, next to the share each SLO allows (dashed). Above its budget line, that SLO is burning.",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "gridPos": {
+              "x": 12,
+              "y": 6,
+              "w": 12,
+              "h": 8
+            },
+            "targets": [
+              {
+                "refId": "A",
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "${datasource}"
+                },
+                "expr": "slo:sli_error:ratio_rate5m{namespace=\"$namespace\"}",
+                "legendFormat": "{{slo}} errors"
+              },
+              {
+                "refId": "B",
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "${datasource}"
+                },
+                "expr": "1 - slo:objective:ratio",
+                "legendFormat": "{{slo}} budget"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "percentunit",
+                "min": 0
+              },
+              "overrides": [
+                {
+                  "matcher": {
+                    "id": "byRegexp",
+                    "options": ".* budget"
+                  },
+                  "properties": [
+                    {
+                      "id": "custom.lineStyle",
+                      "value": {
+                        "fill": "dash",
+                        "dash": [
+                          10,
+                          10
+                        ]
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "options": {}
+          },
+          {
+            "id": 101,
+            "type": "row",
+            "title": "Traffic and causes",
+            "gridPos": {
+              "x": 0,
+              "y": 14,
+              "w": 24,
+              "h": 1
+            },
+            "collapsed": false,
+            "panels": []
+          },
+          {
+            "id": 4,
+            "type": "timeseries",
+            "title": "Requests by status",
+            "description": "User-facing requests per second (probes and scrapes excluded). 404 and 410 are good answers; 5xx burn the availability SLOs.",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "gridPos": {
+              "x": 0,
+              "y": 15,
+              "w": 12,
+              "h": 8
+            },
+            "targets": [
+              {
+                "refId": "A",
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "${datasource}"
+                },
+                "expr": "sum by (status) (rate(http_requests_total{namespace=\"$namespace\", route!~\"/healthz|/readyz|/metrics\"}[$__rate_interval]))",
+                "legendFormat": "{{status}}"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "reqps"
+              },
+              "overrides": []
+            },
+            "options": {}
+          },
+          {
+            "id": 5,
+            "type": "timeseries",
+            "title": "p99 latency by route",
+            "description": "The latency SLOs: redirects under 50 ms, creates under 100 ms, for 99% of requests.",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "gridPos": {
+              "x": 12,
+              "y": 15,
+              "w": 12,
+              "h": 8
+            },
+            "targets": [
+              {
+                "refId": "A",
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "${datasource}"
+                },
+                "expr": "histogram_quantile(0.99, sum by (le, route) (rate(http_request_duration_seconds_bucket{namespace=\"$namespace\", route!~\"/healthz|/readyz|/metrics\"}[$__rate_interval])))",
+                "legendFormat": "{{route}}"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "custom": {
+                  "thresholdsStyle": {
+                    "mode": "line"
+                  }
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.05
+                    }
+                  ]
+                },
+                "unit": "s"
+              },
+              "overrides": []
+            },
+            "options": {}
+          },
+          {
+            "id": 6,
+            "type": "timeseries",
+            "title": "Pods",
+            "description": "Available pods against the autoscaler's ceiling. Pinned at max with burn rising: raise maxReplicas (Capacity in the design doc).",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "gridPos": {
+              "x": 0,
+              "y": 23,
+              "w": 8,
+              "h": 7
+            },
+            "targets": [
+              {
+                "refId": "A",
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "${datasource}"
+                },
+                "expr": "sum(kube_replicaset_status_ready_replicas{namespace=\"$namespace\", replicaset=~\"shortly-[a-z0-9]+\"})",
+                "legendFormat": "available"
+              },
+              {
+                "refId": "B",
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "${datasource}"
+                },
+                "expr": "kube_horizontalpodautoscaler_spec_max_replicas{namespace=\"$namespace\", horizontalpodautoscaler=\"shortly\"}",
+                "legendFormat": "HPA max"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "min": 0,
+                "decimals": 0
+              },
+              "overrides": []
+            },
+            "options": {}
+          },
+          {
+            "id": 7,
+            "type": "timeseries",
+            "title": "DB pool in use",
+            "description": "Connections checked out across all pods. In use near size with load shed rising: the database is slow, not the app.",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "gridPos": {
+              "x": 8,
+              "y": 23,
+              "w": 8,
+              "h": 7
+            },
+            "targets": [
+              {
+                "refId": "A",
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "${datasource}"
+                },
+                "expr": "sum(db_pool_in_use{namespace=\"$namespace\"})",
+                "legendFormat": "in use"
+              },
+              {
+                "refId": "B",
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "${datasource}"
+                },
+                "expr": "sum(db_pool_size{namespace=\"$namespace\"})",
+                "legendFormat": "size"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "min": 0
+              },
+              "overrides": []
+            },
+            "options": {}
+          },
+          {
+            "id": 8,
+            "type": "timeseries",
+            "title": "Load shed",
+            "description": "Requests rejected with 503 + Retry-After because no DB connection freed up within the pool timeout.",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "gridPos": {
+              "x": 16,
+              "y": 23,
+              "w": 8,
+              "h": 7
+            },
+            "targets": [
+              {
+                "refId": "A",
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "${datasource}"
+                },
+                "expr": "sum by (reason) (rate(load_shed_total{namespace=\"$namespace\"}[$__rate_interval]))",
+                "legendFormat": "503 shed: {{reason}}"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "min": 0,
+                "unit": "reqps"
+              },
+              "overrides": []
+            },
+            "options": {}
+          },
+          {
+            "id": 9,
+            "type": "table",
+            "title": "Firing alerts",
+            "description": "Alerts Prometheus is firing for this namespace. Routing, grouping and silences live in Alertmanager.",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "gridPos": {
+              "x": 0,
+              "y": 30,
+              "w": 24,
+              "h": 6
+            },
+            "targets": [
+              {
+                "refId": "A",
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "${datasource}"
+                },
+                "expr": "ALERTS{alertstate=\"firing\", namespace=\"$namespace\"}",
+                "format": "table",
+                "instant": true
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {},
+              "overrides": []
+            },
+            "options": {},
+            "transformations": [
+              {
+                "id": "organize",
+                "options": {
+                  "excludeByName": {
+                    "Time": true,
+                    "Value": true,
+                    "__name__": true,
+                    "alertstate": true,
+                    "job": true,
+                    "instance": true,
+                    "endpoint": true,
+                    "service": true,
+                    "pod": true,
+                    "container": true,
+                    "prometheus": true
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
