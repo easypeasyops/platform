@@ -175,6 +175,12 @@ monitoring:
   # Grafana dashboards, rendered where clusterWide is: <file name>: <dashboard JSON>, in one
   # ConfigMap that Grafana's sidecar loads.
   dashboards: {}
+  # The platform's SLO dashboard (files/slo-dashboard.json): error budgets, burn rates,
+  # traffic, latency, pods and firing alerts, for an app with SLO rules (rules.slo). Rendered
+  # into the same ConfigMap as slo.json; an app dashboard of that name replaces it.
+  sloDashboard:
+    enabled: true
+    runbookUrl: "" # required: where its Runbook link points (the SLO spec's runbook_url)
 
 nodeSelector: {}
 tolerations: []

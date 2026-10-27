@@ -4,7 +4,7 @@
 #      fixture's slos.yaml, run from the fixture's directory as an app runs it from its root.
 #   2. Any app: a made-up spec gives a rule file and a values file holding the same rules,
 #      with the app's runbook link, and the service chart renders the values file as the
-#      app's <release>-slo PrometheusRule.
+#      app's <release>-slo PrometheusRule and its SLO dashboard.
 #
 #   scripts/test-slo-generator.sh    # needs uv and helm
 set -euo pipefail
@@ -58,6 +58,7 @@ EOF
 helm template pager "$ROOT/charts/service" --set app.name=pager \
   --set image.repository=ghcr.io/easypeasyops/oncall/pager --set image.tag=t \
   --set monitoring.enabled=true --set monitoring.clusterWide=true \
+  --set monitoring.sloDashboard.runbookUrl=https://example.test/pager/RUNBOOK.md#slo \
   --api-versions monitoring.coreos.com/v1/PrometheusRule \
   --values "$tmp/app/deploy/slo-rules.values.yaml" >"$tmp/render.yaml"
 uv run --quiet --no-project --with pyyaml==6.0.3 python - "$tmp/render.yaml" <<'EOF'
@@ -66,5 +67,7 @@ docs = [d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
 rules = [d for d in docs if d["kind"] == "PrometheusRule"]
 assert [r["metadata"]["name"] for r in rules] == ["pager-slo"], rules
 assert rules[0]["spec"]["groups"][0]["name"] == "slo-ack-availability"
+dashboards = [d for d in docs if d["kind"] == "ConfigMap" and d["metadata"]["name"] == "pager-dashboards"]
+assert dashboards and "pager-slo" in dashboards[0]["data"]["slo.json"], "no SLO dashboard"
 EOF
-echo "ok: rule file, values file and the chart's PrometheusRule agree"
+echo "ok: rule file, values file, the chart's PrometheusRule and SLO dashboard agree"
