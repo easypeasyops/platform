@@ -1,0 +1,20 @@
+# The apps root: applies apps/applicationset.yaml and every apps/<app>/project.yaml, and
+# nothing else from apps/ (the env files there are the ApplicationSet's input, not
+# Kubernetes objects). scripts/cluster.sh applies this file, after apps-project.yaml.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: apps
+  namespace: argocd
+spec:
+  project: apps
+  source:
+    repoURL: https://github.com/easypeasyops/platform.git
+    targetRevision: main
+    path: apps
+    directory:
+      recurse: true
+      include: "{applicationset.yaml,*/project.yaml}"
+  destination: { server: https://kubernetes.default.svc, namespace: argocd }
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }

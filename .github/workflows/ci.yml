@@ -107,6 +107,38 @@ jobs:
             -schema-location "$CRDS/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" \
             charts/service/tests/*/*.golden.yaml
 
+  # apps/: what Argo CD will do with every env file (scripts/check-apps.py): its project
+  # allows it, its chart digest is a released, verified service chart of the version it
+  # names, and the chart renders with the app's values from the app's repo. Then the
+  # renders, the ApplicationSet and the AppProjects are schema-validated.
+  apps:
+    name: apps
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v4.3.1
+
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+
+      - name: Every env file deploys what it says
+        env:
+          GH_TOKEN: ${{ github.token }} # gh attestation verify
+          VERIFY: "1"
+        run: uv run --quiet --script scripts/check-apps.py --out "$RUNNER_TEMP/renders"
+
+      - name: Schema-validate the renders and the apps objects
+        run: |
+          docker run --rm -v "$PWD:/repo:ro" -v "$RUNNER_TEMP/renders:/renders:ro" -w /repo \
+            "$KUBECONFORM" -strict -summary -kubernetes-version 1.37.0 -schema-location default \
+            -schema-location "$CRDS/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" \
+            /renders apps/applicationset.yaml apps/*/project.yaml
+
   # The chart release (release-chart.yml runs scripts/release-chart.sh on a service/v* tag),
   # rehearsed against a throwaway registry on every PR, so a broken release path shows up
   # here and not at release time: publish (push, digest, pull back by digest), then a second
@@ -172,7 +204,7 @@ jobs:
   gate:
     name: ci
     if: always()
-    needs: [manifests, chart, chart-release, scripts]
+    needs: [manifests, chart, chart-release, apps, scripts]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:

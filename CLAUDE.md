@@ -41,6 +41,15 @@ same PR (`scripts/test-slo-generator.sh` fails on a stale one).
 `deploy/platform/metrics-server/components.yaml` is vendored byte for byte; never edit it.
 To bump it, replace it with the upstream release and update `SHA256SUMS` in the same PR.
 
+## apps/
+
+`apps/<app>/envs/<env>.yaml` is a deploy of the platform's side of an app: a changed chart
+digest re-renders that environment on merge. Move a pin only to a released digest (the
+release notes have it), staging before prod, one PR per environment. Never edit an app's
+values from here: they live in the app's repo. `scripts/check-apps.py` runs in CI; run it
+locally (`uv run --script scripts/check-apps.py --out <dir>`) before pushing a change to
+`apps/`.
+
 ## Releasing the chart
 
 A release is a PR that bumps `charts/service/Chart.yaml`'s `version`, then a

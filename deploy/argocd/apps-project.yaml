@@ -1,0 +1,22 @@
+# The Argo CD project for the apps root (apps-root.yaml): the ApplicationSet that generates
+# every app's Applications, and each app's AppProject. Only this repository, only the
+# argocd namespace, and only those two kinds.
+#
+# Being able to write AppProjects is close to Argo CD admin: a project decides what its
+# Applications may do. That is why apps/ lives in the platform repo, reviewed like the
+# rest of the platform, and app repos only hold values.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: apps
+  namespace: argocd
+spec:
+  description: The apps root (apps/), deployed from git
+  sourceRepos:
+    - https://github.com/easypeasyops/platform.git
+  destinations:
+    - { server: https://kubernetes.default.svc, namespace: argocd }
+  clusterResourceWhitelist: [] # nothing cluster-scoped
+  namespaceResourceWhitelist:
+    - { group: argoproj.io, kind: ApplicationSet }
+    - { group: argoproj.io, kind: AppProject }
