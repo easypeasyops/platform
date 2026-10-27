@@ -1,0 +1,104 @@
+name: Release service chart
+
+# Cut a chart release: bump `version` in charts/service/Chart.yaml (via PR), merge, then
+#   git tag service/v0.2.0 <merge commit> && git push origin service/v0.2.0
+# Apps pin the chart by the digest this prints (Release notes), never by the version alone.
+on:
+  push:
+    tags: ["service/v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions: {} # nothing by default; the job asks for exactly what it needs
+
+concurrency:
+  group: release-chart-${{ github.ref }}
+  cancel-in-progress: false # never cancel a half-finished release
+
+jobs:
+  release:
+    name: check, publish, attest
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # create the GitHub Release
+      packages: write # push the chart to ghcr.io
+      id-token: write # OIDC identity for keyless Sigstore signing of the attestation
+      attestations: write # store the provenance attestation
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0 # the check proves the tagged commit is on main
+
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v4.3.1
+
+      - name: Log in to GHCR
+        env:
+          TOKEN: ${{ github.token }}
+        run: helm registry login ghcr.io --username "$GITHUB_ACTOR" --password-stdin <<<"$TOKEN"
+
+      # Tag = Chart.yaml version, commit on main, goldens match, and that version is not
+      # already published (OCI tags can be overwritten; a release never is).
+      - name: May this tag be released?
+        run: |
+          git fetch --quiet origin main
+          scripts/release-chart.sh check "$GITHUB_REF_NAME"
+
+      - name: Package, push, and pull back by digest
+        id: chart
+        run: scripts/release-chart.sh publish
+
+      # Signed (Sigstore, keyless via this workflow's OIDC identity) statement of which
+      # repo, commit and workflow produced this exact digest: the same scheme as app images.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.chart.outputs.ref }}
+          subject-digest: ${{ steps.chart.outputs.digest }}
+          push-to-registry: true
+
+      # What an app (or its CI) will run before moving its pin: only this workflow, from
+      # this tag, may have produced the digest.
+      - name: Verify the attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF: ${{ steps.chart.outputs.ref }}
+          DIGEST: ${{ steps.chart.outputs.digest }}
+        run: |
+          gh attestation verify "oci://$REF@$DIGEST" --owner "$GITHUB_REPOSITORY_OWNER" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release-chart.yml" \
+            --source-ref "$GITHUB_REF"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.chart.outputs.version }}
+          REF: ${{ steps.chart.outputs.ref }}
+          DIGEST: ${{ steps.chart.outputs.digest }}
+        run: |
+          {
+            echo "## Chart"
+            echo
+            echo '```'
+            echo "oci://${REF}:${VERSION}"
+            echo "${REF}@${DIGEST}"
+            echo '```'
+            echo
+            echo "Pin it by digest in the app's Argo CD Application (the version alone can be re-pointed):"
+            echo
+            echo '```yaml'
+            echo "repoURL: ${REF%/service}"
+            echo "chart: service"
+            echo "targetRevision: ${DIGEST} # ${VERSION}"
+            echo '```'
+            echo
+            echo "Verify provenance before moving a pin:"
+            echo
+            echo '```bash'
+            echo "gh attestation verify oci://${REF}@${DIGEST} --owner ${GITHUB_REPOSITORY_OWNER} \\"
+            echo "  --signer-workflow ${GITHUB_REPOSITORY}/.github/workflows/release-chart.yml"
+            echo '```'
+          } >notes.md
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "service chart $VERSION" \
+            --notes-file notes.md --latest=false

@@ -41,6 +41,14 @@ same PR (`scripts/test-slo-generator.sh` fails on a stale one).
 `deploy/platform/metrics-server/components.yaml` is vendored byte for byte; never edit it.
 To bump it, replace it with the upstream release and update `SHA256SUMS` in the same PR.
 
+## Releasing the chart
+
+A release is a PR that bumps `charts/service/Chart.yaml`'s `version`, then a
+`service/vX.Y.Z` tag on its merge commit, pushed by Emrah (the session can't push tags).
+`scripts/release-chart.sh` holds the logic `release-chart.yml` runs; change them together.
+A published version is immutable: never re-tag, never delete and re-push; a fix is a new
+version.
+
 ## Pull requests opened by Claude
 
 - **One problem per PR, small enough to review in one sitting**: aim for about 200 changed

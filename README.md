@@ -47,6 +47,20 @@ golden files (`scripts/chart-golden.sh`), tests the SLO generator
 (`scripts/test-slo-generator.sh`), and runs shellcheck and actionlint. `ci` is the
 one required check. The kind end-to-end test of the platform still runs in links.
 
+## Releasing the service chart
+
+1. A PR bumps `version` in `charts/service/Chart.yaml` (semver: a change an app must react
+   to is a major version, from 1.0.0 on).
+2. After it merges, tag the merge commit: `git tag service/vX.Y.Z <sha> && git push origin service/vX.Y.Z`.
+3. `release-chart.yml` checks the tag (it must match `Chart.yaml`, be on `main`, pass the
+   goldens, and be a version not yet published), pushes the chart to
+   `oci://ghcr.io/easypeasyops/charts/service`, pulls it back by digest, attests its
+   provenance (Sigstore, keyless), verifies the attestation and creates a GitHub Release whose
+   notes hold the digest. Apps pin that digest.
+
+A published version is never replaced: a fix is a new version. CI rehearses the release on
+every PR against a throwaway registry (`chart release rehearsal`).
+
 ## Docs
 
 The design and runbook still live in links ([DESIGN](https://github.com/easypeasyops/links/blob/main/docs/DESIGN.md),
