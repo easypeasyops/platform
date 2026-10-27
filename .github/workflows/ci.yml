@@ -93,6 +93,13 @@ jobs:
       - name: Renders match the golden files
         run: scripts/chart-golden.sh
 
+      # The generator apps run for their SLO rules (uv run --script; its dependencies are
+      # pinned in the script).
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+
+      - name: SLO rule generator
+        run: scripts/test-slo-generator.sh
+
       - name: Schema-validate the golden renders
         run: |
           docker run --rm -v "$PWD:/repo:ro" -w /repo "$KUBECONFORM" -strict -summary \

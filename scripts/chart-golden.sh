@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Golden manifests for the service chart: what it renders for each app in
-# charts/service/tests/<app>/, checked in beside the values as <env>.golden.yaml. An app's
-# values.yaml (what every environment shares) is layered under its <env>-values.yaml, as
-# its Argo CD Application will layer them.
+# charts/service/tests/<app>/, checked in beside the values as <env>.golden.yaml. Layered as
+# an app's Argo CD Application will: values.yaml (what every environment shares), then any
+# generated <name>.values.yaml (such as gen_slo_rules.py's), then <env>-values.yaml.
 #
 #   scripts/chart-golden.sh            # fail, with a diff, if a render differs from its golden
 #   UPDATE=1 scripts/chart-golden.sh   # rewrite the golden files after an intended change
@@ -23,8 +23,10 @@ CHART="$ROOT/charts/service"
 PLACEHOLDER_DIGEST="sha256:$(printf '0%.0s' {1..64})"
 
 values_args() { # <app> <env>
-  local common="$CHART/tests/$1/values.yaml"
-  if [[ -f "$common" ]]; then printf '%s\n' --values "$common"; fi
+  local dir="$CHART/tests/$1" f
+  for f in "$dir/values.yaml" "$dir"/*.values.yaml; do
+    if [[ -f "$f" ]]; then printf '%s\n' --values "$f"; fi
+  done
   printf '%s\n' --values "$CHART/tests/$1/$2-values.yaml"
 }
 

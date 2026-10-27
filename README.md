@@ -32,6 +32,7 @@ lands in both repos.
 | `deploy/policies/` | Kyverno admission policies: allowed registries, release provenance |
 | `deploy/kind/` | The kind cluster config and the values and manifests the platform installs on it |
 | `deploy/platform/metrics-server/` | The vendored metrics-server release, checksum-pinned |
+| `scripts/gen_slo_rules.py` | Generates an app's SLO recording rules and burn-rate alerts from its SLO spec, as a values file for the service chart (`--values`) or a plain rule file for promtool. Apps run it with `uv run --script` from their repo root |
 | `scripts/cluster.sh`, `scripts/lib/` | Bootstraps the local cluster: Argo CD, then the platform root |
 
 `scripts/cluster.sh` can't run from this repo yet: it still applies shortly's AppProject
@@ -42,7 +43,8 @@ and Applications and reads its chart, which live in links until 3.3.
 `ci.yml` validates every manifest against its schema (the platform chart rendered for
 amd64, arm64 and with optional components off), checks the vendored metrics-server
 checksum, renders the service chart for every app fixture and diffs it against the
-golden files (`scripts/chart-golden.sh`), and runs shellcheck and actionlint. `ci` is the
+golden files (`scripts/chart-golden.sh`), tests the SLO generator
+(`scripts/test-slo-generator.sh`), and runs shellcheck and actionlint. `ci` is the
 one required check. The kind end-to-end test of the platform still runs in links.
 
 ## Docs
