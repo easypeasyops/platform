@@ -66,6 +66,38 @@ jobs:
         working-directory: deploy/platform/metrics-server
         run: sha256sum --check --strict SHA256SUMS
 
+  # The service chart apps deploy with. Its golden renders (scripts/chart-golden.sh) are its
+  # behaviour: every app fixture under charts/service/tests/ must render byte for byte as
+  # checked in.
+  chart:
+    name: service chart
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v4.3.1
+
+      - name: Lint
+        run: |
+          for values in charts/service/tests/*/*-values.yaml; do
+            helm lint charts/service --strict --values "$values" --set image.tag=ci
+          done
+
+      - name: Renders match the golden files
+        run: scripts/chart-golden.sh
+
+      - name: Schema-validate the golden renders
+        run: |
+          docker run --rm -v "$PWD:/repo:ro" -w /repo "$KUBECONFORM" -strict -summary \
+            -kubernetes-version 1.37.0 -schema-location default \
+            -schema-location "$CRDS/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" \
+            charts/service/tests/*/*.golden.yaml
+
   scripts:
     name: scripts and workflows
     runs-on: ubuntu-latest
@@ -93,7 +125,7 @@ jobs:
   gate:
     name: ci
     if: always()
-    needs: [manifests, scripts]
+    needs: [manifests, chart, scripts]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:

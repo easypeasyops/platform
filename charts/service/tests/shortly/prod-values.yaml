@@ -1,0 +1,32 @@
+# Production: autoscaled (chart defaults), never below two replicas so a rollout, drain,
+# or crash never drops to zero. maxReplicas is capped to what a laptop kind node can hold.
+
+# The release this environment runs. Argo CD deploys whatever is here on main, so changing
+# this line in a merged PR IS the deploy (scripts/promote.sh writes it). CI verifies the
+# digest's release provenance, and that staging ran it first.
+# The environment's name (traces: deployment.environment.name). Its namespace is
+# shortly-prod (Argo CD's destination), so the two are no longer the same word.
+environment: prod
+image:
+  digest: "sha256:f8e4982b3a4197e0d68b83ef7bd06f0213bd54afffd65f4a088c21fd0852e046" # v0.7.1
+autoscaling:
+  minReplicas: 2
+  maxReplicas: 4
+gateway:
+  enabled: true
+  hostnames: ["sho.rt.localhost"]
+config:
+  baseUrl: "http://sho.rt.localhost"
+  logLevel: INFO
+  # kind has no ingress: in-cluster load generators (scripts/hpa-drill.sh) stand in for it
+  # and send X-Forwarded-For to simulate many clients. kind's pod network, so ANY pod here
+  # can pick its client IP. On a real cluster: the ingress controller's addresses only.
+  forwardedAllowIps: "10.244.0.0/16"
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+monitoring:
+  enabled: true
+  clusterWide: true # this release ships the alert rules and dashboard for the cluster
+canary:
+  enabled: true # Argo Rollouts: 10% → 50% → 100%, judged by Prometheus (values.yaml)
