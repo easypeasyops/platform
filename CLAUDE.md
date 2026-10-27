@@ -28,6 +28,11 @@ the metrics-server checksum, shellcheck (`-x`, entry points only) and actionlint
 same locally before pushing when a change touches them. `ci` is the one required check:
 add every new job to the gate's `needs`.
 
+The service chart's behaviour is its golden renders (`charts/service/tests/<app>/<env>.golden.yaml`).
+A refactor leaves them byte for byte the same; an intended change regenerates them
+(`UPDATE=1 scripts/chart-golden.sh`) in the same PR, and the diff is the review. Golden
+files are generated: they don't count toward a PR's size.
+
 `deploy/platform/metrics-server/components.yaml` is vendored byte for byte; never edit it.
 To bump it, replace it with the upstream release and update `SHA256SUMS` in the same PR.
 

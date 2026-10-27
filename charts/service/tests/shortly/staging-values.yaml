@@ -1,0 +1,23 @@
+# Staging: same chart, same image digest prod will get; smaller and chattier.
+# The release this environment runs. Argo CD deploys whatever is here on main, so changing
+# this line in a merged PR IS the deploy (scripts/promote.sh writes it). CI verifies the
+# digest's release provenance.
+# The environment's name (traces: deployment.environment.name). Its namespace is
+# shortly-staging (Argo CD's destination), so the two are no longer the same word.
+environment: staging
+image:
+  digest: "sha256:f8e4982b3a4197e0d68b83ef7bd06f0213bd54afffd65f4a088c21fd0852e046" # v0.7.1
+replicaCount: 1
+autoscaling:
+  enabled: false # one fixed, small pod: staging proves correctness, not capacity
+gateway:
+  enabled: true
+  hostnames: ["staging.sho.rt.localhost"]
+config:
+  baseUrl: "http://staging.sho.rt.localhost"
+  logLevel: DEBUG
+resources:
+  requests: { cpu: 25m, memory: 96Mi }
+  limits: { memory: 192Mi }
+monitoring:
+  enabled: true
