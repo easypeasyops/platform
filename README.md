@@ -16,8 +16,8 @@ lands in both repos.
 | Step | Change | State |
 | --- | --- | --- |
 | 3.1 | Platform files copied here with history | done |
-| 3.2 | A generic `service` chart, released to GHCR as a signed OCI chart | in progress |
-| 3.3 | An ApplicationSet over `apps/*`; `apps/shortly/` points at links | |
+| 3.2 | A generic `service` chart, released to GHCR as a signed OCI chart | done: 0.1.0 |
+| 3.3 | An ApplicationSet over `apps/*`; `apps/shortly/` points at links | in progress |
 | 3.4 | links drops what moved and pins this repo's workflows and chart | |
 | 3.5 | Releases per app (`shortly/vX.Y.Z`, `ghcr.io/easypeasyops/links/shortly`) | |
 
@@ -25,6 +25,7 @@ lands in both repos.
 
 | Path | What |
 | --- | --- |
+| `apps/` | Every app's environments: `apps/applicationset.yaml` generates one Argo CD Application per `apps/<app>/envs/<env>.yaml` (the service chart pinned by digest, values from the app's repo); `apps/<app>/project.yaml` is the app's AppProject. Applied by the `apps` root (`deploy/argocd/apps-{root,project}.yaml`) |
 | `charts/service/` | The chart every app deploys with (3.2, not used by anything yet): Deployment or canary Rollout, HPA, PDB, probes, network policies, monitoring. `tests/<app>/` holds an app's values and the golden render CI checks |
 | `.github/workflows/reusable-*.yml` | Reusable workflows (`workflow_call`) an app's CI calls: Python check, image build/scan/smoke test |
 | `deploy/argocd/platform/` | The platform chart (app-of-apps): Envoy Gateway, Argo Rollouts, metrics-server, kube-prometheus-stack, Kyverno and its policies, the backup bucket |
@@ -46,6 +47,26 @@ checksum, renders the service chart for every app fixture and diffs it against t
 golden files (`scripts/chart-golden.sh`), tests the SLO generator
 (`scripts/test-slo-generator.sh`), and runs shellcheck and actionlint. `ci` is the
 one required check. The kind end-to-end test of the platform still runs in links.
+
+## Onboarding an app
+
+One folder, reviewed here: `apps/<app>/project.yaml` (the app's repo and its `<app>-<env>`
+namespaces) and `apps/<app>/envs/<env>.yaml` per environment:
+
+```yaml
+app: <app>
+env: staging
+chart: { version: 0.1.0, digest: sha256:… } # a released, verified service chart
+values:
+  repoURL: https://github.com/easypeasyops/<repo>.git
+  revision: main
+  files: [deploy/service/values.yaml, deploy/envs/staging.yaml] # layered in order
+```
+
+CI (`apps` job, `scripts/check-apps.py`) checks each env file the way Argo CD will use it: the
+project allows it, the digest is a release of that version whose provenance verifies, and the
+chart renders with the app's values fetched from its repo. Move a chart pin one environment at
+a time, staging first.
 
 ## Releasing the service chart
 

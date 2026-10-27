@@ -1,0 +1,20 @@
+# shortly's Argo CD project: what its Applications may deploy, and where. Least privilege:
+# the platform's service chart and shortly's own repo (its values), its two namespaces, and
+# nothing cluster-scoped (the chart has none).
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: shortly
+  namespace: argocd
+spec:
+  description: shortly's environments (apps/shortly/envs)
+  sourceRepos:
+    - oci://ghcr.io/easypeasyops/charts/service
+    - https://github.com/easypeasyops/links.git
+  destinations:
+    # One namespace per app and environment.
+    - { server: https://kubernetes.default.svc, namespace: shortly-staging }
+    - { server: https://kubernetes.default.svc, namespace: shortly-prod }
+  clusterResourceWhitelist: [] # nothing cluster-scoped
+  namespaceResourceWhitelist:
+    - { group: "*", kind: "*" }
