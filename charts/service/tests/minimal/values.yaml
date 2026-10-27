@@ -1,0 +1,7 @@
+# The least an app can give the service chart: its name and its image. Everything else is
+# the chart's defaults, so this golden shows what a new app gets out of the box, and a
+# default that only suits one app shows up here as a diff.
+app:
+  name: demo
+image:
+  repository: ghcr.io/easypeasyops/example/demo

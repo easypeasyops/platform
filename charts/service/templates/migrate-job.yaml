@@ -27,7 +27,7 @@ spec:
       labels:
         {{- include "service.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: migrate
-        app.kubernetes.io/part-of: {{ .Values.app.partOf }}
+        app.kubernetes.io/part-of: {{ include "service.partOf" . }}
     spec:
       restartPolicy: Never
       automountServiceAccountToken: false
@@ -38,6 +38,7 @@ spec:
           image: {{ include "service.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command:
+            {{- if not .Values.migrations.command }}{{ fail "migrations.command: the app's migration command, run from its image" }}{{ end }}
             {{- toYaml .Values.migrations.command | nindent 12 }}
           env:
             {{- include "service.env" . | trim | nindent 12 }}
