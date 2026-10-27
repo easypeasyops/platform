@@ -33,6 +33,11 @@ A refactor leaves them byte for byte the same; an intended change regenerates th
 (`UPDATE=1 scripts/chart-golden.sh`) in the same PR, and the diff is the review. Golden
 files are generated: they don't count toward a PR's size.
 
+`scripts/gen_slo_rules.py` is part of the contract: its output's bytes end up in every app's
+goldens and PrometheusRules. Its dependencies are pinned in the script (PEP 723); a change
+to its output, or a PyYAML bump, regenerates every fixture's `slo-rules.values.yaml` in the
+same PR (`scripts/test-slo-generator.sh` fails on a stale one).
+
 `deploy/platform/metrics-server/components.yaml` is vendored byte for byte; never edit it.
 To bump it, replace it with the upstream release and update `SHA256SUMS` in the same PR.
 
