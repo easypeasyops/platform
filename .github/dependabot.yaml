@@ -1,0 +1,15 @@
+# Pinned versions only stay safe if something bumps them. Dependabot opens PRs; CI decides
+# whether they're safe to merge.
+#
+# The reusable workflows are what app repos call (pinned by this repo's commit SHA), so a
+# bump here reaches an app only when that app moves its pin.
+#
+# Not covered by Dependabot: the tool images ci.yml runs with `docker run` (kubeconform,
+# actionlint) and the upstream charts the platform chart pins by digest in
+# deploy/argocd/platform/values.yaml. Those are bumped by hand.
+version: 2
+updates:
+  - package-ecosystem: github-actions # bumps the pinned SHAs (and their # vX comments)
+    directory: /
+    schedule:
+      interval: weekly
