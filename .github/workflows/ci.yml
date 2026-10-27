@@ -107,6 +107,44 @@ jobs:
             -schema-location "$CRDS/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" \
             charts/service/tests/*/*.golden.yaml
 
+  # The chart release (release-chart.yml runs scripts/release-chart.sh on a service/v* tag),
+  # rehearsed against a throwaway registry on every PR, so a broken release path shows up
+  # here and not at release time: publish (push, digest, pull back by digest), then a second
+  # release of the same version must be refused. On this throwaway runner, origin/main is
+  # pointed at the PR's commit (as it will be once merged), so check runs every test in order.
+  chart-release:
+    name: chart release rehearsal
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    services:
+      registry:
+        image: registry:3.0.0
+        ports: ["5000:5000"]
+    env:
+      PLAIN_HTTP: "1"
+      REGISTRY: localhost:5000/charts
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v4.3.1
+
+      - name: Publish
+        run: scripts/release-chart.sh publish
+
+      - name: A second release of the same version is refused
+        run: |
+          git update-ref refs/remotes/origin/main HEAD # the rehearsal: this commit, merged
+          version=$(sed -nE 's/^version: *"?([^"[:space:]]+)"?.*/\1/p' charts/service/Chart.yaml)
+          if out=$(scripts/release-chart.sh check "service/v$version" 2>&1); then
+            echo "::error::check allowed re-releasing $version"; exit 1
+          fi
+          echo "$out"
+          grep -q "already in" <<<"$out" || { echo "::error::refused for the wrong reason"; exit 1; }
+
   scripts:
     name: scripts and workflows
     runs-on: ubuntu-latest
@@ -134,7 +172,7 @@ jobs:
   gate:
     name: ci
     if: always()
-    needs: [manifests, chart, scripts]
+    needs: [manifests, chart, chart-release, scripts]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
