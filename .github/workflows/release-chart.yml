@@ -33,10 +33,21 @@ jobs:
         with:
           version: v4.3.1
 
-      - name: Log in to GHCR
+      # Two logins, one registry: Helm keeps its own credentials (helm push/pull/show), and
+      # attest-build-provenance's push-to-registry reads Docker's. With only Helm's, the
+      # attestation was signed and stored but its registry copy failed ("No credentials
+      # found for registry ghcr.io": service/v0.1.0's run).
+      - name: Log in to GHCR (Helm)
         env:
           TOKEN: ${{ github.token }}
         run: helm registry login ghcr.io --username "$GITHUB_ACTOR" --password-stdin <<<"$TOKEN"
+
+      - name: Log in to GHCR (Docker)
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       # Tag = Chart.yaml version, commit on main, goldens match, and that version is not
       # already published (OCI tags can be overwritten; a release never is).
