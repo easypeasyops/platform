@@ -1,12 +1,158 @@
 # shortly's values for the service chart, used by both environments (the env files are
-# layered on top). In links these were the chart's own files; an app supplies them as values
-# (platform plan 3.2, option A). Moved from links@32d2136:
+# layered on top). Moved from links@32d2136: the chart's own defaults, which were shortly's,
+# and what the chart read from its own files (platform plan 3.2, option A):
 #   monitoring.rules.shortly            <- deploy/helm/shortly/rules/shortly.yaml (hand-written)
 #   monitoring.rules.slo                <- deploy/helm/shortly/rules/slo.yaml (generated from
 #                                          deploy/prometheus/slos.yaml by gen_slo_rules.py)
 #   monitoring.dashboards               <- deploy/helm/shortly/dashboards/slo.json
 #   canary.analysis.syntheticTraffic    <- deploy/helm/shortly/files/canary-traffic.js
 #   canary.analysis.latencyChecks       <- the chart's redirect-p99 metric
+#   app, image, config, database, env, migrations, autoscaling, resources, cronJobs
+#                                       <- deploy/helm/shortly/values.yaml
+
+app:
+  name: shortly
+  partOf: shortly
+
+image:
+  repository: ghcr.io/statsguy/shortly
+
+# Non-secret config. Becomes SHORTLY_* environment variables.
+config:
+  baseUrl: "https://sho.rt"
+  logLevel: INFO
+  # Measured: median 1, peak 4 connections in use at ~300 req/s per pod; 1 was too few.
+  dbPoolSize: 5
+  # Wait this long for a free connection, then shed with 503 + Retry-After (not 30 s).
+  dbPoolTimeoutSeconds: 1
+  # Postgres cancels a statement running longer than this, or waiting on a row lock longer
+  # than dbLockTimeoutMs; the request gets a 503 + Retry-After instead of holding a
+  # connection. The slowest real query is a few ms, so 2 s only catches a sick database.
+  dbStatementTimeoutMs: 2000
+  dbLockTimeoutMs: 1000
+  # Requests one pod works on at once; more are answered 503 + Retry-After in ~1 ms instead
+  # of queueing until every request is slow. Sized from the load test (docs/DESIGN.md,
+  # Capacity): well above what a pod needs at capacity, well below a queue of seconds.
+  maxConcurrentRequests: 16
+  # DRILLS ONLY: this share (0-1) of creates and redirects fails with 500 while probes stay
+  # green, i.e. a release that is ready but broken. The canary drill sets it to prove that
+  # analysis catches such a release. Never set in deploy/envs/. 0 renders no variable at all.
+  faultErrorRatio: 0
+  # /metrics is served on this port, not the app port: the Service exposes it to Prometheus
+  # only, and the NetworkPolicy below admits nothing else to it.
+  metricsPort: 9100
+  # Per-client limit on POST /links: a burst, then a sustained rate (0 turns it off).
+  # Exact across replicas: the state lives in Postgres (docs/DESIGN.md, Rate limiting).
+  rateLimit:
+    createsPerMinute: 60
+    burst: 20
+  # Peers whose X-Forwarded-For uvicorn believes (comma-separated IPs or CIDRs). The
+  # limiter keys on the client IP, so this must be exactly your ingress / load balancer:
+  # anyone listed here can claim to be any client. Default: nobody but localhost.
+  forwardedAllowIps: "127.0.0.1"
+
+database:
+  existingSecret: shortly-db
+
+# The app's environment variables. The chart renders this list as it is, in order: which
+# variables the app reads is the app's business, not the chart's. Each string is a template,
+# so it can read other values (config.* above, which env files override). An entry with
+# `when` is rendered only if `when` renders to something other than "", "0" or "false".
+env:
+  - name: SHORTLY_DATABASE_URL
+    secret: { name: "{{ .Values.database.existingSecret }}", key: "{{ .Values.database.secretKey }}" }
+  - { name: SHORTLY_BASE_URL, value: "{{ .Values.config.baseUrl }}" }
+  - { name: SHORTLY_LOG_LEVEL, value: "{{ .Values.config.logLevel }}" }
+  - { name: SHORTLY_DB_POOL_SIZE, value: "{{ .Values.config.dbPoolSize }}" }
+  - { name: SHORTLY_METRICS_PORT, value: "{{ .Values.config.metricsPort }}" }
+  - { name: SHORTLY_DB_POOL_TIMEOUT_SECONDS, value: "{{ .Values.config.dbPoolTimeoutSeconds }}" }
+  - { name: SHORTLY_DB_STATEMENT_TIMEOUT_MS, value: "{{ .Values.config.dbStatementTimeoutMs }}" }
+  - { name: SHORTLY_DB_LOCK_TIMEOUT_MS, value: "{{ .Values.config.dbLockTimeoutMs }}" }
+  - { name: SHORTLY_MAX_CONCURRENT_REQUESTS, value: "{{ .Values.config.maxConcurrentRequests }}" }
+  # DRILL: requests fail on purpose (config.faultErrorRatio)
+  - name: SHORTLY_FAULT_ERROR_RATIO
+    value: "{{ .Values.config.faultErrorRatio }}"
+    when: "{{ .Values.config.faultErrorRatio }}"
+  - { name: SHORTLY_RATE_LIMIT_CREATES_PER_MINUTE, value: "{{ .Values.config.rateLimit.createsPerMinute }}" }
+  - { name: SHORTLY_RATE_LIMIT_BURST, value: "{{ .Values.config.rateLimit.burst }}" }
+  - { name: FORWARDED_ALLOW_IPS, value: "{{ .Values.config.forwardedAllowIps }}" } # read by uvicorn itself
+  - name: OTEL_EXPORTER_OTLP_ENDPOINT
+    value: "{{ .Values.otel.endpoint }}"
+    when: "{{ .Values.otel.endpoint }}"
+  - name: OTEL_RESOURCE_ATTRIBUTES
+    value: "deployment.environment.name={{ .Values.environment | default .Release.Namespace }}"
+    when: "{{ .Values.otel.endpoint }}"
+
+migrations:
+  enabled: true
+  # The app's migration command. shortly's: `alembic upgrade head`, except when the
+  # database is AHEAD of this image: its revision is one this release doesn't know, which
+  # happens exactly on a rollback (a reverted promotion, or an older digest redeployed).
+  # Expand/contract makes the old code work on the newer schema, so the right move is to
+  # leave it alone. (Helm skipped hooks on `helm rollback`; Argo CD runs them on every sync.)
+  command:
+    - sh
+    - -c
+    - |
+      out=$(alembic upgrade head 2>&1); rc=$?
+      printf '%s\n' "$out"
+      if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q "Can't locate revision identified by"; then
+        echo "migrate: the database is at a newer revision than this release (a rollback); schema left as it is"
+        exit 0
+      fi
+      exit "$rc"
+
+# Sizing comes from the load test (docs/DESIGN.md, Capacity; re-run scripts/loadtest.sh
+# when the request path changes). One pod: ~2 ms CPU per request, meets the latency SLO up
+# to ~250 req/s, saturates near 1 core. Target 70% of a 500m request = ~170 req/s per pod,
+# leaving ~30% headroom for traffic that grows while new pods start.
+autoscaling:
+  enabled: true
+  minReplicas: 2 # survive one pod loss / a drain; the PDB keeps 1 up
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  # Rendering fails if maxReplicas x config.dbPoolSize exceeds this. Postgres default
+  # max_connections is 100; keep room for migrations, admin sessions and the other env.
+  maxDbConnections: 60
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0 # react to a spike at once
+      policies:
+        - { type: Percent, value: 100, periodSeconds: 15 } # at most double every 15 s
+        - { type: Pods, value: 4, periodSeconds: 15 }
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300 # scale in only after 5 quiet minutes: no flapping
+      policies:
+        - { type: Pods, value: 1, periodSeconds: 60 }
+
+resources:
+  requests:
+    cpu: 500m # measured ~0.5 cores at 250 req/s; also the HPA's 100%
+    memory: 128Mi
+  limits:
+    # No CPU limit on purpose: CPU limits cause throttling even when the node is idle.
+    # Memory limit stays: a leak should OOM-kill one pod, not the node.
+    memory: 256Mi
+
+cronJobs:
+  # Expired-link cleanup (python -m shortly.cleanup). Links expired less than
+  # SHORTLY_CLEANUP_GRACE_DAYS ago are kept, so they still answer 410 Gone. Bounded batches,
+  # each one short statement that commits on its own: one run deletes at most
+  # BATCH_SIZE x MAX_BATCHES rows, and a bigger backlog is finished by the next runs. A
+  # manual run may overlap a scheduled one, which SKIP LOCKED makes safe.
+  cleanup:
+    schedule: "17 * * * *" # hourly, off the top of the hour when every other job runs
+    command: ["python", "-m", "shortly.cleanup"]
+    activeDeadlineSeconds: 900
+    env:
+      - { name: SHORTLY_CLEANUP_GRACE_DAYS, value: "7" }
+      - { name: SHORTLY_CLEANUP_BATCH_SIZE, value: "1000" }
+      - { name: SHORTLY_CLEANUP_MAX_BATCHES, value: "100" }
+    resources:
+      requests: { cpu: 50m, memory: 96Mi }
+      limits: { memory: 192Mi }
+
 canary:
   analysis:
     latencyChecks:

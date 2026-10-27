@@ -1,18 +1,19 @@
-# Defaults are production-shaped; values-<env>.yaml files override per environment.
+# The platform's chart for an HTTP service. Defaults are production-shaped; an app supplies
+# its values (app, image, env...) and each environment's file overrides them.
 
 # The app this chart deploys. `name` is its app.kubernetes.io/name label (and so its pods'
 # selector); `partOf` is app.kubernetes.io/part-of on every pod of the chart, which the
-# database's network policy admits (deploy/kind/network-policies.yaml).
+# database's network policy admits (the platform's deploy/kind/network-policies.yaml).
 app:
-  name: shortly
-  partOf: shortly
+  name: ""   # required
+  partOf: "" # default: the app's name
 
-# The environment's name (staging, prod), set by deploy/envs/<env>.yaml. Empty: the
-# namespace's name, which was the same word before namespaces became <app>-<env>.
+# The environment's name (staging, prod), set by the app's file for that environment.
+# Empty: the namespace's name.
 environment: ""
 
 image:
-  repository: ghcr.io/statsguy/shortly
+  repository: "" # required
   # Deploy by digest (sha256:...) whenever possible: a digest is immutable, so the bits
   # tested in staging are exactly the bits promoted to production. `tag` is a fallback.
   digest: ""
@@ -24,10 +25,8 @@ imagePullSecrets: []
 # Used only when autoscaling is disabled.
 replicaCount: 2
 
-# Sizing comes from the load test (docs/DESIGN.md, Capacity; re-run scripts/loadtest.sh
-# when the request path changes). One pod: ~2 ms CPU per request, meets the latency SLO up
-# to ~250 req/s, saturates near 1 core. Target 70% of a 500m request = ~170 req/s per pod,
-# leaving ~30% headroom for traffic that grows while new pods start.
+# Size from a load test: the CPU request is the HPA's 100%, so a 70% target leaves ~30%
+# headroom for traffic that grows while new pods start.
 autoscaling:
   enabled: true
   minReplicas: 2 # survive one pod loss / a drain; the PDB keeps 1 up
@@ -48,44 +47,20 @@ autoscaling:
       policies:
         - { type: Pods, value: 1, periodSeconds: 60 }
 
-# Non-secret config. Becomes SHORTLY_* environment variables.
+# Settings the chart itself reads. An app's own settings go in `config` too (env entries can
+# template them from here) or straight into `env`.
 config:
-  baseUrl: "https://sho.rt"
-  logLevel: INFO
-  # Measured: median 1, peak 4 connections in use at ~300 req/s per pod; 1 was too few.
-  dbPoolSize: 5
-  # Wait this long for a free connection, then shed with 503 + Retry-After (not 30 s).
-  dbPoolTimeoutSeconds: 1
-  # Postgres cancels a statement running longer than this, or waiting on a row lock longer
-  # than dbLockTimeoutMs; the request gets a 503 + Retry-After instead of holding a
-  # connection. The slowest real query is a few ms, so 2 s only catches a sick database.
-  dbStatementTimeoutMs: 2000
-  dbLockTimeoutMs: 1000
-  # Requests one pod works on at once; more are answered 503 + Retry-After in ~1 ms instead
-  # of queueing until every request is slow. Sized from the load test (docs/DESIGN.md,
-  # Capacity): well above what a pod needs at capacity, well below a queue of seconds.
-  maxConcurrentRequests: 16
-  # DRILLS ONLY: this share (0-1) of creates and redirects fails with 500 while probes stay
-  # green, i.e. a release that is ready but broken. The canary drill sets it to prove that
-  # analysis catches such a release. Never set in deploy/envs/. 0 renders no variable at all.
-  faultErrorRatio: 0
   # /metrics is served on this port, not the app port: the Service exposes it to Prometheus
-  # only, and the NetworkPolicy below admits nothing else to it.
+  # only, and the network policy admits nothing else to it.
   metricsPort: 9100
-  # Per-client limit on POST /links: a burst, then a sustained rate (0 turns it off).
-  # Exact across replicas: the state lives in Postgres (docs/DESIGN.md, Rate limiting).
-  rateLimit:
-    createsPerMinute: 60
-    burst: 20
-  # Peers whose X-Forwarded-For uvicorn believes (comma-separated IPs or CIDRs). The
-  # limiter keys on the client IP, so this must be exactly your ingress / load balancer:
-  # anyone listed here can claim to be any client. Default: nobody but localhost.
-  forwardedAllowIps: "127.0.0.1"
+  # Database connections per pod; with autoscaling, maxReplicas x dbPoolSize must stay
+  # within autoscaling.maxDbConnections. 0: the app holds no pool.
+  dbPoolSize: 0
 
 # The database URL is a secret and is NEVER put in values files (they live in git).
 # Create it out of band (kubectl, External Secrets, Sealed Secrets, Vault...) and point here.
 database:
-  existingSecret: shortly-db
+  existingSecret: ""
   secretKey: url
 
 # OpenTelemetry: tracing is on only if an endpoint is set.
@@ -96,53 +71,16 @@ otel:
 # variables the app reads is the app's business, not the chart's. Each string is a template,
 # so it can read other values (config.* above, which env files override). An entry with
 # `when` is rendered only if `when` renders to something other than "", "0" or "false".
-env:
-  - name: SHORTLY_DATABASE_URL
-    secret: { name: "{{ .Values.database.existingSecret }}", key: "{{ .Values.database.secretKey }}" }
-  - { name: SHORTLY_BASE_URL, value: "{{ .Values.config.baseUrl }}" }
-  - { name: SHORTLY_LOG_LEVEL, value: "{{ .Values.config.logLevel }}" }
-  - { name: SHORTLY_DB_POOL_SIZE, value: "{{ .Values.config.dbPoolSize }}" }
-  - { name: SHORTLY_METRICS_PORT, value: "{{ .Values.config.metricsPort }}" }
-  - { name: SHORTLY_DB_POOL_TIMEOUT_SECONDS, value: "{{ .Values.config.dbPoolTimeoutSeconds }}" }
-  - { name: SHORTLY_DB_STATEMENT_TIMEOUT_MS, value: "{{ .Values.config.dbStatementTimeoutMs }}" }
-  - { name: SHORTLY_DB_LOCK_TIMEOUT_MS, value: "{{ .Values.config.dbLockTimeoutMs }}" }
-  - { name: SHORTLY_MAX_CONCURRENT_REQUESTS, value: "{{ .Values.config.maxConcurrentRequests }}" }
-  # DRILL: requests fail on purpose (config.faultErrorRatio)
-  - name: SHORTLY_FAULT_ERROR_RATIO
-    value: "{{ .Values.config.faultErrorRatio }}"
-    when: "{{ .Values.config.faultErrorRatio }}"
-  - { name: SHORTLY_RATE_LIMIT_CREATES_PER_MINUTE, value: "{{ .Values.config.rateLimit.createsPerMinute }}" }
-  - { name: SHORTLY_RATE_LIMIT_BURST, value: "{{ .Values.config.rateLimit.burst }}" }
-  - { name: FORWARDED_ALLOW_IPS, value: "{{ .Values.config.forwardedAllowIps }}" } # read by uvicorn itself
-  - name: OTEL_EXPORTER_OTLP_ENDPOINT
-    value: "{{ .Values.otel.endpoint }}"
-    when: "{{ .Values.otel.endpoint }}"
-  - name: OTEL_RESOURCE_ATTRIBUTES
-    value: "deployment.environment.name={{ .Values.environment | default .Release.Namespace }}"
-    when: "{{ .Values.otel.endpoint }}"
+env: []
 
 migrations:
-  enabled: true
+  enabled: false
   # The Job runs as a Helm pre-install/pre-upgrade hook: the schema is migrated BEFORE
   # new pods start, and a failed migration aborts the release (old pods keep serving).
   backoffLimit: 1
   activeDeadlineSeconds: 300
-  # The app's migration command. shortly's: `alembic upgrade head`, except when the
-  # database is AHEAD of this image: its revision is one this release doesn't know, which
-  # happens exactly on a rollback (a reverted promotion, or an older digest redeployed).
-  # Expand/contract makes the old code work on the newer schema, so the right move is to
-  # leave it alone. (Helm skipped hooks on `helm rollback`; Argo CD runs them on every sync.)
-  command:
-    - sh
-    - -c
-    - |
-      out=$(alembic upgrade head 2>&1); rc=$?
-      printf '%s\n' "$out"
-      if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q "Can't locate revision identified by"; then
-        echo "migrate: the database is at a newer revision than this release (a rollback); schema left as it is"
-        exit 0
-      fi
-      exit "$rc"
+  # The app's migration command, run from its image (required when enabled).
+  command: []
   resources:
     requests: { cpu: 50m, memory: 128Mi }
     limits: { memory: 256Mi }
@@ -151,7 +89,8 @@ service:
   type: ClusterIP
   port: 80
 
-# Route users in through a Gateway API Gateway (deploy/kind/gateway.yaml in kind). Off by
+# Route users in through a Gateway API Gateway (the platform's deploy/kind/gateway.yaml in
+# kind; its Gateway is still named after the first app). Off by
 # default: the chart works without one, and a cluster without the Gateway API CRDs.
 gateway:
   enabled: false
@@ -159,7 +98,7 @@ gateway:
   namespace: gateway
   hostnames: []
 
-# Canary releases with Argo Rollouts (docs/DESIGN.md, Canary releases). Needs the Argo
+# Canary releases with Argo Rollouts (links' docs/DESIGN.md, Canary releases). Needs the Argo
 # Rollouts controller with its Gateway API plugin (the platform) and gateway.enabled.
 # On: a Rollout replaces the Deployment; a new release first gets each `weights` share of
 # the Gateway's traffic in turn, and moves on only if analysis passes; else it is aborted
@@ -202,7 +141,7 @@ canary:
 
 resources:
   requests:
-    cpu: 500m # measured ~0.5 cores at 250 req/s; also the HPA's 100%
+    cpu: 100m
     memory: 128Mi
   limits:
     # No CPU limit on purpose: CPU limits cause throttling even when the node is idle.
@@ -212,7 +151,7 @@ resources:
 # Seconds the pod keeps serving after it's told to stop, so the endpoint removal can
 # propagate to every kube-proxy / load balancer before the process stops accepting.
 preStopSleepSeconds: 5
-# Must exceed preStop + uvicorn's graceful drain (20s in the Dockerfile CMD).
+# Must exceed preStop + the app's own graceful drain after SIGTERM.
 terminationGracePeriodSeconds: 30
 
 podDisruptionBudget:
@@ -245,23 +184,7 @@ affinity: {}
 # from the release image, with the app's env plus its own. Their pods are labelled
 # <app.name>-<key>, so neither the HPA nor the PodDisruptionBudget counts them, and get a
 # network policy of their own: DNS and the database only. Set an entry to null to drop it.
-cronJobs:
-  # Expired-link cleanup (python -m shortly.cleanup). Links expired less than
-  # SHORTLY_CLEANUP_GRACE_DAYS ago are kept, so they still answer 410 Gone. Bounded batches,
-  # each one short statement that commits on its own: one run deletes at most
-  # BATCH_SIZE x MAX_BATCHES rows, and a bigger backlog is finished by the next runs. A
-  # manual run may overlap a scheduled one, which SKIP LOCKED makes safe.
-  cleanup:
-    schedule: "17 * * * *" # hourly, off the top of the hour when every other job runs
-    command: ["python", "-m", "shortly.cleanup"]
-    activeDeadlineSeconds: 900
-    env:
-      - { name: SHORTLY_CLEANUP_GRACE_DAYS, value: "7" }
-      - { name: SHORTLY_CLEANUP_BATCH_SIZE, value: "1000" }
-      - { name: SHORTLY_CLEANUP_MAX_BATCHES, value: "100" }
-    resources:
-      requests: { cpu: 50m, memory: 96Mi }
-      limits: { memory: 192Mi }
+cronJobs: {}
 
 # Who may talk to the pods, and whom they may talk to (templates/networkpolicy.yaml). Needs a
 # CNI that enforces NetworkPolicy (kind's kindnet does; the e2e proves it); on one that

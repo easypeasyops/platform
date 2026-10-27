@@ -1,0 +1,252 @@
+---
+# Source: service/templates/networkpolicy.yaml
+# Least privilege on the network, for the app pods and the migration Job (both carry the
+# selector labels). Once a pod is selected, everything not listed here is denied:
+#   in:  the app port from httpFrom (anyone by default), the metrics port from Prometheus
+#   out: DNS, and the database. Nothing else: the app calls no other service.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: minimal
+  labels:
+    app.kubernetes.io/name: demo
+    app.kubernetes.io/instance: minimal
+    app.kubernetes.io/version: "000000000000"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: service-<version>
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: demo
+      app.kubernetes.io/instance: minimal
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - ports:
+        - { port: 8000, protocol: TCP }
+    - ports:
+        - { port: 9100, protocol: TCP }
+      from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }
+      ports:
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - { port: 5432, protocol: TCP }
+
+---
+# Source: service/templates/pdb.yaml
+# Voluntary disruptions (node drains, cluster upgrades) may evict pods only while at least
+# minAvailable stay up. Skipped for a single replica, where it would block every drain.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: minimal
+  labels:
+    app.kubernetes.io/name: demo
+    app.kubernetes.io/instance: minimal
+    app.kubernetes.io/version: "000000000000"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: service-<version>
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: demo
+      app.kubernetes.io/instance: minimal
+
+---
+# Source: service/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: minimal
+  labels:
+    app.kubernetes.io/name: demo
+    app.kubernetes.io/instance: minimal
+    app.kubernetes.io/version: "000000000000"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: service-<version>
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: demo
+    app.kubernetes.io/instance: minimal
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+    - name: metrics # for Prometheus only; the NetworkPolicy admits nobody else
+      port: 9100
+      targetPort: metrics
+
+---
+# Source: service/templates/deployment.yaml
+# Staging and other non-canary environments. With canary.enabled the Rollout
+# (rollout.yaml) owns these pods instead.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minimal
+  labels:
+    app.kubernetes.io/name: demo
+    app.kubernetes.io/instance: minimal
+    app.kubernetes.io/version: "000000000000"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: service-<version>
+spec:
+  # With autoscaling on, `replicas` is left out ON PURPOSE: the HPA owns it, and a value
+  # here would reset the live count on every `helm upgrade` (mid-spike, too).
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0 # never drop below desired capacity during a rollout
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: demo
+      app.kubernetes.io/instance: minimal
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: demo
+        app.kubernetes.io/instance: minimal
+        app.kubernetes.io/version: "000000000000"
+        app.kubernetes.io/part-of: demo
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9100"
+        prometheus.io/path: /metrics
+    spec:
+      automountServiceAccountToken: false # the app never talks to the Kubernetes API
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      # Spread replicas across nodes so one node failure isn't an outage.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: demo
+              app.kubernetes.io/instance: minimal
+      containers:
+        - name: app
+          image: ghcr.io/easypeasyops/example/demo@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+            - name: metrics
+              containerPort: 9100
+          env:
+            
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # startupProbe gates the other two, so a slow start isn't killed by liveness.
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 2
+            failureThreshold: 30
+          # Both probes are answered on the event loop, outside the request threadpool, so
+          # an overloaded pod is still "alive" and still reports its DB reachability. 2 s
+          # of timeout (default 1 s) absorbs CPU contention without hiding a wedged process.
+          livenessProbe: # "restart me if wedged" — never checks the DB (see api.py)
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          readinessProbe: # "send me traffic?" — DB down ⇒ out of rotation, not restarted
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 2
+          lifecycle:
+            preStop:
+              # Kubernetes sends SIGTERM and removes the pod from endpoints *concurrently*.
+              # Sleeping first lets routers stop sending traffic before uvicorn drains.
+              sleep:
+                seconds: 5
+          resources:
+            limits:
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp # read-only root FS; give Python a writable /tmp
+          emptyDir:
+            sizeLimit: 16Mi
+
+---
+# Source: service/templates/hpa.yaml
+# Scales on CPU because CPU is the measured bottleneck (docs/DESIGN.md, Capacity): one pod
+# saturates at ~1 core (single worker, GIL) long before its DB pool does.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: minimal
+  labels:
+    app.kubernetes.io/name: demo
+    app.kubernetes.io/instance: minimal
+    app.kubernetes.io/version: "000000000000"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: service-<version>
+spec:
+  scaleTargetRef: # the Rollout when canary.enabled: it has the same scale subresource
+    apiVersion: apps/v1
+    kind: Deployment
+    name: minimal
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleDown:
+      policies:
+      - periodSeconds: 60
+        type: Pods
+        value: 1
+      stabilizationWindowSeconds: 300
+    scaleUp:
+      policies:
+      - periodSeconds: 15
+        type: Percent
+        value: 100
+      - periodSeconds: 15
+        type: Pods
+        value: 4
+      selectPolicy: Max
+      stabilizationWindowSeconds: 0

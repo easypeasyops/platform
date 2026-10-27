@@ -2,8 +2,18 @@
 {{- .Release.Name | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
+{{/* The app's name: its pods' app.kubernetes.io/name label, and so their selector. */}}
+{{- define "service.name" -}}
+{{- required "app.name: the app's name (its pods' app.kubernetes.io/name)" .Values.app.name -}}
+{{- end -}}
+
+{{/* app.kubernetes.io/part-of on every pod of the chart: app.partOf, else the app's name. */}}
+{{- define "service.partOf" -}}
+{{- .Values.app.partOf | default (include "service.name" .) -}}
+{{- end -}}
+
 {{- define "service.labels" -}}
-app.kubernetes.io/name: {{ .Values.app.name }}
+app.kubernetes.io/name: {{ include "service.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/version: {{ include "service.version" . | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
@@ -11,7 +21,7 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
 {{- end -}}
 
 {{- define "service.selectorLabels" -}}
-app.kubernetes.io/name: {{ .Values.app.name }}
+app.kubernetes.io/name: {{ include "service.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
@@ -20,9 +30,9 @@ app.kubernetes.io/instance: {{ .Release.Name }}
      average) and the PodDisruptionBudget. part-of ties every pod of the chart together for
      the database's network policy. */}}
 {{- define "service.jobSelectorLabels" -}}
-app.kubernetes.io/name: {{ .root.Values.app.name }}-{{ .name }}
+app.kubernetes.io/name: {{ include "service.name" .root }}-{{ .name }}
 app.kubernetes.io/instance: {{ .root.Release.Name }}
-app.kubernetes.io/part-of: {{ .root.Values.app.partOf }}
+app.kubernetes.io/part-of: {{ include "service.partOf" .root }}
 {{- end -}}
 
 {{/* Egress every pod of the chart needs: DNS, and the database. Nothing else. */}}
@@ -47,9 +57,9 @@ app.kubernetes.io/part-of: {{ .root.Values.app.partOf }}
 {{/* Image reference: digest wins over tag. Fails the render if neither is set. */}}
 {{- define "service.image" -}}
 {{- if .Values.image.digest -}}
-{{ .Values.image.repository }}@{{ .Values.image.digest }}
+{{ required "image.repository" .Values.image.repository }}@{{ .Values.image.digest }}
 {{- else if .Values.image.tag -}}
-{{ .Values.image.repository }}:{{ .Values.image.tag }}
+{{ required "image.repository" .Values.image.repository }}:{{ .Values.image.tag }}
 {{- else -}}
 {{- fail "set image.digest (preferred) or image.tag" -}}
 {{- end -}}

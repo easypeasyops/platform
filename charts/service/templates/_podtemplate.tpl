@@ -5,7 +5,7 @@ metadata:
   labels:
     {{- include "service.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/version: {{ include "service.version" . | quote }}
-    app.kubernetes.io/part-of: {{ .Values.app.partOf }}
+    app.kubernetes.io/part-of: {{ include "service.partOf" . }}
   annotations:
     prometheus.io/scrape: "true"
     prometheus.io/port: {{ .Values.config.metricsPort | quote }}
