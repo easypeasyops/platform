@@ -1,4 +1,21 @@
-{{- if and .Values.monitoring.enabled .Values.monitoring.clusterWide .Values.monitoring.dashboards }}
+{{- /* The platform's SLO dashboard (files/slo-dashboard.json) for an app with SLO rules
+       (monitoring.rules.slo, from gen_slo_rules.py), beside the app's own dashboards. It
+       reads only the app contract's metrics: the generated slo:* rules, http_* and
+       kube-state-metrics. The file is filled in with `replace`, not `tpl`: its Grafana legend
+       formats ({{route}}, {{status}}, {{slo}}) are not Helm templates. An app dashboard
+       named slo.json replaces it. */}}
+{{- $dashboards := deepCopy (.Values.monitoring.dashboards | default dict) }}
+{{- with .Values.monitoring.sloDashboard }}
+{{- if and .enabled (hasKey ($.Values.monitoring.rules | default dict) "slo") (not (hasKey $dashboards "slo.json")) }}
+{{- $slo := $.Files.Get "files/slo-dashboard.json"
+      | replace "__APP__" (include "service.name" $)
+      | replace "__RELEASE__" (include "service.fullname" $)
+      | replace "__NAMESPACE__" $.Release.Namespace
+      | replace "\"__RUNBOOK_URL__\"" (toRawJson (required "monitoring.sloDashboard.runbookUrl: where the SLO dashboard's Runbook link points (the SLO spec's runbook_url)" .runbookUrl)) }}
+{{- $_ := set $dashboards "slo.json" $slo }}
+{{- end }}
+{{- end }}
+{{- if and .Values.monitoring.enabled .Values.monitoring.clusterWide $dashboards }}
 # Grafana's sidecar loads every ConfigMap labelled grafana_dashboard=1, in any namespace.
 apiVersion: v1
 kind: ConfigMap
@@ -8,5 +25,5 @@ metadata:
     {{- include "service.labels" . | nindent 4 }}
     grafana_dashboard: "1"
 data:
-  {{- toYaml .Values.monitoring.dashboards | nindent 2 }}
+  {{- toYaml $dashboards | nindent 2 }}
 {{- end }}
