@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Least privilege: the default GITHUB_TOKEN can write to the repo; CI only needs to read.
+permissions:
+  contents: read
+
+# A new push to the same PR/branch cancels the now-stale run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Static checks on what the platform repo holds. They were the lint step of links' kind job
+# (easypeasyops/links .github/workflows/ci.yml); links keeps running them on its own copies
+# until those are dropped (platform plan, 3.4). The kind e2e of the platform stays in links
+# for now: `cluster.sh up` still needs the app's Argo CD project and Applications.
+env:
+  # CRD schemas for kubeconform (Kyverno, Argo CD, Gateway API, Prometheus Operator), pinned
+  # by commit.
+  CRDS: https://raw.githubusercontent.com/datreeio/CRDs-catalog/501527ab9c40c827144c8f45945b25a023e344ce
+  KUBECONFORM: ghcr.io/yannh/kubeconform:v0.8.0
+
+jobs:
+  manifests:
+    name: manifests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v4.3.1
+
+      - name: Schema-validate the policies, Argo CD objects, chart and dev routes
+        run: |
+          kc() { docker run --rm -i -v "$PWD:/repo:ro" -w /repo "$KUBECONFORM" -strict -summary \
+            -kubernetes-version 1.37.0 -schema-location default \
+            -schema-location "$CRDS/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" "$@"; }
+          # The Kyverno admission policies.
+          kc deploy/policies
+          # The platform's root Application and its AppProject, as one document stream.
+          awk 'FNR == 1 { print "---" } 1' deploy/argocd/*.yaml | kc -
+          # The child Applications the platform chart renders, for both CPU architectures and
+          # with every optional component switched off once.
+          helm lint deploy/argocd/platform --set arch=amd64
+          for args in "--set arch=amd64" "--set arch=arm64" \
+            "--set arch=amd64 --set components.monitoring=false --set components.policies=false --set components.backups=false"; do
+            # shellcheck disable=SC2086 # word splitting intended
+            helm template platform deploy/argocd/platform $args | kc -
+          done
+          # The vendored metrics-server manifest with its kind patch (Argo CD runs kustomize).
+          kubectl kustomize deploy/platform/metrics-server | kc -
+          # The dev tools' routes on the kind Gateway.
+          kc deploy/kind/tools
+
+      # A manifest fetched or edited after it was pinned would be unreviewed code running
+      # with cluster-admin (see deploy/platform/metrics-server/kustomization.yaml).
+      - name: Vendored metrics-server is the pinned release
+        working-directory: deploy/platform/metrics-server
+        run: sha256sum --check --strict SHA256SUMS
+
+  scripts:
+    name: scripts and workflows
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Entry points only, following `source` (-x): scripts/lib/ defines variables for its
+      # callers, so checked on its own every one of them looks unused (SC2034).
+      - name: shellcheck
+        run: |
+          shellcheck --version | sed -n 2p
+          shellcheck -x scripts/*.sh
+
+      # The reusable workflows are this repo's API for app repos; actionlint also runs
+      # shellcheck on every `run:` block when shellcheck is on PATH (it is on the runner).
+      - name: actionlint
+        run: docker run --rm -v "$PWD:/repo:ro" -w /repo rhysd/actionlint:1.7.12 -color
+
+  # The one required status check (ruleset main-rules requires `ci` only). It passes when
+  # every job above passed, so jobs can be split, renamed or added without a ruleset change.
+  # Add a new job to `needs` or it isn't gating anything.
+  gate:
+    name: ci
+    if: always()
+    needs: [manifests, scripts]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Every job passed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<<"$NEEDS"
+          jq -e 'all(.[]; .result == "success")' <<<"$NEEDS" >/dev/null
