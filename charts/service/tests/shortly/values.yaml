@@ -363,6 +363,142 @@ monitoring:
                 description: The postgres-backup CronJob has missed at least 2 runs, or has never succeeded. Data written since the last good backup can't be recovered if the database is lost.
                 runbook_url: https://github.com/statsguy/shortly/blob/main/docs/RUNBOOK.md#backup-job-not-running
   dashboards:
+    causes.json: |
+      {
+        "uid": "shortly-causes",
+        "title": "shortly / Causes",
+        "tags": [
+          "shortly"
+        ],
+        "timezone": "browser",
+        "description": "shortly's own cause metrics, beside the platform's SLO dashboard (shortly / SLOs): its DB connection pool and the requests it sheds.",
+        "schemaVersion": 39,
+        "version": 1,
+        "editable": true,
+        "refresh": "30s",
+        "time": {
+          "from": "now-6h",
+          "to": "now"
+        },
+        "templating": {
+          "list": [
+            {
+              "name": "datasource",
+              "type": "datasource",
+              "query": "prometheus",
+              "label": "Data source",
+              "current": {}
+            },
+            {
+              "name": "namespace",
+              "type": "query",
+              "label": "Environment",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "query": {
+                "query": "label_values(slo:sli_error:ratio_rate5m, namespace)",
+                "refId": "ns"
+              },
+              "definition": "label_values(slo:sli_error:ratio_rate5m, namespace)",
+              "refresh": 2,
+              "current": {
+                "text": "shortly-prod",
+                "value": "shortly-prod"
+              }
+            }
+          ]
+        },
+        "links": [
+          {
+            "title": "Runbook",
+            "type": "link",
+            "url": "https://github.com/statsguy/shortly/blob/main/docs/RUNBOOK.md#slo-burn-rate-alerts",
+            "targetBlank": true
+          }
+        ],
+        "panels": [
+          {
+            "id": 1,
+            "type": "timeseries",
+            "title": "DB pool in use",
+            "description": "Connections checked out across all pods. In use near size with load shed rising: the database is slow, not the app.",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "gridPos": {
+              "x": 0,
+              "y": 0,
+              "w": 12,
+              "h": 8
+            },
+            "targets": [
+              {
+                "refId": "A",
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "${datasource}"
+                },
+                "expr": "sum(db_pool_in_use{namespace=\"$namespace\"})",
+                "legendFormat": "in use"
+              },
+              {
+                "refId": "B",
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "${datasource}"
+                },
+                "expr": "sum(db_pool_size{namespace=\"$namespace\"})",
+                "legendFormat": "size"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "min": 0
+              },
+              "overrides": []
+            },
+            "options": {}
+          },
+          {
+            "id": 2,
+            "type": "timeseries",
+            "title": "Load shed",
+            "description": "Requests rejected with 503 + Retry-After because no DB connection freed up within the pool timeout.",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "gridPos": {
+              "x": 12,
+              "y": 0,
+              "w": 12,
+              "h": 8
+            },
+            "targets": [
+              {
+                "refId": "A",
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "${datasource}"
+                },
+                "expr": "sum by (reason) (rate(load_shed_total{namespace=\"$namespace\"}[$__rate_interval]))",
+                "legendFormat": "503 shed: {{reason}}"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "min": 0,
+                "unit": "reqps"
+              },
+              "overrides": []
+            },
+            "options": {}
+          }
+        ]
+      }
     slo.json: |
       {
         "uid": "shortly-slo",
@@ -372,7 +508,7 @@ monitoring:
           "slo"
         ],
         "timezone": "browser",
-        "description": "Error budgets, burn rates and their likely causes. Generated rules: deploy/helm/shortly/rules/slo.yaml.",
+        "description": "Error budgets, burn rates and their likely causes. Generated rules: the shortly-slo PrometheusRule (the platform's scripts/gen_slo_rules.py).",
         "schemaVersion": 39,
         "version": 1,
         "editable": true,
@@ -732,7 +868,7 @@ monitoring:
             "gridPos": {
               "x": 0,
               "y": 23,
-              "w": 8,
+              "w": 24,
               "h": 7
             },
             "targets": [
@@ -759,84 +895,6 @@ monitoring:
               "defaults": {
                 "min": 0,
                 "decimals": 0
-              },
-              "overrides": []
-            },
-            "options": {}
-          },
-          {
-            "id": 7,
-            "type": "timeseries",
-            "title": "DB pool in use",
-            "description": "Connections checked out across all pods. In use near size with load shed rising: the database is slow, not the app.",
-            "datasource": {
-              "type": "prometheus",
-              "uid": "${datasource}"
-            },
-            "gridPos": {
-              "x": 8,
-              "y": 23,
-              "w": 8,
-              "h": 7
-            },
-            "targets": [
-              {
-                "refId": "A",
-                "datasource": {
-                  "type": "prometheus",
-                  "uid": "${datasource}"
-                },
-                "expr": "sum(db_pool_in_use{namespace=\"$namespace\"})",
-                "legendFormat": "in use"
-              },
-              {
-                "refId": "B",
-                "datasource": {
-                  "type": "prometheus",
-                  "uid": "${datasource}"
-                },
-                "expr": "sum(db_pool_size{namespace=\"$namespace\"})",
-                "legendFormat": "size"
-              }
-            ],
-            "fieldConfig": {
-              "defaults": {
-                "min": 0
-              },
-              "overrides": []
-            },
-            "options": {}
-          },
-          {
-            "id": 8,
-            "type": "timeseries",
-            "title": "Load shed",
-            "description": "Requests rejected with 503 + Retry-After because no DB connection freed up within the pool timeout.",
-            "datasource": {
-              "type": "prometheus",
-              "uid": "${datasource}"
-            },
-            "gridPos": {
-              "x": 16,
-              "y": 23,
-              "w": 8,
-              "h": 7
-            },
-            "targets": [
-              {
-                "refId": "A",
-                "datasource": {
-                  "type": "prometheus",
-                  "uid": "${datasource}"
-                },
-                "expr": "sum by (reason) (rate(load_shed_total{namespace=\"$namespace\"}[$__rate_interval]))",
-                "legendFormat": "503 shed: {{reason}}"
-              }
-            ],
-            "fieldConfig": {
-              "defaults": {
-                "min": 0,
-                "unit": "reqps"
               },
               "overrides": []
             },
