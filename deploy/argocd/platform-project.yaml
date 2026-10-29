@@ -11,7 +11,7 @@ metadata:
 spec:
   description: The kind cluster's platform, deployed from git (app-of-apps)
   sourceRepos:
-    - https://github.com/statsguy/shortly.git
+    - https://github.com/easypeasyops/platform.git
     - oci://registry-1.docker.io/envoyproxy/gateway-helm
     - oci://ghcr.io/argoproj/argo-helm/argo-rollouts
     - oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack

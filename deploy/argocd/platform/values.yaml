@@ -4,7 +4,7 @@
 # Where the git-backed children (manifests, policies, values files) come from. `main` on a
 # laptop: a merged platform change reaches the cluster within a minute, like an app
 # promotion. CI sets the PR's commit.
-repoURL: https://github.com/statsguy/shortly.git
+repoURL: https://github.com/easypeasyops/platform.git
 revision: main
 # The node's CPU architecture: the Argo Rollouts plugin is a per-architecture binary
 # (amd64 in CI, arm64 on Apple silicon). cluster.sh reads it from the node.
