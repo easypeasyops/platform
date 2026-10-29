@@ -22,7 +22,9 @@
 #     cluster within a minute; this script only applies the root and waits for it.
 #   - Secrets, Postgres, network policies and backup CronJobs per environment: here, until
 #     secrets come from a secret manager instead of being generated on the laptop.
-#   - The app: Argo CD, from deploy/argocd/applications.yaml.
+#   - The apps: Argo CD, from this repo's apps root (deploy/argocd/apps-root.yaml): its
+#     ApplicationSet generates one Application per apps/<app>/envs/<env>.yaml, rendering
+#     the service chart with values from the app's repo (shortly: easypeasyops/links).
 set -euo pipefail
 
 CLUSTER=shortly
@@ -71,7 +73,8 @@ up() {
 
   # Last, once Postgres and the secrets exist: from here on, git decides what runs.
   if on ARGOCD_APPS; then
-    kubectl apply -f "$ROOT/deploy/argocd/project.yaml" -f "$ROOT/deploy/argocd/applications.yaml" >/dev/null
+    take_over_apps
+    kubectl apply -f "$APPS_ROOT/apps-project.yaml" -f "$APPS_ROOT/apps-root.yaml" >/dev/null
     for env in "${ENVS[@]}"; do wait_synced "shortly-$env" 300; done
     kubectl -n argocd get applications
   fi
@@ -215,6 +218,31 @@ take_over_from_helm() {
       kubectl -n "$ns" delete secret -l "owner=helm,name=$release" >/dev/null
       echo "helm release $ns/$release handed over to Argo CD (its Helm records removed)"
     fi
+  done
+}
+
+# The apps root's files (deploy/argocd/apps-{project,root}.yaml).
+APPS_ROOT="$ROOT/deploy/argocd"
+
+# On a cluster set up before plan step 3.3, shortly-<env> were applied from links'
+# deploy/argocd/applications.yaml. The platform's ApplicationSet generates Applications of
+# the same names, and must own them: delete each one it doesn't own, which orphans its
+# resources (nothing stops); the ApplicationSet's Application adopts them by name. Only an
+# Application without a finalizer may go this way: with one, deleting it deletes the app.
+take_over_apps() {
+  local env app owner
+  for env in "${ENVS[@]}"; do
+    app="shortly-$env"
+    kubectl -n argocd get application "$app" >/dev/null 2>&1 || continue
+    owner=$(kubectl -n argocd get application "$app" -o jsonpath='{.metadata.ownerReferences[?(@.kind=="ApplicationSet")].name}')
+    [[ "$owner" == apps ]] && continue
+    if [[ -n "$(kubectl -n argocd get application "$app" -o jsonpath='{.metadata.finalizers}')" ]]; then
+      echo "FAIL: Application $app has finalizers; deleting it would delete $app's resources." >&2
+      echo "      Remove them first (RUNBOOK: Handing shortly to the platform's ApplicationSet)." >&2
+      return 1
+    fi
+    kubectl -n argocd delete application "$app" --wait >/dev/null
+    echo "Application $app handed over to the platform's ApplicationSet (its resources keep running)"
   done
 }
 

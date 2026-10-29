@@ -17,8 +17,8 @@ lands in both repos.
 | --- | --- | --- |
 | 3.1 | Platform files copied here with history | done |
 | 3.2 | A generic `service` chart, released to GHCR as a signed OCI chart | done: 0.1.0 |
-| 3.3 | An ApplicationSet over `apps/*`; `apps/shortly/` points at links | in progress |
-| 3.4 | links drops what moved and pins this repo's workflows and chart | |
+| 3.3 | An ApplicationSet over `apps/*`; `apps/shortly/` points at links | done |
+| 3.4 | links drops what moved and pins this repo's workflows and chart | in progress |
 | 3.5 | Releases per app (`shortly/vX.Y.Z`, `ghcr.io/easypeasyops/links/shortly`) | |
 
 ## What's here
@@ -36,8 +36,9 @@ lands in both repos.
 | `scripts/gen_slo_rules.py` | Generates an app's SLO recording rules and burn-rate alerts from its SLO spec, as a values file for the service chart (`--values`) or a plain rule file for promtool. Apps run it with `uv run --script` from their repo root |
 | `scripts/cluster.sh`, `scripts/lib/` | Bootstraps the local cluster: Argo CD, then the platform root |
 
-`scripts/cluster.sh` can't run from this repo yet: it still applies shortly's AppProject
-and Applications and reads its chart, which live in links until 3.3.
+`scripts/cluster.sh` runs from this repo: it bootstraps Argo CD, applies the platform root
+(which syncs the platform from this repo) and the apps root. Until links drops its copy (3.4),
+a laptop cluster started from links still syncs the platform from links.
 
 ## CI
 

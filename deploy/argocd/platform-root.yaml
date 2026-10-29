@@ -10,7 +10,7 @@ metadata:
 spec:
   project: platform
   source:
-    repoURL: https://github.com/statsguy/shortly.git
+    repoURL: https://github.com/easypeasyops/platform.git
     targetRevision: main # cluster.sh: PLATFORM_REVISION
     path: deploy/argocd/platform
     helm:
