@@ -1,0 +1,418 @@
+---
+# Source: service/templates/database.yaml
+# Who may connect to the database's pods: the app's pods (the app, its migration Job, its
+# scheduled jobs: part-of), the Cluster's own pods (replication), and the operator (each
+# instance's status endpoint). Their egress is open: the bucket, the API server.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: notes-db
+  labels:
+    app.kubernetes.io/name: notes
+    app.kubernetes.io/instance: notes
+    app.kubernetes.io/version: "000000000000"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: service-<version>
+spec:
+  podSelector:
+    matchLabels: { cnpg.io/cluster: notes-db }
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - { port: 5432, protocol: TCP }
+      from:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/part-of: notes }
+        - podSelector:
+            matchLabels: { cnpg.io/cluster: notes-db }
+    - ports:
+        - { port: 8000, protocol: TCP }
+      from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: cnpg-system }
+
+---
+# Source: service/templates/networkpolicy.yaml
+# Least privilege on the network, for the app pods and the migration Job (both carry the
+# selector labels). Once a pod is selected, everything not listed here is denied:
+#   in:  the app port from httpFrom (anyone by default), the metrics port from Prometheus
+#   out: DNS, and the database. Nothing else: the app calls no other service.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: notes
+  labels:
+    app.kubernetes.io/name: notes
+    app.kubernetes.io/instance: notes
+    app.kubernetes.io/version: "000000000000"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: service-<version>
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: notes
+      app.kubernetes.io/instance: notes
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - ports:
+        - { port: 8000, protocol: TCP }
+    - ports:
+        - { port: 9100, protocol: TCP }
+      from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }
+      ports:
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+        - podSelector: # the app's own Postgres (templates/database.yaml)
+            matchLabels: { cnpg.io/cluster: notes-db }
+      ports:
+        - { port: 5432, protocol: TCP }
+
+---
+# Source: service/templates/pdb.yaml
+# Voluntary disruptions (node drains, cluster upgrades) may evict pods only while at least
+# minAvailable stay up. Skipped for a single replica, where it would block every drain.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: notes
+  labels:
+    app.kubernetes.io/name: notes
+    app.kubernetes.io/instance: notes
+    app.kubernetes.io/version: "000000000000"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: service-<version>
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: notes
+      app.kubernetes.io/instance: notes
+
+---
+# Source: service/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: notes
+  labels:
+    app.kubernetes.io/name: notes
+    app.kubernetes.io/instance: notes
+    app.kubernetes.io/version: "000000000000"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: service-<version>
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: notes
+    app.kubernetes.io/instance: notes
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+    - name: metrics # for Prometheus only; the NetworkPolicy admits nobody else
+      port: 9100
+      targetPort: metrics
+
+---
+# Source: service/templates/deployment.yaml
+# Staging and other non-canary environments. With canary.enabled the Rollout
+# (rollout.yaml) owns these pods instead.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notes
+  labels:
+    app.kubernetes.io/name: notes
+    app.kubernetes.io/instance: notes
+    app.kubernetes.io/version: "000000000000"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: service-<version>
+spec:
+  # With autoscaling on, `replicas` is left out ON PURPOSE: the HPA owns it, and a value
+  # here would reset the live count on every `helm upgrade` (mid-spike, too).
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0 # never drop below desired capacity during a rollout
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: notes
+      app.kubernetes.io/instance: notes
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: notes
+        app.kubernetes.io/instance: notes
+        app.kubernetes.io/version: "000000000000"
+        app.kubernetes.io/part-of: notes
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9100"
+        prometheus.io/path: /metrics
+    spec:
+      automountServiceAccountToken: false # the app never talks to the Kubernetes API
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      # Spread replicas across nodes so one node failure isn't an outage.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: notes
+              app.kubernetes.io/instance: notes
+      containers:
+        - name: app
+          image: ghcr.io/easypeasyops/example/notes@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+            - name: metrics
+              containerPort: 9100
+          env:
+            
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # startupProbe gates the other two, so a slow start isn't killed by liveness.
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 2
+            failureThreshold: 30
+          # Both probes are answered on the event loop, outside the request threadpool, so
+          # an overloaded pod is still "alive" and still reports its DB reachability. 2 s
+          # of timeout (default 1 s) absorbs CPU contention without hiding a wedged process.
+          livenessProbe: # "restart me if wedged" — never checks the DB (see api.py)
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          readinessProbe: # "send me traffic?" — DB down ⇒ out of rotation, not restarted
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 2
+          lifecycle:
+            preStop:
+              # Kubernetes sends SIGTERM and removes the pod from endpoints *concurrently*.
+              # Sleeping first lets routers stop sending traffic before uvicorn drains.
+              sleep:
+                seconds: 5
+          resources:
+            limits:
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp # read-only root FS; give Python a writable /tmp
+          emptyDir:
+            sizeLimit: 16Mi
+
+---
+# Source: service/templates/hpa.yaml
+# Scales on CPU because CPU is the measured bottleneck (docs/DESIGN.md, Capacity): one pod
+# saturates at ~1 core (single worker, GIL) long before its DB pool does.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: notes
+  labels:
+    app.kubernetes.io/name: notes
+    app.kubernetes.io/instance: notes
+    app.kubernetes.io/version: "000000000000"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: service-<version>
+spec:
+  scaleTargetRef: # the Rollout when canary.enabled: it has the same scale subresource
+    apiVersion: apps/v1
+    kind: Deployment
+    name: notes
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleDown:
+      policies:
+      - periodSeconds: 60
+        type: Pods
+        value: 1
+      stabilizationWindowSeconds: 300
+    scaleUp:
+      policies:
+      - periodSeconds: 15
+        type: Percent
+        value: 100
+      - periodSeconds: 15
+        type: Pods
+        value: 4
+      selectPolicy: Max
+      stabilizationWindowSeconds: 0
+
+---
+# Source: service/templates/database.yaml
+# The app's Postgres (platform plan 4.2), run by CloudNativePG: a primary and
+# `instances - 1` replicas. Services <name>-rw (the primary) and <name>-ro; the app user's
+# credentials in Secret <name>-app.
+#
+# Never pruned or deleted by Argo CD: turning `cluster.enabled` off, or deleting the
+# Application, leaves the database (and its volumes) in place. Removing it is a deliberate
+# `kubectl delete cluster`.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: notes-db
+  labels:
+    app.kubernetes.io/name: notes
+    app.kubernetes.io/instance: notes
+    app.kubernetes.io/version: "000000000000"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: service-<version>
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.11-minimal-trixie@sha256:87f97b9a922e469b91faaaa36ced7c2092cf890efd3622f29095d252b70b9718
+  storage:
+    size: 1Gi
+  resources:
+    limits:
+      memory: 512Mi
+    requests:
+      cpu: 50m
+      memory: 256Mi
+  # A PodDisruptionBudget on a lone primary would block every node drain.
+  enablePDB: false
+  bootstrap:
+    initdb:
+      database: notes
+      owner: notes
+  # WAL archived continuously, by the Barman Cloud plugin's sidecar, to the ObjectStore below.
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: notes-db
+
+---
+# Source: service/templates/database.yaml
+# The bucket's keys, from the platform's store. In an earlier sync wave than the Cluster, so
+# its first WAL archive finds them.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: notes-db-backup
+  labels:
+    app.kubernetes.io/name: notes
+    app.kubernetes.io/instance: notes
+    app.kubernetes.io/version: "000000000000"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: service-<version>
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  refreshInterval: 1h
+  secretStoreRef: { kind: ClusterSecretStore, name: backup-bucket }
+  target:
+    name: notes-db-backup
+    template:
+      metadata:
+        labels:
+          app.kubernetes.io/name: notes
+          app.kubernetes.io/instance: notes
+          app.kubernetes.io/version: "000000000000"
+          app.kubernetes.io/managed-by: Helm
+          helm.sh/chart: service-<version>
+        annotations: {} # not Argo CD's tracking annotation: the Secret isn't in git
+  data:
+    - secretKey: ACCESS_KEY_ID
+      remoteRef: { key: seaweedfs-s3, property: access-key }
+    - secretKey: ACCESS_SECRET_KEY
+      remoteRef: { key: seaweedfs-s3, property: secret-key }
+
+---
+# Source: service/templates/database.yaml
+# Where the backups go: the platform's bucket, a folder per namespace.
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: notes-db
+  labels:
+    app.kubernetes.io/name: notes
+    app.kubernetes.io/instance: notes
+    app.kubernetes.io/version: "000000000000"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: service-<version>
+spec:
+  retentionPolicy: "7d"
+  configuration:
+    destinationPath: s3://cnpg-backups/notes-staging
+    endpointURL: http://seaweedfs.backups.svc:8333
+    s3Credentials:
+      accessKeyId: { name: notes-db-backup, key: ACCESS_KEY_ID }
+      secretAccessKey: { name: notes-db-backup, key: ACCESS_SECRET_KEY }
+    wal:
+      compression: gzip
+    data:
+      compression: gzip
+
+---
+# Source: service/templates/database.yaml
+# A base backup on a schedule, and one as soon as the Cluster exists: a restore starts from a
+# base backup and replays WAL, so without one the archive restores nothing.
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: notes-db
+  labels:
+    app.kubernetes.io/name: notes
+    app.kubernetes.io/instance: notes
+    app.kubernetes.io/version: "000000000000"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: service-<version>
+spec:
+  schedule: "0 23 * * * *"
+  immediate: true
+  backupOwnerReference: self
+  cluster:
+    name: notes-db
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io

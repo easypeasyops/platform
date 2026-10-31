@@ -47,6 +47,10 @@ app.kubernetes.io/part-of: {{ include "service.partOf" .root }}
     - { port: 53, protocol: TCP }
 - to:
     {{- toYaml .Values.networkPolicy.databaseTo | nindent 4 }}
+    {{- if .Values.database.cluster.enabled }}
+    - podSelector: # the app's own Postgres (templates/database.yaml)
+        matchLabels: { cnpg.io/cluster: {{ include "service.fullname" . }}-db }
+    {{- end }}
   ports:
     - { port: {{ .Values.networkPolicy.databasePort }}, protocol: TCP }
 {{- with .Values.networkPolicy.extraEgress }}
