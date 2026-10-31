@@ -3,6 +3,11 @@
 {{- $name := printf "%s-db" (include "service.fullname" $) }}
 {{- $backup := .backup.enabled }}
 {{- $plugin := "barman-cloud.cloudnative-pg.io" }}
+{{- /* Argo CD sync order with a database (an Argo CD sync; plain Helm: see migrate-job.yaml):
+       wave -3  the bucket's keys, the ObjectStore, the network rules
+       wave -2  the Cluster, which Argo CD waits for until it is healthy; its backups
+       wave -1  the migration Job (a Sync hook)
+       wave  0  the app */}}
 # The app's Postgres (platform plan 4.2), run by CloudNativePG: a primary and
 # `instances - 1` replicas. Services <name>-rw (the primary) and <name>-ro; the app user's
 # credentials in Secret <name>-app.
@@ -18,6 +23,7 @@ metadata:
     {{- include "service.labels" $ | nindent 4 }}
   annotations:
     argocd.argoproj.io/sync-options: Prune=false,Delete=false
+    argocd.argoproj.io/sync-wave: "-2"
 spec:
   instances: {{ int .instances }}
   imageName: {{ required "database.cluster.imageName" .imageName }}
@@ -56,6 +62,8 @@ metadata:
   name: {{ $name }}
   labels:
     {{- include "service.labels" $ | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-3"
 spec:
   retentionPolicy: {{ .backup.retention | quote }}
   configuration:
@@ -77,6 +85,8 @@ metadata:
   name: {{ $name }}
   labels:
     {{- include "service.labels" $ | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
 spec:
   schedule: {{ .backup.schedule | quote }}
   immediate: true
@@ -87,8 +97,8 @@ spec:
   pluginConfiguration:
     name: {{ $plugin }}
 ---
-# The bucket's keys, from the platform's store. In an earlier sync wave than the Cluster, so
-# its first WAL archive finds them.
+# The bucket's keys, from the platform's store. Before the Cluster, so its first WAL archive
+# finds them.
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
@@ -96,7 +106,7 @@ metadata:
   labels:
     {{- include "service.labels" $ | nindent 4 }}
   annotations:
-    argocd.argoproj.io/sync-wave: "-1"
+    argocd.argoproj.io/sync-wave: "-3"
 spec:
   refreshInterval: 1h
   secretStoreRef: { kind: ClusterSecretStore, name: {{ .backup.secretStore }} }
@@ -124,6 +134,8 @@ metadata:
   name: {{ $name }}
   labels:
     {{- include "service.labels" $ | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-3"
 spec:
   podSelector:
     matchLabels: { cnpg.io/cluster: {{ $name }} }

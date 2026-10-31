@@ -1,10 +1,13 @@
 # An app with its own Postgres (database.cluster, platform plan 4.2), otherwise the chart's
 # defaults: this golden shows what `cluster.enabled: true` adds (the Cluster, its backups,
-# the bucket's keys, the network rules both ways) and nothing else.
+# the bucket's keys, the network rules both ways, a migration ordered after the database).
 app:
   name: notes
 image:
   repository: ghcr.io/easypeasyops/example/notes
+migrations:
+  enabled: true
+  command: [notes, migrate] # runs after the database is up (an Argo CD Sync hook)
 database:
   # The URL the operator writes for the app user.
   existingSecret: notes-db-app

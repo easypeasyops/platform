@@ -14,7 +14,21 @@ metadata:
     {{- include "service.labels" . | nindent 4 }}
     app.kubernetes.io/component: migrate
   annotations:
+    {{- if .Values.database.cluster.enabled }}
+    # The app's own database (database.cluster) is created by this release, so the
+    # migration can't run before everything else: it would wait for a database that
+    # doesn't exist yet. Under Argo CD it is a Sync hook after the database (wave -2,
+    # which Argo CD holds until the Cluster is healthy) and before the app (wave 0); an
+    # Argo CD hook annotation overrides the Helm ones below. Under plain Helm, on a first
+    # install it runs after the release's objects (the app's pods start against an empty
+    # schema for that once); on an upgrade, still before the new pods.
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/sync-wave: "-1"
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    "helm.sh/hook": post-install,pre-upgrade
+    {{- else }}
     "helm.sh/hook": pre-install,pre-upgrade
+    {{- end }}
     "helm.sh/hook-weight": "0"
     # Keep a failed Job around for `kubectl logs`; delete successful ones.
     "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded

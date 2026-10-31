@@ -13,6 +13,8 @@ metadata:
     app.kubernetes.io/version: "000000000000"
     app.kubernetes.io/managed-by: Helm
     helm.sh/chart: service-<version>
+  annotations:
+    argocd.argoproj.io/sync-wave: "-3"
 spec:
   podSelector:
     matchLabels: { cnpg.io/cluster: notes-db }
@@ -47,6 +49,9 @@ metadata:
     app.kubernetes.io/version: "000000000000"
     app.kubernetes.io/managed-by: Helm
     helm.sh/chart: service-<version>
+  annotations:
+    # Before the migration Job (wave -1), whose pods it selects too.
+    argocd.argoproj.io/sync-wave: "-3"
 spec:
   podSelector:
     matchLabels:
@@ -307,6 +312,7 @@ metadata:
     helm.sh/chart: service-<version>
   annotations:
     argocd.argoproj.io/sync-options: Prune=false,Delete=false
+    argocd.argoproj.io/sync-wave: "-2"
 spec:
   instances: 1
   imageName: ghcr.io/cloudnative-pg/postgresql:17.11-minimal-trixie@sha256:87f97b9a922e469b91faaaa36ced7c2092cf890efd3622f29095d252b70b9718
@@ -333,8 +339,8 @@ spec:
 
 ---
 # Source: service/templates/database.yaml
-# The bucket's keys, from the platform's store. In an earlier sync wave than the Cluster, so
-# its first WAL archive finds them.
+# The bucket's keys, from the platform's store. Before the Cluster, so its first WAL archive
+# finds them.
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
@@ -346,7 +352,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
     helm.sh/chart: service-<version>
   annotations:
-    argocd.argoproj.io/sync-wave: "-1"
+    argocd.argoproj.io/sync-wave: "-3"
 spec:
   refreshInterval: 1h
   secretStoreRef: { kind: ClusterSecretStore, name: backup-bucket }
@@ -380,6 +386,8 @@ metadata:
     app.kubernetes.io/version: "000000000000"
     app.kubernetes.io/managed-by: Helm
     helm.sh/chart: service-<version>
+  annotations:
+    argocd.argoproj.io/sync-wave: "-3"
 spec:
   retentionPolicy: "7d"
   configuration:
@@ -407,6 +415,8 @@ metadata:
     app.kubernetes.io/version: "000000000000"
     app.kubernetes.io/managed-by: Helm
     helm.sh/chart: service-<version>
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
 spec:
   schedule: "0 23 * * * *"
   immediate: true
@@ -416,3 +426,80 @@ spec:
   method: plugin
   pluginConfiguration:
     name: barman-cloud.cloudnative-pg.io
+---
+# Source: service/templates/migrate-job.yaml
+# Runs the app's migration command (migrations.command) from the SAME image as the
+# release, before the new pods start. One Job per release — not an initContainer in every
+# replica, which would have N pods racing to migrate the same schema.
+#
+# Rule this enables: migrations must be backward-compatible with the PREVIOUS app
+# version (expand → deploy → contract), because old pods keep serving while new ones roll
+# out, and a rollback runs old code against the new schema.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: notes-migrate-1
+  labels:
+    app.kubernetes.io/name: notes
+    app.kubernetes.io/instance: notes
+    app.kubernetes.io/version: "000000000000"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: service-<version>
+    app.kubernetes.io/component: migrate
+  annotations:
+    # The app's own database (database.cluster) is created by this release, so the
+    # migration can't run before everything else: it would wait for a database that
+    # doesn't exist yet. Under Argo CD it is a Sync hook after the database (wave -2,
+    # which Argo CD holds until the Cluster is healthy) and before the app (wave 0); an
+    # Argo CD hook annotation overrides the Helm ones below. Under plain Helm, on a first
+    # install it runs after the release's objects (the app's pods start against an empty
+    # schema for that once); on an upgrade, still before the new pods.
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/sync-wave: "-1"
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    "helm.sh/hook": post-install,pre-upgrade
+    "helm.sh/hook-weight": "0"
+    # Keep a failed Job around for `kubectl logs`; delete successful ones.
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 1
+  activeDeadlineSeconds: 300
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: notes
+        app.kubernetes.io/instance: notes
+        app.kubernetes.io/component: migrate
+        app.kubernetes.io/part-of: notes
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          image: ghcr.io/easypeasyops/example/notes@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          imagePullPolicy: IfNotPresent
+          command:
+            - notes
+            - migrate
+          env:
+            
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            limits:
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 128Mi
+
