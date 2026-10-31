@@ -9,6 +9,11 @@ metadata:
   name: {{ include "service.fullname" . }}
   labels:
     {{- include "service.labels" . | nindent 4 }}
+  {{- if .Values.database.cluster.enabled }}
+  annotations:
+    # Before the migration Job (wave -1), whose pods it selects too.
+    argocd.argoproj.io/sync-wave: "-3"
+  {{- end }}
 spec:
   podSelector:
     matchLabels:

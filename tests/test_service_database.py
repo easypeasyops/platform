@@ -39,3 +39,34 @@ def test_the_backup_keys_come_from_a_store_that_hands_them_out() -> None:
     assert backup["secretStore"] in stores
     (role,) = [d for d in docs if d["kind"] == "Role"]
     assert role["rules"][0]["resourceNames"] == [backup["remoteSecret"]]
+
+
+def _golden(app: str, env: str) -> list[dict[str, Any]]:
+    return _docs(f"charts/service/tests/{app}/{env}.golden.yaml")
+
+
+def _wave(doc: dict[str, Any]) -> int:
+    annotations = doc["metadata"].get("annotations") or {}
+    return int(annotations.get("argocd.argoproj.io/sync-wave", "0"))
+
+
+def test_with_its_own_database_the_migration_runs_after_it_and_before_the_app() -> None:
+    """The database is created by the same sync, so the migration can't be a PreSync hook
+    (it would wait for a database that doesn't exist yet): Argo CD syncs the database,
+    holds the wave until the Cluster is healthy, migrates, then rolls out the app."""
+    docs = _golden("notes", "staging")
+    (job,) = [d for d in docs if d["kind"] == "Job"]
+    annotations = job["metadata"]["annotations"]
+    assert annotations["argocd.argoproj.io/hook"] == "Sync"  # overrides the Helm hook
+    assert annotations["helm.sh/hook"] == "post-install,pre-upgrade"  # plain Helm
+    database = [d for d in docs if d["kind"] in ("Cluster", "ObjectStore", "ExternalSecret")]
+    app = [d for d in docs if d["kind"] in ("Deployment", "Rollout")]
+    policies = [d for d in docs if d["kind"] == "NetworkPolicy"]
+    assert max(map(_wave, database + policies)) < _wave(job) < min(map(_wave, app))
+
+
+def test_without_one_the_migration_is_still_a_pre_install_hook() -> None:
+    (job,) = [d for d in _golden("shortly", "prod") if d["kind"] == "Job"]
+    annotations = job["metadata"]["annotations"]
+    assert "argocd.argoproj.io/hook" not in annotations
+    assert annotations["helm.sh/hook"] == "pre-install,pre-upgrade"

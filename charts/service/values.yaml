@@ -111,6 +111,7 @@ migrations:
   enabled: false
   # The Job runs as a Helm pre-install/pre-upgrade hook: the schema is migrated BEFORE
   # new pods start, and a failed migration aborts the release (old pods keep serving).
+  # With database.cluster, after the database instead (templates/migrate-job.yaml).
   backoffLimit: 1
   activeDeadlineSeconds: 300
   # The app's migration command, run from its image (required when enabled).
