@@ -20,8 +20,8 @@
 #     kube-prometheus-stack, Kyverno and its policies, the backup bucket, the tool routes):
 #     Argo CD, from deploy/argocd/platform/ (app-of-apps). A merged change to it reaches the
 #     cluster within a minute; this script only applies the root and waits for it.
-#   - The platform's secrets: generated here and copied into the secret store
-#     (deploy/secrets/), which External Secrets reads (platform plan 4.1).
+#   - The platform's secrets: External Secrets, from the secret store (deploy/secrets/),
+#     where each is generated once (platform plan 4.1). Nothing here makes them.
 #   - Secrets, Postgres, network policies and backup CronJobs per environment: here, until
 #     secrets come from a secret manager instead of being generated on the laptop.
 #   - The apps: Argo CD, from this repo's apps root (deploy/argocd/apps-root.yaml): its
@@ -60,7 +60,7 @@ up() {
   fi
   kubectl config use-context "kind-$CLUSTER" >/dev/null
   install_argocd
-  platform_secrets
+  seed_secret_store
   platform
   take_over_from_helm
   if on FRONT_DOOR; then front_door; fi
@@ -140,43 +140,24 @@ wait_synced() {
   return 1
 }
 
-# Secrets the platform needs before it syncs. Argo CD deploys only what is in git, and git
-# holds no secrets, so they are generated here, once (a secret manager later).
-# Each is also copied into the secret store (store_secret): the store becomes their source
-# in platform plan 4.1b, and a copy made now keeps today's values (its generators only fill
-# what the store lacks).
-platform_secrets() {
-  if on MONITORING; then
-    kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-    if ! kubectl -n monitoring get secret grafana-admin >/dev/null 2>&1; then
-      pw=$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 24 || true)
-      kubectl -n monitoring create secret generic grafana-admin \
-        --from-literal=admin-user=admin --from-literal=admin-password="$pw" >/dev/null
-    fi
-    store_secret monitoring grafana-admin admin-password
-  fi
-  if on BACKUPS; then
-    # One S3 identity. SeaweedFS reads it from s3.json; the same keys are copied into each
-    # app namespace for the backup Job (see up()).
-    kubectl create namespace backups --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-    if ! kubectl -n backups get secret seaweedfs-s3 >/dev/null 2>&1; then
-      local key secret
-      key=$(LC_ALL=C tr -dc 'A-Z0-9' </dev/urandom | head -c 20 || true)
-      secret=$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 40 || true)
-      kubectl -n backups create secret generic seaweedfs-s3 \
-        --from-literal=access-key="$key" --from-literal=secret-key="$secret" \
-        --from-literal=s3.json="{\"identities\":[{\"name\":\"backup\",\"credentials\":[{\"accessKey\":\"$key\",\"secretKey\":\"$secret\"}],\"actions\":[\"Admin\",\"Read\",\"Write\",\"List\",\"Tagging\"]}]}" >/dev/null
-    fi
-    store_secret backups seaweedfs-s3 access-key secret-key
-  fi
+# The platform's secrets come from the secret store (deploy/secrets/, platform plan 4.1):
+# External Secrets generates each value there once and copies it to where it is used. A
+# cluster set up before that ran with secrets this script generated; seed_secret_store
+# copies those into the store first, so the store's generators (which only fill what it
+# lacks) keep the values already in use instead of rotating them. On a new cluster there is
+# nothing to copy.
+seed_secret_store() {
+  store_secret monitoring grafana-admin admin-password
+  store_secret backups seaweedfs-s3 access-key secret-key
 }
 
-# store_secret <namespace> <name> <key>...: copy those keys of a Secret into the secret
-# store (namespace secret-store, deploy/secrets/store.yaml) under the same name, once. The
-# store keeps the source values only: what a consumer derives (Grafana's user name, the
-# bucket's s3.json) its ExternalSecret's template makes.
+# store_secret <namespace> <name> <key>...: copy those keys of a Secret, if it exists, into
+# the secret store (namespace secret-store, deploy/secrets/store.yaml) under the same name,
+# unless the store has it already. The store keeps the source values only: what a consumer
+# derives (Grafana's user name, the bucket's s3.json) its ExternalSecret's template makes.
 store_secret() {
   local ns=$1 name=$2; shift 2
+  kubectl -n "$ns" get secret "$name" >/dev/null 2>&1 || return 0
   kubectl create namespace secret-store --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   kubectl -n secret-store get secret "$name" >/dev/null 2>&1 && return 0
   kubectl -n "$ns" get secret "$name" -o json | KEYS="$*" python3 -c '

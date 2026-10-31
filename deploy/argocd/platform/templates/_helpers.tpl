@@ -51,7 +51,8 @@ syncPolicy:
     backoff: { duration: 10s, factor: 2, maxDuration: 2m }
 {{- end }}
 
-{{/* A chart from an OCI registry, pinned by digest, with its values file from git. */}}
+{{/* A chart from an OCI registry, pinned by digest, with its values file from git;
+`extra`: one more file from git synced with it (the ExternalSecret it reads). */}}
 {{- define "platform.chartSources" -}}
 sources:
   - repoURL: {{ .chart.repo }}
@@ -68,4 +69,10 @@ sources:
   - repoURL: {{ .root.Values.repoURL }}
     targetRevision: {{ .root.Values.revision }}
     ref: values
+  {{- with .extra }}
+  - repoURL: {{ $.root.Values.repoURL }}
+    targetRevision: {{ $.root.Values.revision }}
+    path: {{ dir . }}
+    directory: { include: {{ base . }} }
+  {{- end }}
 {{- end }}
