@@ -120,6 +120,20 @@ app_namespace() {
 # first takeover: OutOfSync/Healthy). On timeout, say what is out of sync, and fail.
 wait_synced() {
   local app=$1 timeout=$2 state="" t0=$SECONDS last=$SECONDS
+  # A fresh comparison first. Right after its spec changes (the root at a new revision, a
+  # child the root just rewrote), an Application still shows its last comparison, often
+  # Synced/Healthy, for a few seconds: this wait used to pass on that and report "platform
+  # ready" before Argo CD had looked at the new commit. So ask Argo CD to refresh, and
+  # wait until it has (it removes the annotation when done). An Application that doesn't
+  # exist yet has no stale state: skip.
+  if kubectl -n argocd annotate application "$app" argocd.argoproj.io/refresh=normal \
+    --overwrite >/dev/null 2>&1; then
+    for _ in $(seq 1 30); do
+      [[ -z "$(kubectl -n argocd get application "$app" \
+        -o jsonpath='{.metadata.annotations.argocd\.argoproj\.io/refresh}' 2>/dev/null)" ]] && break
+      sleep 1
+    done
+  fi
   while ((SECONDS - t0 < timeout)); do
     state=$(kubectl -n argocd get application "$app" \
       -o jsonpath='{.status.sync.status}/{.status.health.status}' 2>/dev/null || true)
