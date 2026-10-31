@@ -24,9 +24,11 @@ agree.
 ## Checks
 
 CI (`ci.yml`): kubeconform on every manifest and on the platform chart rendered three ways,
-the metrics-server checksum, shellcheck (`-x`, entry points only) and actionlint. Run the
-same locally before pushing when a change touches them. `ci` is the one required check:
-add every new job to the gate's `needs`.
+the metrics-server checksum, `uv run pytest` (tests/, through the platform's own
+`reusable-python-check.yml`, so ruff and mypy too), shellcheck (`-x`, entry points only) and
+actionlint. Run the same locally before pushing when a change touches them. `ci` is the one
+required check: add every new job to the gate's `needs`. A test that needs Docker or the
+network is marked `integration`.
 
 The service chart's behaviour is its golden renders (`charts/service/tests/<app>/<env>.golden.yaml`).
 A refactor leaves them byte for byte the same; an intended change regenerates them

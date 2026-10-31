@@ -50,7 +50,9 @@ def raw_url(repo: str, revision: str, path: str) -> str:
     """A file in a public GitHub repo at a revision."""
     prefix = "https://github.com/"
     if not (repo.startswith(prefix) and repo.endswith(".git")):
-        raise ValueError(f"values.repoURL must be https://github.com/<owner>/<repo>.git, not {repo}")
+        raise ValueError(
+            f"values.repoURL must be https://github.com/<owner>/<repo>.git, not {repo}"
+        )
     return f"https://raw.githubusercontent.com/{repo[len(prefix) : -len('.git')]}/{revision}/{path}"
 
 
@@ -102,7 +104,7 @@ def check(env_file: Path, out: Path) -> None:
             try:
                 with urllib.request.urlopen(raw_url(repo, revision, path), timeout=30) as r:  # noqa: S310
                     local.write_bytes(r.read())
-            except Exception as e:  # noqa: BLE001 (any failure to fetch is the same finding)
+            except Exception as e:
                 return fail(where, f"values file {path} at {repo}@{revision}: {e}")
             args += ["--values", str(local)]
         try:

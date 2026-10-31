@@ -177,6 +177,16 @@ jobs:
           echo "$out"
           grep -q "already in" <<<"$out" || { echo "::error::refused for the wrong reason"; exit 1; }
 
+  # tests/ (pytest): what a schema can't check, such as which revision every child
+  # Application deploys or which namespaces a policy covers. Run by the same reusable
+  # workflow app repos call, from this commit: the platform is its first caller.
+  tests:
+    uses: ./.github/workflows/reusable-python-check.yml
+    with:
+      typecheck-paths: tests
+      coverage-min: 0 # no package to cover: the tests check manifests and scripts
+      helm-version: v4.3.1 # tests render the platform chart
+
   scripts:
     name: scripts and workflows
     runs-on: ubuntu-latest
@@ -204,7 +214,7 @@ jobs:
   gate:
     name: ci
     if: always()
-    needs: [manifests, chart, chart-release, apps, scripts]
+    needs: [manifests, chart, chart-release, apps, tests, scripts]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:

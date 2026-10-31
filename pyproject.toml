@@ -1,0 +1,41 @@
+# The platform's own tests (tests/): what kubeconform can't see, such as which namespaces a
+# policy covers, which revision each child Application deploys, and which ports the laptop
+# forwards. Not a package: scripts/ run as they are (scripts with dependencies pin them
+# inline, PEP 723).
+[project]
+name = "platform"
+version = "0"
+requires-python = ">=3.14"
+
+[tool.uv]
+package = false
+
+[dependency-groups]
+dev = [
+    "mypy>=2.4.0",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "pyyaml>=6.0.3",
+    "ruff>=0.17.0",
+    "types-pyyaml>=6.0.12.20260906",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4", "RUF", "S", "PT", "TID252"]
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S603", "S607"]   # assert; tests run helm/docker by name
+"scripts/**" = ["S603", "S607"]
+
+[tool.mypy]
+strict = true
+warn_unreachable = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["error"]
+markers = ["integration: needs Docker or the network; deselect with -m 'not integration'"]
+addopts = ["--strict-markers", "--strict-config", "-ra"]
