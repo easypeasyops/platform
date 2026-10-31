@@ -4,12 +4,11 @@ The store is a namespace whose Secrets are the source of every platform secret; 
 Secrets copies them to where they are used. These checks keep it a store and not a leak:
   - the identity External Secrets reads it with may read Secrets there and nowhere else;
   - the ClusterSecretStore reads only that namespace, and only for the namespaces it names;
-  - cluster.sh copies into the store exactly the keys the store is meant to hold.
+  - each value is generated once and replaced only by deleting it, and the consumers read
+    keys their generator makes;
+  - cluster.sh makes none of them.
 """
 
-import json
-import re
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -56,50 +55,63 @@ def test_the_cluster_store_reads_the_store_for_named_namespaces_only() -> None:
     assert set(condition["namespaces"]) <= platform_namespaces
 
 
-def test_cluster_sh_stores_only_source_values() -> None:
-    """What the store holds per secret; anything derived is the consumer's template."""
-    script = (ROOT / "scripts/cluster.sh").read_text()
-    calls = re.findall(r"^\s*store_secret (\S+) (\S+) (.+)$", script, re.M)
-    assert {(ns, name): keys.split() for ns, name, keys in calls} == {
-        ("monitoring", "grafana-admin"): ["admin-password"],
-        ("backups", "seaweedfs-s3"): ["access-key", "secret-key"],
-    }
+def _all(path: str) -> list[dict[str, Any]]:
+    return [d for d in yaml.safe_load_all((ROOT / path).read_text()) if d]
 
 
-def test_store_secret_copies_only_the_named_keys(tmp_path: Path) -> None:
-    """Run store_secret with a stub kubectl: the store's copy has the listed keys only."""
-    bin_dir, created = tmp_path / "bin", tmp_path / "created.json"
-    bin_dir.mkdir()
-    kubectl = bin_dir / "kubectl"
-    kubectl.write_text(
-        "#!/usr/bin/env bash\n"
-        'case "$*" in\n'
-        '  "create namespace"*) echo "apiVersion: v1" ;;\n'
-        '  "apply -f -") cat >/dev/null ;;\n'
-        '  "-n secret-store get secret"*) exit 1 ;;  # not in the store yet\n'
-        '  "-n monitoring get secret"*) echo \'{"metadata": {"name": "grafana-admin",'
-        ' "namespace": "monitoring", "uid": "u"}, "data": {"admin-user": "YQ==",'
-        ' "admin-password": "cA=="}}\' ;;\n'
-        f'  "create -f -") cat >"{created}" ;;\n'
-        '  *) echo "unexpected: kubectl $*" >&2; exit 2 ;;\n'
-        "esac\n"
-    )
-    kubectl.chmod(0o755)
+def _generated() -> dict[str, list[str]]:
+    """Store secret name -> the keys its generator makes."""
+    docs = _all("deploy/secrets/generated.yaml")
+    keys = {d["metadata"]["name"]: d["spec"]["secretKeys"] for d in docs if d["kind"] == "Password"}
+    made = {}
+    for es in (d for d in docs if d["kind"] == "ExternalSecret"):
+        (source,) = es["spec"]["dataFrom"]
+        made[es["spec"]["target"]["name"]] = keys[source["sourceRef"]["generatorRef"]["name"]]
+    return made
+
+
+def test_store_values_are_made_once_and_kept() -> None:
+    for es in (d for d in _all("deploy/secrets/generated.yaml") if d["kind"] == "ExternalSecret"):
+        name = es["metadata"]["name"]
+        assert es["metadata"]["namespace"] == STORE_NS, name
+        spec = es["spec"]
+        # Written on the first sync only: a resync must not rotate a password everything
+        # already uses.
+        assert spec["refreshPolicy"] == "CreatedOnce", name
+        # And replaced only by deleting it: a recreated ExternalSecret fails loudly
+        # instead of rotating (its first sync writes even over an existing Secret).
+        assert spec["target"]["immutable"] is True, name
+        # Deleting the ExternalSecret must not delete the value.
+        assert spec["target"]["creationPolicy"] == "Orphan", name
+        # Metadata set explicitly: Argo CD's tracking annotation isn't copied onto it.
+        assert spec["target"]["template"]["metadata"]["annotations"] == {}, name
+
+
+def test_consumers_read_keys_the_store_has() -> None:
+    made = _generated()
+    store = _docs()["ClusterSecretStore"]
+    allowed = set(store["spec"]["conditions"][0]["namespaces"])
+    consumers = [d for f in ("monitoring", "backups") for d in _all(f"deploy/secrets/{f}.yaml")]
+    assert {c["metadata"]["namespace"] for c in consumers} == allowed
+    for es in consumers:
+        name = es["metadata"]["name"]
+        assert es["spec"]["secretStoreRef"] == {"kind": "ClusterSecretStore", "name": "platform"}
+        # Synced before the workload that reads it (same Application, an earlier wave).
+        assert es["metadata"]["annotations"]["argocd.argoproj.io/sync-wave"] == "-1", name
+        assert es["spec"]["target"]["template"]["metadata"]["annotations"] == {}, name
+        for item in es["spec"]["data"]:
+            ref = item["remoteRef"]
+            assert ref["property"] in made[ref["key"]], (name, ref)
+            # The template uses every value it reads.
+            assert any(
+                f".{item['secretKey']} " in v
+                for v in es["spec"]["target"]["template"]["data"].values()
+            ), (name, item["secretKey"])
+
+
+def test_cluster_sh_makes_no_platform_secret() -> None:
+    """The store's generators make them (platform plan 4.1b); cluster.sh only reads one
+    (the bucket's keys, copied into each app namespace until 4.3)."""
     script = (ROOT / "scripts/cluster.sh").read_text()
-    # Just the function: the script's top level needs a cluster and its arguments.
-    start = script.index("store_secret() {")
-    function = script[start : script.index("\n}\n", start) + 3]
-    subprocess.run(
-        [
-            "bash",
-            "-c",
-            f"set -euo pipefail\n{function}\nstore_secret monitoring grafana-admin admin-password",
-        ],
-        env={"PATH": f"{bin_dir}:/usr/bin:/bin"},
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    secret = json.loads(created.read_text())
-    assert secret["metadata"] == {"name": "grafana-admin", "namespace": STORE_NS}
-    assert secret["data"] == {"admin-password": "cA=="}
+    for name in _generated():
+        assert f"create secret generic {name}" not in script, name

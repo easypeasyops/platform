@@ -125,7 +125,7 @@ def test_helm_releases_handed_over_are_the_ones_argo_cd_renders() -> None:
     rendered = {
         f"{a['spec']['destination']['namespace']}/{a['spec']['sources'][0]['helm']['releaseName']}"
         for a in _render()
-        if "sources" in a["spec"]
+        if "helm" in a["spec"].get("sources", [{}])[0]  # a chart (backups is git only)
     }
     assert handed_over <= rendered
 
