@@ -17,6 +17,9 @@ spec:
     - oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack
     - oci://ghcr.io/kyverno/charts/kyverno
     - oci://ghcr.io/external-secrets/charts/external-secrets
+    - oci://quay.io/jetstack/charts/cert-manager
+    - oci://ghcr.io/cloudnative-pg/charts/cloudnative-pg
+    - oci://ghcr.io/cloudnative-pg/charts/plugin-barman-cloud
   destinations:
     # Platform namespaces only: staging and prod belong to the app's project.
     - { server: https://kubernetes.default.svc, namespace: argocd } # the child Applications, tool routes
@@ -29,6 +32,8 @@ spec:
     - { server: https://kubernetes.default.svc, namespace: backups }
     - { server: https://kubernetes.default.svc, namespace: external-secrets }
     - { server: https://kubernetes.default.svc, namespace: secret-store }
+    - { server: https://kubernetes.default.svc, namespace: cert-manager }
+    - { server: https://kubernetes.default.svc, namespace: cnpg-system } # CloudNativePG and its plugin
   clusterResourceWhitelist:
     - { group: "*", kind: "*" }
   namespaceResourceWhitelist:

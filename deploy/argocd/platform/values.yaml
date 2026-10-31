@@ -36,6 +36,18 @@ charts:
     repo: oci://ghcr.io/external-secrets/charts/external-secrets
     version: 2.14.0
     digest: sha256:0e3d45f11522f2730ff55deef57bc43e0ff4aadc00bdab5557fa4d354b0c3ab7
+  certManager: # cert-manager v1.21.3: the certificates CloudNativePG and its plugin talk over
+    repo: oci://quay.io/jetstack/charts/cert-manager
+    version: v1.21.3
+    digest: sha256:e482675aec32862d323a9218293ff7de81192337998615e4378c56498473f240
+  cloudnativePG: # CloudNativePG 1.30.1: the apps' Postgres
+    repo: oci://ghcr.io/cloudnative-pg/charts/cloudnative-pg
+    version: 0.29.1
+    digest: sha256:3245fa051bb21d0dd9246272f57a2760b4234817a164a3167d2a1e7fb9f63fd9
+  barmanCloud: # Barman Cloud plugin v0.15.1: CloudNativePG's backups to the bucket
+    repo: oci://ghcr.io/cloudnative-pg/charts/plugin-barman-cloud
+    version: 0.8.1
+    digest: sha256:b48511269e2c75603ee2f06f6c5444e8154542103a3c3b9d692344725bac37b7
   kyverno: # Kyverno v1.19.1, the engine tests/test_admission_policies.py runs
     repo: oci://ghcr.io/kyverno/charts/kyverno
     version: 3.9.1
