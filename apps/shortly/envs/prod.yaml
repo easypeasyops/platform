@@ -5,8 +5,8 @@ env: prod
 # only to a released digest whose provenance verifies (the release's notes say how); move
 # staging's first.
 chart:
-  version: 0.1.0
-  digest: sha256:b1dfaa138c29575031ef921eea388a4fe148aae1d31a57574786444c6d47f699
+  version: 1.0.0
+  digest: sha256:20ee5f7b145bee5d59607eb39754bc8c6db81d0565a76492c5d912aa468c9bbd
 # shortly's values, from links at this revision, layered in this order.
 values:
   repoURL: https://github.com/easypeasyops/links.git
