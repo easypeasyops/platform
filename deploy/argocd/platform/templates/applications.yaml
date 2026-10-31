@@ -1,7 +1,31 @@
 {{- $v := .Values }}
 {{- $dest := "https://kubernetes.default.svc" }}
 
+# ------------------------------------------- wave -1: what the other waves' Secrets need
+---
+# External Secrets Operator: Secrets from the platform's store (deploy/secrets/). Before
+# wave 0, whose charts read those Secrets (Grafana's admin password, the bucket's keys).
+{{ include "platform.meta" (dict "name" "external-secrets" "wave" -1) }}
+spec:
+  project: platform
+  {{- include "platform.chartSources" (dict "root" $ "chart" $v.charts.externalSecrets "release" "external-secrets" "values" "deploy/kind/external-secrets-values.yaml") | nindent 2 }}
+  destination: { server: {{ $dest }}, namespace: external-secrets }
+  {{- include "platform.syncPolicy" (dict "labels" (dict "pod-security.kubernetes.io/enforce" "restricted")) | nindent 2 }}
+
 # ------------------------------------------------------------------ wave 0: charts, CRDs
+---
+# The secret store: the namespace holding the platform's secrets, and the
+# ClusterSecretStore External Secrets reads it through.
+{{ include "platform.meta" (dict "name" "secret-store" "wave" 0) }}
+spec:
+  project: platform
+  source:
+    repoURL: {{ $v.repoURL }}
+    targetRevision: {{ $v.revision }}
+    path: deploy/secrets
+    directory: { include: store.yaml }
+  destination: { server: {{ $dest }}, namespace: secret-store }
+  {{- include "platform.syncPolicy" (dict "labels" (dict "pod-security.kubernetes.io/enforce" "restricted")) | nindent 2 }}
 ---
 # metrics-server: CPU usage for the HorizontalPodAutoscaler. A vendored upstream manifest
 # plus one kind-only patch (deploy/platform/metrics-server/).

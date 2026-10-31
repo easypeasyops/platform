@@ -42,8 +42,8 @@ jobs:
           kc() { docker run --rm -i -v "$PWD:/repo:ro" -w /repo "$KUBECONFORM" -strict -summary \
             -kubernetes-version 1.37.0 -schema-location default \
             -schema-location "$CRDS/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" "$@"; }
-          # The Kyverno admission policies.
-          kc deploy/policies
+          # The Kyverno admission policies, and the secret store External Secrets reads.
+          kc deploy/policies deploy/secrets
           # The platform's root Application and its AppProject, as one document stream.
           awk 'FNR == 1 { print "---" } 1' deploy/argocd/*.yaml | kc -
           # The child Applications the platform chart renders, for both CPU architectures and
