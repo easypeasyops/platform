@@ -27,9 +27,10 @@ checkout here, and links runs it at the commit its `platform.lock` names.
 | `apps/` | Every app's environments: `apps/applicationset.yaml` generates one Argo CD Application per `apps/<app>/envs/<env>.yaml` (the service chart pinned by digest, values from the app's repo); `apps/<app>/project.yaml` is the app's AppProject. Applied by the `apps` root (`deploy/argocd/apps-{root,project}.yaml`) |
 | `charts/service/` | The chart every app deploys with (3.2, not used by anything yet): Deployment or canary Rollout, HPA, PDB, probes, network policies, monitoring. `tests/<app>/` holds an app's values and the golden render CI checks |
 | `.github/workflows/reusable-*.yml` | Reusable workflows (`workflow_call`) an app's CI calls: Python check, image build/scan/smoke test |
-| `deploy/argocd/platform/` | The platform chart (app-of-apps): Envoy Gateway, Argo Rollouts, metrics-server, kube-prometheus-stack, Kyverno and its policies, the backup bucket |
+| `deploy/argocd/platform/` | The platform chart (app-of-apps): External Secrets and the secret store, Envoy Gateway, Argo Rollouts, metrics-server, kube-prometheus-stack, Kyverno and its policies, the backup bucket |
 | `deploy/argocd/platform-{root,project}.yaml` | The root Application and the AppProject it runs in |
 | `deploy/policies/` | Kyverno admission policies: allowed registries, release provenance |
+| `deploy/secrets/` | The secret store (platform plan 4.1): the `secret-store` namespace holds the source of every platform secret; External Secrets copies them to where they are used, through the `platform` ClusterSecretStore |
 | `scripts/verify-image.sh` | The deploy gate: an image's release provenance, by the same rule as the provenance policy. An app's deploy script runs it for every registry image |
 | `tests/` | pytest: what a schema can't check (pinning, namespaces, ports, policy verdicts through the Kyverno CLI, the deploy gate) |
 | `deploy/kind/` | The kind cluster config and the values and manifests the platform installs on it |

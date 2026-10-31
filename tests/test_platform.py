@@ -28,6 +28,7 @@ VALUES = yaml.safe_load((CHART / "values.yaml").read_text())
 PROJECT = yaml.safe_load((ROOT / "deploy/argocd/platform-project.yaml").read_text())["spec"]
 REPO = "https://github.com/easypeasyops/platform.git"
 WAVE_1 = {"kyverno-policies"}  # needs Kyverno's webhook serving, not just its CRDs
+WAVE_BEFORE = {"external-secrets"}  # wave -1: wave 0's charts read Secrets it makes
 
 
 def _render(*sets: str) -> list[dict[str, Any]]:
@@ -85,12 +86,21 @@ def test_waves_put_crd_users_after_the_charts_that_install_the_crds() -> None:
         for a in _render()
     }
     assert {name for name, wave in waves.items() if wave == "1"} == WAVE_1
-    assert set(waves.values()) == {"0", "1"}
+    assert {name for name, wave in waves.items() if wave == "-1"} == WAVE_BEFORE
+    assert set(waves.values()) == {"-1", "0", "1"}
 
 
 def test_components_can_be_switched_off() -> None:
     names = {a["metadata"]["name"] for a in _render(*ALL_OFF)}
-    assert names == {"metrics-server", "envoy-gateway", "argo-rollouts", "gateway", "tool-routes"}
+    assert names == {
+        "external-secrets",
+        "secret-store",
+        "metrics-server",
+        "envoy-gateway",
+        "argo-rollouts",
+        "gateway",
+        "tool-routes",
+    }
     routes = next(a for a in _render(*ALL_OFF) if a["metadata"]["name"] == "tool-routes")
     assert routes["spec"]["source"]["directory"]["include"] == "argocd.yaml"
 
@@ -106,7 +116,8 @@ def test_rollouts_plugin_matches_the_node_architecture(arch: str) -> None:
 
 
 def test_helm_releases_handed_over_are_the_ones_argo_cd_renders() -> None:
-    """cluster.sh deletes these Helm records once Argo CD owns the resources: names must match."""
+    """cluster.sh deletes these Helm records once Argo CD owns the resources: each name must
+    be one Argo CD renders (charts added later, like External Secrets, were never Helm's)."""
     script = (ROOT / "scripts/cluster.sh").read_text()
     match = re.search(r"^HELM_RELEASES=\(([^)]*)\)", script, re.M)
     assert match
@@ -116,7 +127,7 @@ def test_helm_releases_handed_over_are_the_ones_argo_cd_renders() -> None:
         for a in _render()
         if "sources" in a["spec"]
     }
-    assert handed_over == rendered
+    assert handed_over <= rendered
 
 
 def test_root_application_points_at_the_chart() -> None:
