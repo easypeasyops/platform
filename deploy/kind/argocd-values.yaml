@@ -104,13 +104,8 @@ controller:
   # It caches every resource it manages. 768Mi was enough for the app; with the platform
   # (kube-prometheus-stack, Kyverno, Envoy Gateway and their large CRDs) it crash-looped in
   # CI, and nothing synced while it was down.
-  # CPU: half a core requested (was 100m), no limit. Every event on any CRD makes the controller
-  # re-download and re-parse the cluster's whole OpenAPI schema while holding the lock
-  # its change tracking needs (gitops-engine, Argo CD v3.5.6). With about 100 CRDs arriving
-  # at once (a fresh cluster, CI) that held its view of the cluster minutes behind; at
-  # 100m it got the smallest share of a node busy starting everything else.
   resources:
-    requests: { cpu: 500m, memory: 512Mi }
+    requests: { cpu: 100m, memory: 512Mi }
     limits: { memory: 2Gi }
 server:
   replicas: 1
