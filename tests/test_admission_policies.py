@@ -175,6 +175,16 @@ def test_allowlist_verdicts(tmp_path: Path) -> None:
         # The backup Job: pg_dump in an init container, rclone (by digest) uploads.
         _pod("backup", "rclone/rclone@sha256:" + "b" * 64, init=("postgres:17-alpine",)),
         _pod("rclone-tag", "rclone/rclone:latest"),  # a tag can move: refused
+        # A CloudNativePG instance: the operator's image copies its instance manager in,
+        # the Barman Cloud plugin's sidecar archives WAL.
+        _pod(
+            "cnpg-instance",
+            "ghcr.io/cloudnative-pg/postgresql:17.11-minimal-trixie@sha256:" + "c" * 64,
+            "ghcr.io/cloudnative-pg/plugin-barman-cloud-sidecar:v0.15.1",
+            init=("ghcr.io/cloudnative-pg/cloudnative-pg:1.30.1",),
+        ),
+        _pod("cnpg-postgres-18", "ghcr.io/cloudnative-pg/postgresql:18.4-minimal-trixie"),
+        _pod("cnpg-lookalike", "ghcr.io/cloudnative-pg-evil/postgresql:17.11-minimal-trixie"),
         _pod("tag", "ghcr.io/statsguy/shortly:0.2.0"),
         _pod("other-image", "docker.io/attacker/miner:latest"),
         _pod("bad-init", release, init=("busybox:1.36",)),
@@ -183,9 +193,10 @@ def test_allowlist_verdicts(tmp_path: Path) -> None:
         _pod("elsewhere", "busybox:1.36", ns="default"),
     ]
     verdicts = _apply(tmp_path, (POLICIES / "allowed-images.yaml").read_text(), pods)
-    for name in ("release", "db", "db-qualified", "k6", "backup"):
+    for name in ("release", "db", "db-qualified", "k6", "backup", "cnpg-instance"):
         assert verdicts[name][0] == "pass", (name, verdicts[name])
-    for name in ("tag", "other-image", "bad-init", "old-postgres", "lookalike", "rclone-tag"):
+    refused = ("tag", "other-image", "bad-init", "old-postgres", "lookalike", "rclone-tag")
+    for name in (*refused, "cnpg-postgres-18", "cnpg-lookalike"):
         assert verdicts[name][0] == "fail", (name, verdicts.get(name))
     assert "docker.io/attacker/miner:latest" in verdicts["other-image"][1]
     assert "elsewhere" not in verdicts  # not an app namespace: not evaluated

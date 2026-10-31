@@ -115,3 +115,28 @@ def test_cluster_sh_makes_no_platform_secret() -> None:
     script = (ROOT / "scripts/cluster.sh").read_text()
     for name in _generated():
         assert f"create secret generic {name}" not in script, name
+
+
+def test_the_bucket_store_hands_out_the_bucket_keys_only() -> None:
+    """The apps' databases read the bucket's keys through a store of their own, whose reader
+    may get that one Secret: an app namespace can't read the rest of the platform's store."""
+    docs = {d["kind"]: d for d in _all("deploy/secrets/bucket-store.yaml")}
+    assert docs["Role"]["metadata"]["namespace"] == STORE_NS
+    assert docs["Role"]["rules"] == [
+        {
+            "apiGroups": [""],
+            "resources": ["secrets"],
+            "resourceNames": ["seaweedfs-s3"],
+            "verbs": ["get"],
+        }
+    ]
+    assert "seaweedfs-s3" in _generated()
+    account = docs["ServiceAccount"]["metadata"]["name"]
+    assert docs["RoleBinding"]["subjects"] == [
+        {"kind": "ServiceAccount", "name": account, "namespace": STORE_NS}
+    ]
+    store = docs["ClusterSecretStore"]["spec"]
+    assert store["provider"]["kubernetes"]["auth"]["serviceAccount"]["name"] == account
+    (condition,) = store["conditions"]
+    platform = set(_docs()["ClusterSecretStore"]["spec"]["conditions"][0]["namespaces"])
+    assert not platform & set(condition["namespaces"])  # app namespaces only
