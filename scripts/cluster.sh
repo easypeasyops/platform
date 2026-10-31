@@ -60,7 +60,6 @@ up() {
   fi
   kubectl config use-context "kind-$CLUSTER" >/dev/null
   install_argocd
-  seed_secret_store
   platform
   take_over_from_helm
   if on FRONT_DOOR; then front_door; fi
@@ -138,36 +137,6 @@ wait_synced() {
   echo "FAIL: Argo CD application $app is ${state:-missing} after ${timeout}s:" >&2
   kubectl -n argocd get application "$app" -o jsonpath='{range .status.resources[?(@.status!="Synced")]}  out of sync: {.kind}/{.name}{"\n"}{end}{range .status.resources[?(@.health.status!="Healthy")]}  {.health.status}: {.kind}/{.name} {.health.message}{"\n"}{end}{range .status.conditions[*]}  {.type}: {.message}{"\n"}{end}{.status.operationState.message}{"\n"}' >&2 || true
   return 1
-}
-
-# The platform's secrets come from the secret store (deploy/secrets/, platform plan 4.1):
-# External Secrets generates each value there once and copies it to where it is used. A
-# cluster set up before that ran with secrets this script generated; seed_secret_store
-# copies those into the store first, so the store's generators (which only fill what it
-# lacks) keep the values already in use instead of rotating them. On a new cluster there is
-# nothing to copy.
-seed_secret_store() {
-  store_secret monitoring grafana-admin admin-password
-  store_secret backups seaweedfs-s3 access-key secret-key
-}
-
-# store_secret <namespace> <name> <key>...: copy those keys of a Secret, if it exists, into
-# the secret store (namespace secret-store, deploy/secrets/store.yaml) under the same name,
-# unless the store has it already. The store keeps the source values only: what a consumer
-# derives (Grafana's user name, the bucket's s3.json) its ExternalSecret's template makes.
-store_secret() {
-  local ns=$1 name=$2; shift 2
-  kubectl -n "$ns" get secret "$name" >/dev/null 2>&1 || return 0
-  kubectl create namespace secret-store --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-  kubectl -n secret-store get secret "$name" >/dev/null 2>&1 && return 0
-  kubectl -n "$ns" get secret "$name" -o json | KEYS="$*" python3 -c '
-import json, os, sys
-src = json.load(sys.stdin)
-keys = os.environ["KEYS"].split()
-json.dump({"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
-           "metadata": {"name": src["metadata"]["name"], "namespace": "secret-store"},
-           "data": {k: src["data"][k] for k in keys}}, sys.stdout)' \
-    | kubectl create -f - >/dev/null
 }
 
 # Apply the platform's root Application and wait until every child is Synced and Healthy.

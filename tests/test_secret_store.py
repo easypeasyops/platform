@@ -4,13 +4,11 @@ The store is a namespace whose Secrets are the source of every platform secret; 
 Secrets copies them to where they are used. These checks keep it a store and not a leak:
   - the identity External Secrets reads it with may read Secrets there and nowhere else;
   - the ClusterSecretStore reads only that namespace, and only for the namespaces it names;
-  - each value is generated once and never rotated by a resync, and the generator, the
-    consumers that read it and cluster.sh's seeding agree on its keys.
+  - each value is generated once and replaced only by deleting it, and the consumers read
+    keys their generator makes;
+  - cluster.sh makes none of them.
 """
 
-import json
-import re
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -77,9 +75,12 @@ def test_store_values_are_made_once_and_kept() -> None:
         name = es["metadata"]["name"]
         assert es["metadata"]["namespace"] == STORE_NS, name
         spec = es["spec"]
-        # Created only when the store lacks it, never refreshed: a resync must not rotate
-        # a password everything already uses, and a seeded store keeps its values.
+        # Written on the first sync only: a resync must not rotate a password everything
+        # already uses.
         assert spec["refreshPolicy"] == "CreatedOnce", name
+        # And replaced only by deleting it: a recreated ExternalSecret fails loudly
+        # instead of rotating (its first sync writes even over an existing Secret).
+        assert spec["target"]["immutable"] is True, name
         # Deleting the ExternalSecret must not delete the value.
         assert spec["target"]["creationPolicy"] == "Orphan", name
         # Metadata set explicitly: Argo CD's tracking annotation isn't copied onto it.
@@ -106,68 +107,9 @@ def test_consumers_read_keys_the_store_has() -> None:
             ), (name, item["secretKey"])
 
 
-def test_cluster_sh_seeds_exactly_what_the_generators_make() -> None:
-    """Seeding an older cluster's store copies the source keys the generators would make:
-    a missing key would be generated anew, an extra one would be derived data."""
+def test_cluster_sh_makes_no_platform_secret() -> None:
+    """The store's generators make them (platform plan 4.1b); cluster.sh only reads one
+    (the bucket's keys, copied into each app namespace until 4.3)."""
     script = (ROOT / "scripts/cluster.sh").read_text()
-    calls = re.findall(r"^\s*store_secret (\S+) (\S+) (.+)$", script, re.M)
-    assert {name: keys.split() for _, name, keys in calls} == _generated()
-    consumers = {
-        d["metadata"]["name"]: d["metadata"]["namespace"]
-        for f in ("monitoring", "backups")
-        for d in _all(f"deploy/secrets/{f}.yaml")
-    }
-    assert {name: ns for ns, name, _ in calls} == consumers
-
-
-def _store_secret(tmp_path: Path, source_exists: bool) -> Path:
-    """Run cluster.sh's store_secret against a stub kubectl; return where it wrote."""
-    bin_dir, created = tmp_path / "bin", tmp_path / "created.json"
-    bin_dir.mkdir()
-    kubectl = bin_dir / "kubectl"
-    source = json.dumps(
-        {
-            "metadata": {"name": "grafana-admin", "namespace": "monitoring", "uid": "u"},
-            "data": {"admin-user": "YQ==", "admin-password": "cA=="},
-        }
-    )
-    found = f"echo '{source}'" if source_exists else "exit 1"
-    kubectl.write_text(
-        "#!/usr/bin/env bash\n"
-        'case "$*" in\n'
-        '  "create namespace"*) echo "apiVersion: v1" ;;\n'
-        '  "apply -f -") cat >/dev/null ;;\n'
-        '  "-n secret-store get secret"*) exit 1 ;;  # not in the store yet\n'
-        f'  "-n monitoring get secret"*) {found} ;;\n'
-        f'  "create -f -") cat >"{created}" ;;\n'
-        '  *) echo "unexpected: kubectl $*" >&2; exit 2 ;;\n'
-        "esac\n"
-    )
-    kubectl.chmod(0o755)
-    script = (ROOT / "scripts/cluster.sh").read_text()
-    # Just the function: the script's top level needs a cluster and its arguments.
-    start = script.index("store_secret() {")
-    function = script[start : script.index("\n}\n", start) + 3]
-    subprocess.run(
-        [
-            "bash",
-            "-c",
-            f"set -euo pipefail\n{function}\nstore_secret monitoring grafana-admin admin-password",
-        ],
-        env={"PATH": f"{bin_dir}:/usr/bin:/bin"},
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return created
-
-
-def test_store_secret_copies_only_the_named_keys(tmp_path: Path) -> None:
-    secret = json.loads(_store_secret(tmp_path, source_exists=True).read_text())
-    assert secret["metadata"] == {"name": "grafana-admin", "namespace": STORE_NS}
-    assert secret["data"] == {"admin-password": "cA=="}
-
-
-def test_store_secret_does_nothing_on_a_new_cluster(tmp_path: Path) -> None:
-    """No old Secret to copy: the store's generators make the value."""
-    assert not _store_secret(tmp_path, source_exists=False).exists()
+    for name in _generated():
+        assert f"create secret generic {name}" not in script, name
