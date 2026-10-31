@@ -46,8 +46,9 @@ a laptop cluster started from links still syncs the platform from links.
 amd64, arm64 and with optional components off), checks the vendored metrics-server
 checksum, renders the service chart for every app fixture and diffs it against the
 golden files (`scripts/chart-golden.sh`), tests the SLO generator
-(`scripts/test-slo-generator.sh`), and runs shellcheck and actionlint. `ci` is the
-one required check. The kind end-to-end test of the platform still runs in links.
+(`scripts/test-slo-generator.sh`), runs `tests/` with pytest (`uv run pytest`, through
+`reusable-python-check.yml`, the same workflow apps call) and runs shellcheck and actionlint.
+`ci` is the one required check. The kind end-to-end test of the platform still runs in links.
 
 ## Onboarding an app
 
