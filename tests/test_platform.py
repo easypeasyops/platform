@@ -200,3 +200,14 @@ def test_chart_versions_still_resolve_to_their_pinned_digests(name: str) -> None
     assert _registry_digest(chart["repo"], chart["version"]) == chart["digest"], (
         f"{name} {chart['version']} no longer resolves to the pinned digest: re-pushed tag?"
     )
+
+
+def test_waits_read_a_fresh_comparison() -> None:
+    """cluster.sh's wait_synced asks Argo CD for a refresh before it trusts Synced/Healthy:
+    right after a spec change the status is the previous comparison's (links #108, on the
+    laptop: "platform ready" before Argo CD had looked at the new commit)."""
+    script = (ROOT / "scripts/cluster.sh").read_text()
+    start = script.index("wait_synced() {")
+    body = script[start : script.index("\n}\n", start)]
+    refresh = body.index("argocd.argoproj.io/refresh=normal")
+    assert refresh < body.index("while ((SECONDS - t0 < timeout))")
