@@ -1,0 +1,146 @@
+{{- with .Values.database.cluster }}
+{{- if .enabled }}
+{{- $name := printf "%s-db" (include "service.fullname" $) }}
+{{- $backup := .backup.enabled }}
+{{- $plugin := "barman-cloud.cloudnative-pg.io" }}
+# The app's Postgres (platform plan 4.2), run by CloudNativePG: a primary and
+# `instances - 1` replicas. Services <name>-rw (the primary) and <name>-ro; the app user's
+# credentials in Secret <name>-app.
+#
+# Never pruned or deleted by Argo CD: turning `cluster.enabled` off, or deleting the
+# Application, leaves the database (and its volumes) in place. Removing it is a deliberate
+# `kubectl delete cluster`.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "service.labels" $ | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec:
+  instances: {{ int .instances }}
+  imageName: {{ required "database.cluster.imageName" .imageName }}
+  storage:
+    size: {{ .storage }}
+  resources:
+    {{- toYaml .resources | nindent 4 }}
+  # A PodDisruptionBudget on a lone primary would block every node drain.
+  enablePDB: {{ gt (int .instances) 1 }}
+  bootstrap:
+    {{- if .bootstrap }}
+    {{- toYaml .bootstrap | nindent 4 }}
+    {{- else }}
+    initdb:
+      database: {{ include "service.name" $ }}
+      owner: {{ include "service.name" $ }}
+    {{- end }}
+  {{- with .externalClusters }}
+  externalClusters:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- if $backup }}
+  # WAL archived continuously, by the Barman Cloud plugin's sidecar, to the ObjectStore below.
+  plugins:
+    - name: {{ $plugin }}
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: {{ $name }}
+  {{- end }}
+{{- if $backup }}
+---
+# Where the backups go: the platform's bucket, a folder per namespace.
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "service.labels" $ | nindent 4 }}
+spec:
+  retentionPolicy: {{ .backup.retention | quote }}
+  configuration:
+    destinationPath: {{ .backup.destinationPath | default (printf "s3://cnpg-backups/%s" $.Release.Namespace) }}
+    endpointURL: {{ .backup.endpointURL }}
+    s3Credentials:
+      accessKeyId: { name: {{ $name }}-backup, key: ACCESS_KEY_ID }
+      secretAccessKey: { name: {{ $name }}-backup, key: ACCESS_SECRET_KEY }
+    wal:
+      compression: gzip
+    data:
+      compression: gzip
+---
+# A base backup on a schedule, and one as soon as the Cluster exists: a restore starts from a
+# base backup and replays WAL, so without one the archive restores nothing.
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "service.labels" $ | nindent 4 }}
+spec:
+  schedule: {{ .backup.schedule | quote }}
+  immediate: true
+  backupOwnerReference: self
+  cluster:
+    name: {{ $name }}
+  method: plugin
+  pluginConfiguration:
+    name: {{ $plugin }}
+---
+# The bucket's keys, from the platform's store. In an earlier sync wave than the Cluster, so
+# its first WAL archive finds them.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: {{ $name }}-backup
+  labels:
+    {{- include "service.labels" $ | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  refreshInterval: 1h
+  secretStoreRef: { kind: ClusterSecretStore, name: {{ .backup.secretStore }} }
+  target:
+    name: {{ $name }}-backup
+    template:
+      metadata:
+        labels:
+          {{- include "service.labels" $ | nindent 10 }}
+        annotations: {} # not Argo CD's tracking annotation: the Secret isn't in git
+  data:
+    - secretKey: ACCESS_KEY_ID
+      remoteRef: { key: {{ .backup.remoteSecret }}, property: access-key }
+    - secretKey: ACCESS_SECRET_KEY
+      remoteRef: { key: {{ .backup.remoteSecret }}, property: secret-key }
+{{- end }}
+{{- if $.Values.networkPolicy.enabled }}
+---
+# Who may connect to the database's pods: the app's pods (the app, its migration Job, its
+# scheduled jobs: part-of), the Cluster's own pods (replication), and the operator (each
+# instance's status endpoint). Their egress is open: the bucket, the API server.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "service.labels" $ | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: { cnpg.io/cluster: {{ $name }} }
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - { port: 5432, protocol: TCP }
+      from:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/part-of: {{ include "service.partOf" $ }} }
+        - podSelector:
+            matchLabels: { cnpg.io/cluster: {{ $name }} }
+    - ports:
+        - { port: 8000, protocol: TCP }
+      from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: cnpg-system }
+{{- end }}
+{{- end }}
+{{- end }}

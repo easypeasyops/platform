@@ -62,6 +62,40 @@ config:
 database:
   existingSecret: ""
   secretKey: url
+  # A Postgres for the app, run by the platform's CloudNativePG operator (platform plan 4.2;
+  # templates/database.yaml): a Cluster named <release>-db in the app's namespace, archiving
+  # WAL and base backups to the platform's bucket. Its app user's credentials are in the
+  # Secret <release>-db-app, whose key `uri` is a connection URL: the app uses it once
+  # existingSecret / secretKey above point there. Off: the app brings its own database.
+  cluster:
+    enabled: false
+    instances: 1 # a primary; 2 or more adds streaming replicas the operator fails over to
+    # Postgres 17, the line the admission policy admits (deploy/policies/allowed-images.yaml).
+    imageName: ghcr.io/cloudnative-pg/postgresql:17.11-minimal-trixie@sha256:87f97b9a922e469b91faaaa36ced7c2092cf890efd3622f29095d252b70b9718
+    storage: 1Gi
+    resources:
+      requests: { cpu: 50m, memory: 256Mi }
+      limits: { memory: 512Mi }
+    # How the database starts. Empty: a new one (initdb), the database and its owner named
+    # after the app. Anything else is the Cluster's `bootstrap` as it is (an import from
+    # another database, a recovery from a backup), with `externalClusters` the sources it
+    # names.
+    bootstrap: {}
+    externalClusters: []
+    backup:
+      enabled: true
+      # Six fields, seconds first (the operator's cron format): hourly, off the hour. A base
+      # backup; WAL is archived continuously in between, so a restore can reach any moment.
+      schedule: "0 23 * * * *"
+      retention: 7d # base backups and WAL older than this are deleted
+      # The bucket: SeaweedFS in the `backups` namespace on the platform's clusters. One
+      # folder per namespace; the operator adds the Cluster's name below it.
+      endpointURL: http://seaweedfs.backups.svc:8333
+      destinationPath: "" # default: s3://cnpg-backups/<namespace>
+      # Its keys, copied into the namespace by an ExternalSecret from this ClusterSecretStore
+      # (the platform's deploy/secrets/bucket-store.yaml).
+      secretStore: backup-bucket
+      remoteSecret: seaweedfs-s3
 
 # OpenTelemetry: tracing is on only if an endpoint is set.
 otel:
