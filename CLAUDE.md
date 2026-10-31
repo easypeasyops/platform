@@ -15,12 +15,13 @@ the app contract (platform plan): treat it like an API.
 - `deploy/policies/` and `scripts/verify-image.sh` (the deploy gate apps run) enforce the same
   provenance rules: change them together (`tests/test_admission_policies.py` checks they agree).
 
-## Until links drops these files (plan step 3.4)
+## How a change reaches the apps
 
-links' copies are the live ones: Argo CD syncs the platform from links, and `cluster.sh`
-runs from a links checkout. A fix to a file that exists in both repos lands in both, and
-the two PRs link each other. links' `scripts/deploy.sh` still runs its own copy of
-`scripts/verify-image.sh`.
+The laptop cluster runs this repo's `main` (`scripts/cluster.sh` from a checkout here). An
+app's CI runs its kind e2e against the platform commit it pins (links: `platform.lock`,
+which also pins the reusable workflows): a change here reaches that e2e when the app moves
+its pin, in a PR of its own. So a platform change that an app's e2e would catch is caught
+on the app's lock PR, not here: move the lock soon after a change that touches what apps run.
 
 ## Checks
 
