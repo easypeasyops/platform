@@ -3,7 +3,8 @@ name: service
 description: The platform's chart for an HTTP service — Deployment or canary Rollout, HPA, PDB, probes, network policies, monitoring
 type: application
 # The chart's own version, released as a signed OCI chart (tags service/vX.Y.Z). Apps pin
-# it by digest. 0.x until shortly runs on it (platform plan, 3.4); then 1.0.0, and a change
-# an app must react to is a major version.
-version: 0.1.0
+# it by digest. 1.0.0 since shortly runs on it (platform plan, 3.4): the values are a
+# contract now, so a change an app must react to is a major version, a new optional value
+# a minor one, a fix a patch (CHANGELOG.md).
+version: 1.0.0
 # Copied from easypeasyops/links deploy/helm/shortly (chart 0.10.0) at links@32d2136.
