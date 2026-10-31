@@ -8,6 +8,9 @@ check, deploy/kind/argocd-values.yaml), then starts the next.
           (the Gateway, the tool routes: the sync retry covers the few seconds' race)
   wave 1: what needs a slow chart running (the Kyverno policies: Kyverno's webhook; the
           alerts on Argo CD: kube-prometheus-stack's CRDs)
+On a fresh cluster the waves overlap: Argo CD waits only for children that report
+Progressing, and a child that has never synced reports Missing, so the next wave's children
+are created at once (CI, links #113). What orders them then is the sync retry below.
 */}}
 {{- define "platform.meta" -}}
 apiVersion: argoproj.io/v1alpha1
@@ -45,11 +48,14 @@ syncPolicy:
     labels:
       {{- toYaml . | nindent 6 }}
   {{- end }}
-  # A webhook that isn't serving yet (Kyverno's, right after it starts) refuses the first
-  # apply: retry instead of failing the sync.
+  # A webhook that isn't serving yet (Kyverno's, External Secrets') or a CRD that doesn't
+  # exist yet refuses the first apply: retry instead of failing the sync. Often, and capped
+  # at 30 s: a child that depends on another (secret-store on External Secrets' webhook,
+  # backups on the store) starts at most 30 s after it could, not up to 2 minutes, and a
+  # chain of them adds up (CI, links #113). 20 tries cover about 9 minutes.
   retry:
-    limit: 10
-    backoff: { duration: 10s, factor: 2, maxDuration: 2m }
+    limit: 20
+    backoff: { duration: 5s, factor: 2, maxDuration: 30s }
 {{- end }}
 
 {{/* A chart from an OCI registry, pinned by digest, with its values file from git;

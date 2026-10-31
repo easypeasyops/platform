@@ -137,8 +137,8 @@ spec:
 {{- end }}
 
 # The Gateway and the tool routes need only Envoy Gateway's CRDs, which arrive within
-# seconds of wave 0 starting: until then their first sync fails and the retry (10 s, then
-# 20 s...) catches up. In wave 1 they would wait for the slowest chart instead, and the
+# seconds of wave 0 starting: until then their first sync fails and the retry (5 s, then
+# 10 s...) catches up. In wave 1 they would wait for the slowest chart instead, and the
 # Envoy proxy's start (about 2 minutes) would no longer overlap with it (seen in CI).
 ---
 # The Gateway itself: its two listeners, and the NodePort Service the front door reaches.
