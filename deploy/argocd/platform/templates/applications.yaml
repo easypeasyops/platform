@@ -1,6 +1,24 @@
 {{- $v := .Values }}
 {{- $dest := "https://kubernetes.default.svc" }}
 
+# --------------------------------------------- wave -2: what the platform may deploy
+---
+# The platform's AppProject (deploy/argocd/platform-project.yaml): which registries and
+# namespaces the children may use. scripts/cluster.sh applies it once, to bootstrap; from
+# then on it comes from git like the rest, so a new chart registry or namespace reaches a
+# running cluster with the change that needs it (on the laptop, a child stayed Unknown
+# until cluster.sh re-applied the project by hand: platform #20, #23).
+{{ include "platform.meta" (dict "name" "platform-project" "wave" -2) }}
+spec:
+  project: platform
+  source:
+    repoURL: {{ $v.repoURL }}
+    targetRevision: {{ $v.revision }}
+    path: deploy/argocd
+    directory: { include: platform-project.yaml }
+  destination: { server: {{ $dest }}, namespace: argocd }
+  {{- include "platform.syncPolicy" (dict) | nindent 2 }}
+
 # ------------------------------------------- wave -1: what the other waves' Secrets need
 ---
 # External Secrets Operator: Secrets from the platform's store (deploy/secrets/). Before
