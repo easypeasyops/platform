@@ -1,0 +1,24 @@
+# cert-manager for the kind cluster (Argo CD, deploy/argocd/platform/), sized for one laptop
+# node. Only the Barman Cloud plugin uses it: the plugin and the CloudNativePG operator talk
+# over mutual TLS, with certificates cert-manager issues and renews (the plugin's chart
+# makes the Issuer and the Certificates).
+crds:
+  enabled: true # Argo CD owns them like the chart's other objects (server-side apply)
+global:
+  leaderElection:
+    namespace: cert-manager # not kube-system: everything it touches stays in its namespace
+resources:
+  requests: { cpu: 10m, memory: 64Mi }
+  limits: { memory: 256Mi }
+webhook:
+  resources:
+    requests: { cpu: 10m, memory: 32Mi }
+    limits: { memory: 128Mi }
+cainjector:
+  resources:
+    requests: { cpu: 10m, memory: 64Mi }
+    limits: { memory: 256Mi }
+# A Helm post-install hook that waits for the webhook: Argo CD's health check and the sync
+# retry already wait for it.
+startupapicheck:
+  enabled: false

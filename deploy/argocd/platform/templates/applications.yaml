@@ -11,6 +11,15 @@ spec:
   {{- include "platform.chartSources" (dict "root" $ "chart" $v.charts.externalSecrets "release" "external-secrets" "values" "deploy/kind/external-secrets-values.yaml") | nindent 2 }}
   destination: { server: {{ $dest }}, namespace: external-secrets }
   {{- include "platform.syncPolicy" (dict "labels" (dict "pod-security.kubernetes.io/enforce" "restricted")) | nindent 2 }}
+---
+# cert-manager: the certificates the Barman Cloud plugin (wave 0) and CloudNativePG talk
+# over. Before wave 0, whose plugin chart creates an Issuer and Certificates.
+{{ include "platform.meta" (dict "name" "cert-manager" "wave" -1) }}
+spec:
+  project: platform
+  {{- include "platform.chartSources" (dict "root" $ "chart" $v.charts.certManager "release" "cert-manager" "values" "deploy/kind/cert-manager-values.yaml") | nindent 2 }}
+  destination: { server: {{ $dest }}, namespace: cert-manager }
+  {{- include "platform.syncPolicy" (dict "labels" (dict "pod-security.kubernetes.io/enforce" "restricted")) | nindent 2 }}
 
 # ------------------------------------------------------------------ wave 0: charts, CRDs
 ---
@@ -26,6 +35,25 @@ spec:
     directory: { include: "{store.yaml,generated.yaml}" }
   destination: { server: {{ $dest }}, namespace: secret-store }
   {{- include "platform.syncPolicy" (dict "labels" (dict "pod-security.kubernetes.io/enforce" "restricted")) | nindent 2 }}
+---
+# CloudNativePG: the operator that runs each app's Postgres (a Cluster the service chart
+# renders in the app's namespace). Owns the namespace's labels; the plugin shares it.
+{{ include "platform.meta" (dict "name" "cloudnative-pg" "wave" 0) }}
+spec:
+  project: platform
+  {{- include "platform.chartSources" (dict "root" $ "chart" $v.charts.cloudnativePG "release" "cloudnative-pg" "values" "deploy/kind/cloudnative-pg-values.yaml") | nindent 2 }}
+  destination: { server: {{ $dest }}, namespace: cnpg-system }
+  {{- include "platform.syncPolicy" (dict "labels" (dict "pod-security.kubernetes.io/enforce" "restricted")) | nindent 2 }}
+---
+# The Barman Cloud plugin: the databases' base backups and WAL archive in the bucket. In the
+# operator's namespace, as the plugin requires; the namespace's labels are set once, by the
+# cloudnative-pg Application (two Applications managing them would fight).
+{{ include "platform.meta" (dict "name" "barman-cloud" "wave" 0) }}
+spec:
+  project: platform
+  {{- include "platform.chartSources" (dict "root" $ "chart" $v.charts.barmanCloud "release" "plugin-barman-cloud" "values" "deploy/kind/barman-cloud-values.yaml") | nindent 2 }}
+  destination: { server: {{ $dest }}, namespace: cnpg-system }
+  {{- include "platform.syncPolicy" (dict) | nindent 2 }}
 ---
 # metrics-server: CPU usage for the HorizontalPodAutoscaler. A vendored upstream manifest
 # plus one kind-only patch (deploy/platform/metrics-server/).

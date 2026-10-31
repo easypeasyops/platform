@@ -1,0 +1,8 @@
+# The Barman Cloud plugin for CloudNativePG (Argo CD, deploy/argocd/platform/): base backups
+# and WAL archiving to object storage, as a sidecar in each database pod. It replaces the
+# operator's built-in `barmanObjectStore`, deprecated and removed in CloudNativePG 1.31.
+# Installed beside the operator (same namespace, as the plugin requires); the two talk over
+# mutual TLS with certificates from cert-manager.
+resources:
+  requests: { cpu: 10m, memory: 32Mi }
+  limits: { memory: 128Mi }

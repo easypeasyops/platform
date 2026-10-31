@@ -28,7 +28,7 @@ VALUES = yaml.safe_load((CHART / "values.yaml").read_text())
 PROJECT = yaml.safe_load((ROOT / "deploy/argocd/platform-project.yaml").read_text())["spec"]
 REPO = "https://github.com/easypeasyops/platform.git"
 WAVE_1 = {"kyverno-policies"}  # needs Kyverno's webhook serving, not just its CRDs
-WAVE_BEFORE = {"external-secrets"}  # wave -1: wave 0's charts read Secrets it makes
+WAVE_BEFORE = {"external-secrets", "cert-manager"}  # wave -1: wave 0 needs their Secrets
 
 
 def _render(*sets: str) -> list[dict[str, Any]]:
@@ -95,6 +95,9 @@ def test_components_can_be_switched_off() -> None:
     assert names == {
         "external-secrets",
         "secret-store",
+        "cert-manager",
+        "cloudnative-pg",
+        "barman-cloud",
         "metrics-server",
         "envoy-gateway",
         "argo-rollouts",
@@ -128,6 +131,18 @@ def test_helm_releases_handed_over_are_the_ones_argo_cd_renders() -> None:
         if "helm" in a["spec"].get("sources", [{}])[0]  # a chart (backups is git only)
     }
     assert handed_over <= rendered
+
+
+def test_one_application_sets_each_namespaces_labels() -> None:
+    """Two Applications in one namespace (CloudNativePG and its plugin): only one of them may
+    manage the namespace's metadata, or each sync would undo the other's."""
+    managers: dict[str, list[str]] = {}
+    for app in _render():
+        if "managedNamespaceMetadata" in app["spec"]["syncPolicy"]:
+            ns = app["spec"]["destination"]["namespace"]
+            managers.setdefault(ns, []).append(app["metadata"]["name"])
+    assert {ns: names for ns, names in managers.items() if len(names) > 1} == {}
+    assert managers["cnpg-system"] == ["cloudnative-pg"]
 
 
 def test_root_application_points_at_the_chart() -> None:
@@ -178,6 +193,7 @@ def _registry_digest(repo: str, tag: str) -> str:
         "ghcr.io": f"https://ghcr.io/token?scope=repository:{path}:pull",
         "registry-1.docker.io": "https://auth.docker.io/token?service=registry.docker.io"
         f"&scope=repository:{path}:pull",
+        "quay.io": f"https://quay.io/v2/auth?service=quay.io&scope=repository:{path}:pull",
     }[host]
     with urllib.request.urlopen(token_url, timeout=20) as resp:  # noqa: S310 (fixed hosts)
         token = json.load(resp)["token"]

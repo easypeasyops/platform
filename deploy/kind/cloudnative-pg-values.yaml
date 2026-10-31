@@ -1,0 +1,11 @@
+# The CloudNativePG operator for the kind cluster (Argo CD, deploy/argocd/platform/), sized
+# for one laptop node. It runs each app's Postgres (a `Cluster` in the app's namespace,
+# rendered by the service chart) and, through the Barman Cloud plugin beside it, its base
+# backups and WAL archive in the bucket. One replica: a down operator delays failover and
+# changes, not queries (the database pods run without it).
+resources:
+  requests: { cpu: 10m, memory: 64Mi }
+  limits: { memory: 256Mi }
+# Off until kube-prometheus-stack's CRDs are guaranteed before this chart (same wave).
+monitoring:
+  podMonitorEnabled: false
