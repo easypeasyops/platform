@@ -12,14 +12,15 @@ the app contract (platform plan): treat it like an API.
 - Never rewrite `main`'s history: apps pin its commit SHAs.
 - Admission policies decide what runs in every app's namespaces. A policy change says in the
   PR which images it newly admits or refuses.
+- `deploy/policies/` and `scripts/verify-image.sh` (the deploy gate apps run) enforce the same
+  provenance rules: change them together (`tests/test_admission_policies.py` checks they agree).
 
 ## Until links drops these files (plan step 3.4)
 
 links' copies are the live ones: Argo CD syncs the platform from links, and `cluster.sh`
 runs from a links checkout. A fix to a file that exists in both repos lands in both, and
-the two PRs link each other. `deploy/policies/` and links' `scripts/verify-image.sh`
-enforce the same provenance rules; links' `tests/test_admission_policies.py` checks they
-agree.
+the two PRs link each other. links' `scripts/deploy.sh` still runs its own copy of
+`scripts/verify-image.sh`.
 
 ## Checks
 

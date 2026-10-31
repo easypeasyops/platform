@@ -31,6 +31,8 @@ lands in both repos.
 | `deploy/argocd/platform/` | The platform chart (app-of-apps): Envoy Gateway, Argo Rollouts, metrics-server, kube-prometheus-stack, Kyverno and its policies, the backup bucket |
 | `deploy/argocd/platform-{root,project}.yaml` | The root Application and the AppProject it runs in |
 | `deploy/policies/` | Kyverno admission policies: allowed registries, release provenance |
+| `scripts/verify-image.sh` | The deploy gate: an image's release provenance, by the same rule as the provenance policy. An app's deploy script runs it for every registry image |
+| `tests/` | pytest: what a schema can't check (pinning, namespaces, ports, policy verdicts through the Kyverno CLI, the deploy gate) |
 | `deploy/kind/` | The kind cluster config and the values and manifests the platform installs on it |
 | `deploy/platform/metrics-server/` | The vendored metrics-server release, checksum-pinned |
 | `scripts/gen_slo_rules.py` | Generates an app's SLO recording rules and burn-rate alerts from its SLO spec, as a values file for the service chart (`--values`) or a plain rule file for promtool. Apps run it with `uv run --script` from their repo root |
