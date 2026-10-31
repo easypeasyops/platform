@@ -162,6 +162,8 @@ platform() {
   revision=${PLATFORM_REVISION:-main}
   params=$(printf '[{"name":"arch","value":"%s"},{"name":"revision","value":"%s"},{"name":"components.monitoring","value":"%s"},{"name":"components.policies","value":"%s"},{"name":"components.backups","value":"%s"}]' \
     "$arch" "$revision" "$(bool MONITORING)" "$(bool POLICIES)" "$(bool BACKUPS)")
+  # The project, to bootstrap: the root's platform-project child keeps it in sync from git
+  # after that (wave -2).
   kubectl apply -f "$ROOT/deploy/argocd/platform-project.yaml" >/dev/null
   # One apply with the parameters already set: applying the file as it is, then patching,
   # would first sync main on the wrong architecture.

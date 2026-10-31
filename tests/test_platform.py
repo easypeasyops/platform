@@ -28,6 +28,7 @@ VALUES = yaml.safe_load((CHART / "values.yaml").read_text())
 PROJECT = yaml.safe_load((ROOT / "deploy/argocd/platform-project.yaml").read_text())["spec"]
 REPO = "https://github.com/easypeasyops/platform.git"
 WAVE_1 = {"kyverno-policies"}  # needs Kyverno's webhook serving, not just its CRDs
+WAVE_FIRST = {"platform-project"}  # wave -2: the AppProject the children are checked against
 WAVE_BEFORE = {"external-secrets", "cert-manager"}  # wave -1: wave 0 needs their Secrets
 
 
@@ -87,12 +88,14 @@ def test_waves_put_crd_users_after_the_charts_that_install_the_crds() -> None:
     }
     assert {name for name, wave in waves.items() if wave == "1"} == WAVE_1
     assert {name for name, wave in waves.items() if wave == "-1"} == WAVE_BEFORE
-    assert set(waves.values()) == {"-1", "0", "1"}
+    assert {name for name, wave in waves.items() if wave == "-2"} == WAVE_FIRST
+    assert set(waves.values()) == {"-2", "-1", "0", "1"}
 
 
 def test_components_can_be_switched_off() -> None:
     names = {a["metadata"]["name"] for a in _render(*ALL_OFF)}
     assert names == {
+        "platform-project",
         "external-secrets",
         "secret-store",
         "cert-manager",
@@ -143,6 +146,20 @@ def test_one_application_sets_each_namespaces_labels() -> None:
             managers.setdefault(ns, []).append(app["metadata"]["name"])
     assert {ns: names for ns, names in managers.items() if len(names) > 1} == {}
     assert managers["cnpg-system"] == ["cloudnative-pg"]
+
+
+def test_the_project_is_kept_from_git() -> None:
+    """The child that syncs the AppProject syncs the very file cluster.sh bootstraps with,
+    into the namespace the project lives in."""
+    (app,) = [a for a in _render() if a["metadata"]["name"] == "platform-project"]
+    source = app["spec"]["source"]
+    assert (source["path"], source["directory"]["include"]) == (
+        "deploy/argocd",
+        "platform-project.yaml",
+    )
+    project = yaml.safe_load((ROOT / "deploy/argocd/platform-project.yaml").read_text())
+    assert app["spec"]["destination"]["namespace"] == project["metadata"]["namespace"]
+    assert "deploy/argocd/platform-project.yaml" in (ROOT / "scripts/cluster.sh").read_text()
 
 
 def test_root_application_points_at_the_chart() -> None:
