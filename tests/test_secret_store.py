@@ -96,6 +96,8 @@ def test_consumers_read_keys_the_store_has() -> None:
     for es in consumers:
         name = es["metadata"]["name"]
         assert es["spec"]["secretStoreRef"] == {"kind": "ClusterSecretStore", "name": "platform"}
+        # Synced before the workload that reads it (same Application, an earlier wave).
+        assert es["metadata"]["annotations"]["argocd.argoproj.io/sync-wave"] == "-1", name
         assert es["spec"]["target"]["template"]["metadata"]["annotations"] == {}, name
         for item in es["spec"]["data"]:
             ref = item["remoteRef"]
