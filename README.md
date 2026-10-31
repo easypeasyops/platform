@@ -8,10 +8,9 @@ its own code, values and the release each environment runs; this repo owns every
 ## Status: moving in (Phase 3)
 
 The files here came from [easypeasyops/links](https://github.com/easypeasyops/links)
-(formerly `statsguy/shortly`) with their history, as plan step 3.1. Until links drops them
-(3.4), **links' copies are the live ones**: Argo CD syncs the platform from links, and the
-laptop cluster is started from a links checkout. A fix to one of these files before then
-lands in both repos.
+(formerly `statsguy/shortly`) with their history, as plan step 3.1. Since 3.4 this repo is
+the only copy: Argo CD syncs the platform from here, the laptop cluster is started from a
+checkout here, and links runs it at the commit its `platform.lock` names.
 
 | Step | Change | State |
 | --- | --- | --- |
@@ -39,8 +38,7 @@ lands in both repos.
 | `scripts/cluster.sh`, `scripts/lib/` | Bootstraps the local cluster: Argo CD, then the platform root |
 
 `scripts/cluster.sh` runs from this repo: it bootstraps Argo CD, applies the platform root
-(which syncs the platform from this repo) and the apps root. Until links drops its copy (3.4),
-a laptop cluster started from links still syncs the platform from links.
+(which syncs the platform from this repo) and the apps root.
 
 ## CI
 
@@ -50,7 +48,7 @@ checksum, renders the service chart for every app fixture and diffs it against t
 golden files (`scripts/chart-golden.sh`), tests the SLO generator
 (`scripts/test-slo-generator.sh`), runs `tests/` with pytest (`uv run pytest`, through
 `reusable-python-check.yml`, the same workflow apps call) and runs shellcheck and actionlint.
-`ci` is the one required check. The kind end-to-end test of the platform still runs in links.
+`ci` is the one required check. The kind end-to-end test runs in links, against the commit links pins.
 
 ## Onboarding an app
 
