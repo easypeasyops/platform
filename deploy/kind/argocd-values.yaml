@@ -26,6 +26,53 @@ configs:
     admin.enabled: true
     statusbadge.enabled: false
     exec.enabled: false
+    # Argo CD's own CRD health check (resource_customizations, v3.5.6), with one change: a
+    # CRD with no Established condition is Progressing, not Degraded. Right after a sync
+    # re-applies a CRD, Argo CD's cached copy can lack the condition for a minute or two
+    # while the API server has long established it; as Degraded it failed the platform
+    # root's sync (a Degraded child fails its wave), as Progressing the wave just waits.
+    # Names refused or a non-structural schema are still Degraded.
+    resource.customizations.health.apiextensions.k8s.io_CustomResourceDefinition: |
+      local hs = {}
+      if obj.metadata.deletionTimestamp ~= nil then
+        hs.status = "Progressing"
+        hs.message = "CRD is terminating"
+        return hs
+      end
+      if obj.status == nil or obj.status.conditions == nil or #obj.status.conditions == 0 then
+        hs.status = "Progressing"
+        hs.message = "Status conditions not found"
+        return hs
+      end
+      local isEstablished = false
+      for _, condition in pairs(obj.status.conditions) do
+        if condition.type == "Terminating" and condition.status == "True" then
+          hs.status = "Progressing"
+          hs.message = "CRD is terminating: " .. (condition.message or "")
+          return hs
+        end
+        if condition.type == "NamesAccepted" and condition.status == "False" then
+          hs.status = "Degraded"
+          hs.message = "CRD names have not been accepted: " .. (condition.message or "")
+          return hs
+        end
+        if condition.type == "NonStructuralSchema" and condition.status == "True" then
+          hs.status = "Degraded"
+          hs.message = "Schema violations found: " .. (condition.message or "")
+          return hs
+        end
+        if condition.type == "Established" and condition.status == "True" then
+          isEstablished = true
+        end
+      end
+      if not isEstablished then
+        hs.status = "Progressing"
+        hs.message = "CRD is not established yet"
+        return hs
+      end
+      hs.status = "Healthy"
+      hs.message = "CRD is healthy"
+      return hs
     # Report an Application's own health, so the platform root's sync waves wait for each
     # wave's children to be Healthy before the next (Argo CD dropped this default in 1.8).
     resource.customizations.health.argoproj.io_Application: |
