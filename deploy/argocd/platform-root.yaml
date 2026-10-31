@@ -18,3 +18,10 @@ spec:
   destination: { server: https://kubernetes.default.svc, namespace: argocd }
   syncPolicy:
     automated: { prune: true, selfHeal: true }
+    # The same retry as the children (deploy/argocd/platform/templates/_helpers.tpl). The
+    # root's sync fails while a child of the wave it is on is Degraded, which on a fresh
+    # cluster happens for a moment; without a policy Argo CD's default backoff applied, and
+    # the root sat in one retry for about 80 s after every child was ready (CI, links #114).
+    retry:
+      limit: 20
+      backoff: { duration: 5s, factor: 2, maxDuration: 30s }
