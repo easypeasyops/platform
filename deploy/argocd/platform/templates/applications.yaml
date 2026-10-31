@@ -14,8 +14,8 @@ spec:
 
 # ------------------------------------------------------------------ wave 0: charts, CRDs
 ---
-# The secret store: the namespace holding the platform's secrets, and the
-# ClusterSecretStore External Secrets reads it through.
+# The secret store: the namespace holding the platform's secrets, the ClusterSecretStore
+# External Secrets reads it through, and the generators that make each value once.
 {{ include "platform.meta" (dict "name" "secret-store" "wave" 0) }}
 spec:
   project: platform
@@ -23,7 +23,7 @@ spec:
     repoURL: {{ $v.repoURL }}
     targetRevision: {{ $v.revision }}
     path: deploy/secrets
-    directory: { include: store.yaml }
+    directory: { include: "{store.yaml,generated.yaml}" }
   destination: { server: {{ $dest }}, namespace: secret-store }
   {{- include "platform.syncPolicy" (dict "labels" (dict "pod-security.kubernetes.io/enforce" "restricted")) | nindent 2 }}
 ---
@@ -59,12 +59,12 @@ spec:
   {{- include "platform.syncPolicy" (dict "labels" (dict "pod-security.kubernetes.io/enforce" "restricted")) | nindent 2 }}
 {{- if $v.components.monitoring }}
 ---
-# kube-prometheus-stack. Its Grafana admin password is a Secret scripts/cluster.sh creates
-# before this syncs (never in git).
+# kube-prometheus-stack, and the ExternalSecret that makes its Grafana admin login from the
+# store (deploy/secrets/monitoring.yaml).
 {{ include "platform.meta" (dict "name" "monitoring" "wave" 0) }}
 spec:
   project: platform
-  {{- include "platform.chartSources" (dict "root" $ "chart" $v.charts.kubePrometheusStack "release" "monitoring" "values" "deploy/kind/monitoring-values.yaml") | nindent 2 }}
+  {{- include "platform.chartSources" (dict "root" $ "chart" $v.charts.kubePrometheusStack "release" "monitoring" "values" "deploy/kind/monitoring-values.yaml" "extra" "deploy/secrets/monitoring.yaml") | nindent 2 }}
   destination: { server: {{ $dest }}, namespace: monitoring }
   # "baseline", not "restricted": some of the stack's pods don't meet "restricted" yet.
   {{- include "platform.syncPolicy" (dict "labels" (dict "pod-security.kubernetes.io/enforce" "baseline")) | nindent 2 }}
@@ -89,16 +89,20 @@ spec:
 {{- end }}
 {{- if $v.components.backups }}
 ---
-# The backup bucket (SeaweedFS S3). Its credentials are a Secret scripts/cluster.sh creates
-# before this syncs.
+# The backup bucket (SeaweedFS S3), and the ExternalSecret that makes its S3 identity from
+# the store (deploy/secrets/backups.yaml).
 {{ include "platform.meta" (dict "name" "backups" "wave" 0) }}
 spec:
   project: platform
-  source:
-    repoURL: {{ $v.repoURL }}
-    targetRevision: {{ $v.revision }}
-    path: deploy/kind
-    directory: { include: backups.yaml }
+  sources:
+    - repoURL: {{ $v.repoURL }}
+      targetRevision: {{ $v.revision }}
+      path: deploy/kind
+      directory: { include: backups.yaml }
+    - repoURL: {{ $v.repoURL }}
+      targetRevision: {{ $v.revision }}
+      path: deploy/secrets
+      directory: { include: backups.yaml }
   destination: { server: {{ $dest }}, namespace: backups }
   {{- include "platform.syncPolicy" (dict "labels" (dict "pod-security.kubernetes.io/enforce" "restricted")) | nindent 2 }}
 {{- end }}

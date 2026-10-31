@@ -20,8 +20,8 @@
 #     kube-prometheus-stack, Kyverno and its policies, the backup bucket, the tool routes):
 #     Argo CD, from deploy/argocd/platform/ (app-of-apps). A merged change to it reaches the
 #     cluster within a minute; this script only applies the root and waits for it.
-#   - The platform's secrets: generated here and copied into the secret store
-#     (deploy/secrets/), which External Secrets reads (platform plan 4.1).
+#   - The platform's secrets: External Secrets, from the secret store (deploy/secrets/),
+#     where each is generated once (platform plan 4.1). Nothing here makes them.
 #   - Secrets, Postgres, network policies and backup CronJobs per environment: here, until
 #     secrets come from a secret manager instead of being generated on the laptop.
 #   - The apps: Argo CD, from this repo's apps root (deploy/argocd/apps-root.yaml): its
@@ -60,7 +60,6 @@ up() {
   fi
   kubectl config use-context "kind-$CLUSTER" >/dev/null
   install_argocd
-  platform_secrets
   platform
   take_over_from_helm
   if on FRONT_DOOR; then front_door; fi
@@ -138,55 +137,6 @@ wait_synced() {
   echo "FAIL: Argo CD application $app is ${state:-missing} after ${timeout}s:" >&2
   kubectl -n argocd get application "$app" -o jsonpath='{range .status.resources[?(@.status!="Synced")]}  out of sync: {.kind}/{.name}{"\n"}{end}{range .status.resources[?(@.health.status!="Healthy")]}  {.health.status}: {.kind}/{.name} {.health.message}{"\n"}{end}{range .status.conditions[*]}  {.type}: {.message}{"\n"}{end}{.status.operationState.message}{"\n"}' >&2 || true
   return 1
-}
-
-# Secrets the platform needs before it syncs. Argo CD deploys only what is in git, and git
-# holds no secrets, so they are generated here, once (a secret manager later).
-# Each is also copied into the secret store (store_secret): the store becomes their source
-# in platform plan 4.1b, and a copy made now keeps today's values (its generators only fill
-# what the store lacks).
-platform_secrets() {
-  if on MONITORING; then
-    kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-    if ! kubectl -n monitoring get secret grafana-admin >/dev/null 2>&1; then
-      pw=$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 24 || true)
-      kubectl -n monitoring create secret generic grafana-admin \
-        --from-literal=admin-user=admin --from-literal=admin-password="$pw" >/dev/null
-    fi
-    store_secret monitoring grafana-admin admin-password
-  fi
-  if on BACKUPS; then
-    # One S3 identity. SeaweedFS reads it from s3.json; the same keys are copied into each
-    # app namespace for the backup Job (see up()).
-    kubectl create namespace backups --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-    if ! kubectl -n backups get secret seaweedfs-s3 >/dev/null 2>&1; then
-      local key secret
-      key=$(LC_ALL=C tr -dc 'A-Z0-9' </dev/urandom | head -c 20 || true)
-      secret=$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 40 || true)
-      kubectl -n backups create secret generic seaweedfs-s3 \
-        --from-literal=access-key="$key" --from-literal=secret-key="$secret" \
-        --from-literal=s3.json="{\"identities\":[{\"name\":\"backup\",\"credentials\":[{\"accessKey\":\"$key\",\"secretKey\":\"$secret\"}],\"actions\":[\"Admin\",\"Read\",\"Write\",\"List\",\"Tagging\"]}]}" >/dev/null
-    fi
-    store_secret backups seaweedfs-s3 access-key secret-key
-  fi
-}
-
-# store_secret <namespace> <name> <key>...: copy those keys of a Secret into the secret
-# store (namespace secret-store, deploy/secrets/store.yaml) under the same name, once. The
-# store keeps the source values only: what a consumer derives (Grafana's user name, the
-# bucket's s3.json) its ExternalSecret's template makes.
-store_secret() {
-  local ns=$1 name=$2; shift 2
-  kubectl create namespace secret-store --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-  kubectl -n secret-store get secret "$name" >/dev/null 2>&1 && return 0
-  kubectl -n "$ns" get secret "$name" -o json | KEYS="$*" python3 -c '
-import json, os, sys
-src = json.load(sys.stdin)
-keys = os.environ["KEYS"].split()
-json.dump({"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
-           "metadata": {"name": src["metadata"]["name"], "namespace": "secret-store"},
-           "data": {k: src["data"][k] for k in keys}}, sys.stdout)' \
-    | kubectl create -f - >/dev/null
 }
 
 # Apply the platform's root Application and wait until every child is Synced and Healthy.

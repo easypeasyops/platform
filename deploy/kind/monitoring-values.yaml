@@ -88,7 +88,7 @@ alertmanager:
 grafana:
   fullnameOverride: grafana
   admin:
-    existingSecret: grafana-admin # random password, created once by scripts/cluster.sh
+    existingSecret: grafana-admin # from the secret store (deploy/secrets/monitoring.yaml)
   # Reached at this address (deploy/kind/tools/monitoring.yaml); Grafana builds its links
   # and login redirects from it.
   grafana.ini:
