@@ -14,8 +14,9 @@ spec:
 
 # ------------------------------------------------------------------ wave 0: charts, CRDs
 ---
-# The secret store: the namespace holding the platform's secrets, the ClusterSecretStore
-# External Secrets reads it through, and the generators that make each value once.
+# The secret store: the namespace holding the platform's secrets, the ClusterSecretStores
+# External Secrets reads it through (`platform`; `backup-bucket`, the bucket's keys for the
+# apps' databases), and the generators that make each value once.
 {{ include "platform.meta" (dict "name" "secret-store" "wave" 0) }}
 spec:
   project: platform
@@ -23,7 +24,7 @@ spec:
     repoURL: {{ $v.repoURL }}
     targetRevision: {{ $v.revision }}
     path: deploy/secrets
-    directory: { include: "{store.yaml,generated.yaml}" }
+    directory: { include: "{store.yaml,bucket-store.yaml,generated.yaml}" }
   destination: { server: {{ $dest }}, namespace: secret-store }
   {{- include "platform.syncPolicy" (dict "labels" (dict "pod-security.kubernetes.io/enforce" "restricted")) | nindent 2 }}
 ---
