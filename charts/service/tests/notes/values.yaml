@@ -5,6 +5,8 @@ app:
   name: notes
 image:
   repository: ghcr.io/easypeasyops/example/notes
+monitoring:
+  enabled: true # a ServiceMonitor for the app, a PodMonitor for its database
 migrations:
   enabled: true
   command: [notes, migrate] # runs after the database is up (an Argo CD Sync hook)

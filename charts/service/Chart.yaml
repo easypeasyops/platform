@@ -6,5 +6,5 @@ type: application
 # it by digest. 1.0.0 since shortly runs on it (platform plan, 3.4): the values are a
 # contract now, so a change an app must react to is a major version, a new optional value
 # a minor one, a fix a patch (CHANGELOG.md).
-version: 1.0.0
+version: 1.1.0
 # Copied from easypeasyops/links deploy/helm/shortly (chart 0.10.0) at links@32d2136.

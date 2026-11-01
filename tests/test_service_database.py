@@ -70,3 +70,23 @@ def test_without_one_the_migration_is_still_a_pre_install_hook() -> None:
     annotations = job["metadata"]["annotations"]
     assert "argocd.argoproj.io/hook" not in annotations
     assert annotations["helm.sh/hook"] == "pre-install,pre-upgrade"
+
+
+def test_with_monitoring_prometheus_scrapes_the_database() -> None:
+    """The PodMonitor picks the Cluster's instances, and the database's NetworkPolicy lets
+    the app's scraper (and nothing else new) reach their exporter."""
+    docs = _golden("notes", "staging")
+    (monitor,) = [d for d in docs if d["kind"] == "PodMonitor"]
+    assert monitor["spec"]["selector"]["matchLabels"] == {
+        "cnpg.io/cluster": "notes-db",
+        "cnpg.io/podRole": "instance",
+    }
+    assert [e["port"] for e in monitor["spec"]["podMetricsEndpoints"]] == ["metrics"]
+    (policy,) = [
+        d for d in docs if d["kind"] == "NetworkPolicy" and d["metadata"]["name"] == "notes-db"
+    ]
+    (exporter,) = [
+        r for r in policy["spec"]["ingress"] if r["ports"] == [{"port": 9187, "protocol": "TCP"}]
+    ]
+    values = yaml.safe_load((ROOT / "charts/service/values.yaml").read_text())
+    assert exporter["from"] == values["networkPolicy"]["metricsFrom"]
