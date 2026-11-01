@@ -19,7 +19,9 @@ spec:
 ---
 # Postgres accepts connections from shortly's pods only: the app, its migration Job and the
 # cleanup Job, which all carry app.kubernetes.io/part-of=shortly (chart 0.6.0 and later),
-# and the backup Job (app.kubernetes.io/component=backup, deploy/kind/postgres-backup.yaml).
+# the backup Job (app.kubernetes.io/component=backup, deploy/kind/postgres-backup.yaml),
+# and, while an environment moves to CloudNativePG (platform plan 4.3), its new Cluster's
+# pods (label cnpg.io/cluster), whose import Job copies the database from here.
 # Its readiness probe is an exec (pg_isready), so it needs no network rule.
 # (Charts before 0.6.0 were admitted by app.kubernetes.io/name=shortly. That peer was the
 # "expand" half of the label change; it was removed once no older release ran: "contract".)
@@ -37,5 +39,8 @@ spec:
             matchLabels: { app.kubernetes.io/part-of: shortly }
         - podSelector:
             matchLabels: { app.kubernetes.io/component: backup }
+        - podSelector:
+            matchExpressions:
+              - { key: cnpg.io/cluster, operator: Exists }
       ports:
         - { port: 5432, protocol: TCP }
