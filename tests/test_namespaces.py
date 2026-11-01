@@ -48,8 +48,8 @@ def test_project_and_backups_admit_the_apps_namespaces() -> None:
     project = yaml.safe_load((ROOT / "apps/shortly/project.yaml").read_text())
     assert {d["namespace"] for d in project["spec"]["destinations"]} == want
     backups = (ROOT / "deploy/kind/backups.yaml").read_text()
-    # Twice: the pg_dump Jobs, and the CloudNativePG pods.
-    assert backups.count("values: [shortly-staging, shortly-prod, restore-drill]") == 2
+    # The CloudNativePG pods: their Barman Cloud sidecar, and the restore drill's Cluster.
+    assert backups.count("values: [shortly-staging, shortly-prod, restore-drill]") == 1
     bucket = yaml.safe_load_all((ROOT / "deploy/secrets/bucket-store.yaml").read_text())
     (store,) = [d for d in bucket if d["kind"] == "ClusterSecretStore"]
     assert store["spec"]["conditions"] == [{"namespaces": ["shortly-staging", "shortly-prod"]}]

@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # Local Kubernetes for shortly: one kind cluster, two namespaces (staging, prod), each with
-# its own Postgres and secrets — the shape of real environments, on a laptop.
+# its own database — the shape of real environments, on a laptop.
 #
 #   scripts/cluster.sh up              # idempotent
 #   MONITORING=0 scripts/cluster.sh up # skip kube-prometheus-stack (saves ~1 GB of RAM)
 #   POLICIES=0 scripts/cluster.sh up   # skip Kyverno and the admission policies
-#   BACKUPS=0 scripts/cluster.sh up    # skip the backup bucket and the backup CronJobs
+#   BACKUPS=0 scripts/cluster.sh up    # skip the backup bucket (the databases can't archive)
 #   ARGOCD_APPS=0 scripts/cluster.sh up # don't let Argo CD manage the app (CI: the e2e
 #                                       # deploys with deploy.sh instead)
 #   PLATFORM_REVISION=<sha> scripts/cluster.sh up # the platform from that commit, not main
 #   FRONT_DOOR=0 scripts/cluster.sh up  # no forwarders on the laptop's ports 8080 and 8090
 #   scripts/cluster.sh wake            # after the laptop slept: restart the CronJob
-#                                       # scheduler, back up any environment that's overdue
+#                                       # scheduler, so the cleanup CronJob runs on time
 #   scripts/cluster.sh down
 #
 # What runs where:
@@ -22,8 +22,9 @@
 #     cluster within a minute; this script only applies the root and waits for it.
 #   - The platform's secrets: External Secrets, from the secret store (deploy/secrets/),
 #     where each is generated once (platform plan 4.1). Nothing here makes them.
-#   - Secrets, Postgres, network policies and backup CronJobs per environment: here, until
-#     secrets come from a secret manager instead of being generated on the laptop.
+#   - Each environment's namespace (restricted Pod Security) and its default-deny network
+#     policy: here. Its database is the app's own (the service chart's database.cluster,
+#     CloudNativePG; platform plan 4.3), with its credentials and backups: nothing here.
 #   - The apps: Argo CD, from this repo's apps root (deploy/argocd/apps-root.yaml): its
 #     ApplicationSet generates one Application per apps/<app>/envs/<env>.yaml, rendering
 #     the service chart with values from the app's repo (shortly: easypeasyops/links).
@@ -65,14 +66,9 @@ up() {
   if on FRONT_DOOR; then front_door; fi
 
   for env in "${ENVS[@]}"; do app_namespace "$(ns_of "$env")"; done
-
-  for env in "${ENVS[@]}"; do
-    ns=$(ns_of "$env")
-    kubectl -n "$ns" rollout status statefulset/postgres --timeout=180s
-  done
   echo "cluster ready: namespaces $STAGING_NS $PROD_NS"
 
-  # Last, once Postgres and the secrets exist: from here on, git decides what runs.
+  # Last, once the namespaces exist: from here on, git decides what runs.
   if on ARGOCD_APPS; then
     take_over_apps
     kubectl apply -f "$APPS_ROOT/apps-project.yaml" -f "$APPS_ROOT/apps-root.yaml" >/dev/null
@@ -81,38 +77,20 @@ up() {
   fi
 }
 
-# One environment's namespace: restricted Pod Security, its database and secrets, network
-# policies and backups. Idempotent; never overwrites a Secret.
+# One environment's namespace: restricted Pod Security and default-deny ingress. Idempotent.
+# Its database, the database's credentials and backups come with the app (the service
+# chart's database.cluster); the old Postgres, its Secrets and its pg_dump CronJob were made
+# here until platform plan 4.3 (RUNBOOK in links: removing them from a cluster made before).
 app_namespace() {
-  local ns=$1 pw
+  local ns=$1
   kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   # Enforce the "restricted" Pod Security Standard: the API server itself rejects any pod
   # that runs as root, keeps capabilities, or allows privilege escalation.
   kubectl label namespace "$ns" --overwrite \
     pod-security.kubernetes.io/enforce=restricted \
     pod-security.kubernetes.io/warn=restricted >/dev/null
-
-  # Secrets are generated here, once, and never written to git. In a real cluster they'd
-  # come from a secret manager (External Secrets, Vault, Sealed Secrets).
-  if ! kubectl -n "$ns" get secret postgres-auth >/dev/null 2>&1; then
-    pw=$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32 || true)
-    kubectl -n "$ns" create secret generic postgres-auth --from-literal=password="$pw" >/dev/null
-    kubectl -n "$ns" create secret generic shortly-db \
-      --from-literal=url="postgresql://shortly:${pw}@postgres:5432/shortly" >/dev/null
-  fi
-  kubectl -n "$ns" apply -f "$ROOT/deploy/kind/postgres.yaml" >/dev/null
-  # Default-deny ingress, and Postgres open to shortly's pods only. The chart adds the
-  # app's own policy (deploy/helm/shortly/templates/networkpolicy.yaml).
+  # Default-deny ingress. The chart adds the app's own policies (the app's, its database's).
   kubectl -n "$ns" apply -f "$ROOT/deploy/kind/network-policies.yaml" >/dev/null
-  if on BACKUPS; then
-    # Each environment gets the bucket credentials and an hourly backup CronJob.
-    if ! kubectl -n "$ns" get secret backup-s3 >/dev/null 2>&1; then
-      kubectl -n "$ns" create secret generic backup-s3 \
-        --from-literal=access-key="$(kubectl -n backups get secret seaweedfs-s3 -o jsonpath='{.data.access-key}' | base64 -d)" \
-        --from-literal=secret-key="$(kubectl -n backups get secret seaweedfs-s3 -o jsonpath='{.data.secret-key}' | base64 -d)" >/dev/null
-    fi
-    kubectl -n "$ns" apply -f "$ROOT/deploy/kind/postgres-backup.yaml" >/dev/null
-  fi
 }
 
 # Wait for an Application to be Synced AND Healthy. Healthy alone comes first when Argo CD
@@ -274,12 +252,11 @@ front_door() {
 
 # A sleeping Mac pauses Docker's VM, and the CronJob controller's timers only count time
 # while it runs: at 10% awake, "the next run in an hour" comes 9 hours later (seen on
-# 2026-10-24: backups at 22:41, 07:41, 16:41 and none between). Restarting the controller
-# makes it read every CronJob against the wall clock at once; startingDeadlineSeconds (50
-# minutes) lets it start a run it just missed. Backups older than WAKE_BACKUP_MAX_AGE
-# seconds (default an hour, the schedule) are taken right away instead of waiting.
+# 2026-10-24: the hourly backups at 22:41, 07:41, 16:41 and none between). Restarting the
+# controller makes it read every CronJob (the app's cleanup) against the wall clock at
+# once. The databases' backups don't depend on it: CloudNativePG schedules its own.
 wake() {
-  local node="$CLUSTER-control-plane" before env ns last age
+  local node="$CLUSTER-control-plane" before
   kubectl config use-context "kind-$CLUSTER" >/dev/null
   before=$(kubectl -n kube-system get pod "kube-controller-manager-$node" \
     -o jsonpath='{.status.containerStatuses[0].restartCount}')
@@ -292,18 +269,6 @@ wake() {
     sleep 2
   done
   echo "kube-controller-manager restarted (restarts: $((before + 1))): CronJobs rescheduled from the wall clock"
-  for env in "${ENVS[@]}"; do
-    ns=$(ns_of "$env")
-    kubectl -n "$ns" get cronjob postgres-backup >/dev/null 2>&1 || continue
-    last=$(kubectl -n "$ns" get cronjob postgres-backup -o jsonpath='{.status.lastSuccessfulTime}')
-    age=$(python3 -c "import datetime as d,sys; t=sys.argv[1]; print(int((d.datetime.now(d.timezone.utc)-d.datetime.fromisoformat(t.replace('Z','+00:00'))).total_seconds()) if t else 10**9)" "$last")
-    if ((age > ${WAKE_BACKUP_MAX_AGE:-3600})); then
-      kubectl -n "$ns" create job "backup-wake-$(date +%s)" --from=cronjob/postgres-backup >/dev/null
-      echo "$ns: last backup ${last:-never}: started one now (kubectl -n $ns get jobs)"
-    else
-      echo "$ns: last backup $last: recent enough"
-    fi
-  done
 }
 
 down() {

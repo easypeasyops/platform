@@ -172,9 +172,8 @@ def test_allowlist_verdicts(tmp_path: Path) -> None:
         _pod("db", "postgres:17-alpine"),
         _pod("db-qualified", "docker.io/library/postgres:17-alpine"),
         _pod("k6", "grafana/k6:2.3.0"),
-        # The backup Job: pg_dump in an init container, rclone (by digest) uploads.
-        _pod("backup", "rclone/rclone@sha256:" + "b" * 64, init=("postgres:17-alpine",)),
-        _pod("rclone-tag", "rclone/rclone:latest"),  # a tag can move: refused
+        # rclone uploaded the old pg_dump backups (removed in platform plan 4.3): refused now.
+        _pod("rclone", "rclone/rclone@sha256:" + "b" * 64),
         # A CloudNativePG instance: the operator's image copies its instance manager in,
         # the Barman Cloud plugin's sidecar archives WAL.
         _pod(
@@ -193,9 +192,9 @@ def test_allowlist_verdicts(tmp_path: Path) -> None:
         _pod("elsewhere", "busybox:1.36", ns="default"),
     ]
     verdicts = _apply(tmp_path, (POLICIES / "allowed-images.yaml").read_text(), pods)
-    for name in ("release", "db", "db-qualified", "k6", "backup", "cnpg-instance"):
+    for name in ("release", "db", "db-qualified", "k6", "cnpg-instance"):
         assert verdicts[name][0] == "pass", (name, verdicts[name])
-    refused = ("tag", "other-image", "bad-init", "old-postgres", "lookalike", "rclone-tag")
+    refused = ("tag", "other-image", "bad-init", "old-postgres", "lookalike", "rclone")
     for name in (*refused, "cnpg-postgres-18", "cnpg-lookalike"):
         assert verdicts[name][0] == "fail", (name, verdicts.get(name))
     assert "docker.io/attacker/miner:latest" in verdicts["other-image"][1]
