@@ -7,6 +7,16 @@ an app that doesn't set it) is a major version; a new optional value is a minor 
 that changes no render an app relies on is a patch. Each release's digest is in its GitHub
 Release.
 
+## 1.1.0
+
+- With `database.cluster` and `monitoring.enabled`: a PodMonitor `<release>-db` scrapes each
+  instance's exporter (port 9187), and the database's NetworkPolicy admits
+  `networkPolicy.metricsFrom` to it. Prometheus then has CloudNativePG's metrics
+  (`cnpg_pg_stat_archiver_*` for WAL archiving) and the Barman Cloud plugin's
+  (`barman_cloud_cloudnative_pg_io_last_available_backup_timestamp`,
+  `_last_failed_backup_timestamp`, `_first_recoverability_point`), for an app's backup
+  alerts. Additive: nothing else renders differently from 1.0.0.
+
 ## 1.0.0
 
 The values are a contract from here: shortly runs on this chart in staging and prod.

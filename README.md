@@ -15,7 +15,7 @@ checkout here, and links runs it at the commit its `platform.lock` names.
 | Step | Change | State |
 | --- | --- | --- |
 | 3.1 | Platform files copied here with history | done |
-| 3.2 | A generic `service` chart, released to GHCR as a signed OCI chart | done: 0.1.0; 1.0.0 since 4.2 |
+| 3.2 | A generic `service` chart, released to GHCR as a signed OCI chart | done: 0.1.0; 1.0.0 since 4.2; 1.1.0 scrapes the databases |
 | 3.3 | An ApplicationSet over `apps/*`; `apps/shortly/` points at links | done |
 | 3.4 | links drops what moved and pins this repo's workflows and chart | done |
 | 3.5 | Releases per app (`shortly/vX.Y.Z`, `ghcr.io/easypeasyops/links/shortly`) | |

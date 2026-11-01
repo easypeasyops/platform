@@ -1,8 +1,8 @@
 ---
 # Source: service/templates/database.yaml
 # Who may connect to the database's pods: the app's pods (the app, its migration Job, its
-# scheduled jobs: part-of), the Cluster's own pods (replication), and the operator (each
-# instance's status endpoint). Their egress is open: the bucket, the API server.
+# scheduled jobs: part-of), the Cluster's own pods (replication), the operator (each
+# instance's status endpoint), and with monitoring Prometheus (the exporter). Their egress is open: the bucket, the API server.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -32,6 +32,16 @@ spec:
       from:
         - namespaceSelector:
             matchLabels: { kubernetes.io/metadata.name: cnpg-system }
+    # The instances' exporter (PodMonitor below): the app's scraper only.
+    - ports:
+        - { port: 9187, protocol: TCP }
+      from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
 
 ---
 # Source: service/templates/networkpolicy.yaml
@@ -403,6 +413,30 @@ spec:
 
 ---
 # Source: service/templates/database.yaml
+# Prometheus scrapes each instance's exporter (port 9187, `metrics`): CloudNativePG's own
+# metrics (WAL archiving: cnpg_pg_stat_archiver_*; replication, connections) and the Barman
+# Cloud plugin's (barman_cloud_cloudnative_pg_io_last_available_backup_timestamp,
+# _last_failed_backup_timestamp, _first_recoverability_point), which an app's backup alerts
+# read. Rendered only where the Prometheus Operator CRDs exist, like the ServiceMonitor.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: notes-db
+  labels:
+    app.kubernetes.io/name: notes
+    app.kubernetes.io/instance: notes
+    app.kubernetes.io/version: "000000000000"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: service-<version>
+spec:
+  selector:
+    matchLabels: { cnpg.io/cluster: notes-db, cnpg.io/podRole: instance }
+  podMetricsEndpoints:
+    - port: metrics
+      interval: 15s
+
+---
+# Source: service/templates/database.yaml
 # A base backup on a schedule, and one as soon as the Cluster exists: a restore starts from a
 # base backup and replays WAL, so without one the archive restores nothing.
 apiVersion: postgresql.cnpg.io/v1
@@ -426,6 +460,33 @@ spec:
   method: plugin
   pluginConfiguration:
     name: barman-cloud.cloudnative-pg.io
+
+---
+# Source: service/templates/servicemonitor.yaml
+# Prometheus finds the pods through the Service's endpoints and scrapes each one. The job
+# label becomes the Service name (the release name), which the alert rules select on.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: notes
+  labels:
+    app.kubernetes.io/name: notes
+    app.kubernetes.io/instance: notes
+    app.kubernetes.io/version: "000000000000"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: service-<version>
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: notes
+      app.kubernetes.io/instance: notes
+  # Copied from each pod onto its series: tells a canary's metrics from the stable pods'
+  # (templates/analysistemplate.yaml). Pods without it (no Rollout) just don't get it.
+  podTargetLabels: [rollouts-pod-template-hash]
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 15s
 ---
 # Source: service/templates/migrate-job.yaml
 # Runs the app's migration command (migrations.command) from the SAME image as the

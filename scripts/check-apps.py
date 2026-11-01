@@ -112,6 +112,7 @@ def check(env_file: Path, out: Path) -> None:
                 "helm", "template", app, f"{CHART}@{digest}", "--namespace", namespace, *args,
                 "--kube-version", "1.37.0",
                 "--api-versions", "monitoring.coreos.com/v1/ServiceMonitor",
+                "--api-versions", "monitoring.coreos.com/v1/PodMonitor",
                 "--api-versions", "monitoring.coreos.com/v1/PrometheusRule",
             )  # fmt: skip
         except subprocess.CalledProcessError as e:

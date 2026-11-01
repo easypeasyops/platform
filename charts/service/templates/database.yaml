@@ -126,8 +126,8 @@ spec:
 {{- if $.Values.networkPolicy.enabled }}
 ---
 # Who may connect to the database's pods: the app's pods (the app, its migration Job, its
-# scheduled jobs: part-of), the Cluster's own pods (replication), and the operator (each
-# instance's status endpoint). Their egress is open: the bucket, the API server.
+# scheduled jobs: part-of), the Cluster's own pods (replication), the operator (each
+# instance's status endpoint), and with monitoring Prometheus (the exporter). Their egress is open: the bucket, the API server.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -153,6 +153,33 @@ spec:
       from:
         - namespaceSelector:
             matchLabels: { kubernetes.io/metadata.name: cnpg-system }
+    {{- if $.Values.monitoring.enabled }}
+    # The instances' exporter (PodMonitor below): the app's scraper only.
+    - ports:
+        - { port: 9187, protocol: TCP }
+      from:
+        {{- required "networkPolicy.metricsFrom must name the scraper" $.Values.networkPolicy.metricsFrom | toYaml | nindent 8 }}
+    {{- end }}
+{{- end }}
+{{- if and $.Values.monitoring.enabled ($.Capabilities.APIVersions.Has "monitoring.coreos.com/v1/PodMonitor") }}
+---
+# Prometheus scrapes each instance's exporter (port 9187, `metrics`): CloudNativePG's own
+# metrics (WAL archiving: cnpg_pg_stat_archiver_*; replication, connections) and the Barman
+# Cloud plugin's (barman_cloud_cloudnative_pg_io_last_available_backup_timestamp,
+# _last_failed_backup_timestamp, _first_recoverability_point), which an app's backup alerts
+# read. Rendered only where the Prometheus Operator CRDs exist, like the ServiceMonitor.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "service.labels" $ | nindent 4 }}
+spec:
+  selector:
+    matchLabels: { cnpg.io/cluster: {{ $name }}, cnpg.io/podRole: instance }
+  podMetricsEndpoints:
+    - port: metrics
+      interval: {{ $.Values.monitoring.scrapeInterval }}
 {{- end }}
 {{- end }}
 {{- end }}

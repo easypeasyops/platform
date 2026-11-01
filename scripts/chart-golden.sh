@@ -39,6 +39,7 @@ render() { # <app> <env>
     --set "image.digest=$PLACEHOLDER_DIGEST" \
     --kube-version 1.37.0 \
     --api-versions monitoring.coreos.com/v1/ServiceMonitor \
+    --api-versions monitoring.coreos.com/v1/PodMonitor \
     --api-versions monitoring.coreos.com/v1/PrometheusRule |
     sed -E 's/(helm\.sh\/chart: service-)[^ ]+/\1<version>/'
 }
