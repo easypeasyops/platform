@@ -24,8 +24,9 @@
 #     where each is generated once (platform plan 4.1). Nothing here makes them.
 #   - Each environment's namespace (restricted Pod Security) and its default-deny network
 #     policy (deploy/app-namespace/): here, and by Argo CD too once the apps are on (the
-#     ApplicationSet creates the namespace and applies the same). Its database is the app's own (the service chart's database.cluster,
-#     CloudNativePG; platform plan 4.3), with its credentials and backups: nothing here.
+#     ApplicationSet creates the namespace and applies the same). Its database is the
+#     app's own (the service chart's database.cluster, CloudNativePG; platform plan 4.3),
+#     with its credentials and backups: nothing here.
 #   - The apps: Argo CD, from this repo's apps root (deploy/argocd/apps-root.yaml): its
 #     ApplicationSet generates one Application per apps/<app>/envs/<env>.yaml, rendering
 #     the service chart with values from the app's repo (shortly: easypeasyops/links).
