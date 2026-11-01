@@ -22,19 +22,17 @@
 #     cluster within a minute; this script only applies the root and waits for it.
 #   - The platform's secrets: External Secrets, from the secret store (deploy/secrets/),
 #     where each is generated once (platform plan 4.1). Nothing here makes them.
-#   - Each environment's namespace (restricted Pod Security) and its default-deny network
-#     policy (deploy/app-namespace/): here, and by Argo CD too once the apps are on (the
-#     ApplicationSet creates the namespace and applies the same). Its database is the
-#     app's own (the service chart's database.cluster, CloudNativePG; platform plan 4.3),
-#     with its credentials and backups: nothing here.
 #   - The apps: Argo CD, from this repo's apps root (deploy/argocd/apps-root.yaml): its
 #     ApplicationSet generates one Application per apps/<app>/envs/<env>.yaml, rendering
 #     the service chart with values from the app's repo (shortly: easypeasyops/links).
+#     Each Application creates its namespace (restricted Pod Security) and applies its
+#     baseline (deploy/app-namespace/: default-deny); the app's database comes with it (the
+#     service chart's database.cluster, CloudNativePG). Nothing here makes either.
 set -euo pipefail
 
 CLUSTER=shortly
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-# ENVS, and the namespace each runs in (ns_of)
+# ENVS: the environments, whose Applications up() waits for
 # shellcheck source=scripts/lib/namespaces.sh
 source "$ROOT/scripts/lib/namespaces.sh"
 # Argo CD: deploys the platform and the app from git. Pinned by version and digest: the
@@ -67,32 +65,17 @@ up() {
   take_over_from_helm
   if on FRONT_DOOR; then front_door; fi
 
-  for env in "${ENVS[@]}"; do app_namespace "$(ns_of "$env")"; done
-  echo "cluster ready: namespaces $STAGING_NS $PROD_NS"
+  echo "cluster ready"
 
-  # Last, once the namespaces exist: from here on, git decides what runs.
+  # Last: from here on, git decides what runs. Each app's Application creates its namespace
+  # (apps/applicationset.yaml). With ARGOCD_APPS=0 nothing does: whatever deploys the app
+  # makes it (links' e2e does, as the ApplicationSet would).
   if on ARGOCD_APPS; then
     take_over_apps
     kubectl apply -f "$APPS_ROOT/apps-project.yaml" -f "$APPS_ROOT/apps-root.yaml" >/dev/null
     for env in "${ENVS[@]}"; do wait_synced "shortly-$env" 300; done
     kubectl -n argocd get applications
   fi
-}
-
-# One environment's namespace: restricted Pod Security and default-deny ingress. Idempotent.
-# Its database, the database's credentials and backups come with the app (the service
-# chart's database.cluster); the old Postgres, its Secrets and its pg_dump CronJob were made
-# here until platform plan 4.3 (RUNBOOK in links: removing them from a cluster made before).
-app_namespace() {
-  local ns=$1
-  kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-  # Enforce the "restricted" Pod Security Standard: the API server itself rejects any pod
-  # that runs as root, keeps capabilities, or allows privilege escalation.
-  kubectl label namespace "$ns" --overwrite \
-    pod-security.kubernetes.io/enforce=restricted \
-    pod-security.kubernetes.io/warn=restricted >/dev/null
-  # Default-deny ingress. The chart adds the app's own policies (the app's, its database's).
-  kubectl -n "$ns" apply -f "$ROOT/deploy/app-namespace/default-deny.yaml" >/dev/null
 }
 
 # Wait for an Application to be Synced AND Healthy. Healthy alone comes first when Argo CD
