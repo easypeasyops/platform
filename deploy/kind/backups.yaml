@@ -72,10 +72,9 @@ spec:
         accessModes: [ReadWriteOnce]
         resources: { requests: { storage: 1Gi } }
 ---
-# Nothing reaches the bucket except backup and restore pods from the app namespaces and the
-# restore drill's scratch namespace: the pg_dump Jobs (label component=backup), and the
-# pods of a CloudNativePG Cluster (label cnpg.io/cluster), whose Barman Cloud sidecar
-# archives WAL and base backups, and restores from them.
+# Nothing reaches the bucket except the pods of a CloudNativePG Cluster (label
+# cnpg.io/cluster) in the app namespaces and the restore drill's scratch namespace: their
+# Barman Cloud sidecar archives WAL and base backups, and restores from them.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -88,11 +87,6 @@ spec:
         - namespaceSelector:
             matchExpressions:
               # The app's namespaces (<app>-<env>) and the restore drill's.
-              - { key: kubernetes.io/metadata.name, operator: In, values: [shortly-staging, shortly-prod, restore-drill] }
-          podSelector:
-            matchLabels: { app.kubernetes.io/component: backup }
-        - namespaceSelector:
-            matchExpressions:
               - { key: kubernetes.io/metadata.name, operator: In, values: [shortly-staging, shortly-prod, restore-drill] }
           podSelector:
             matchExpressions:
