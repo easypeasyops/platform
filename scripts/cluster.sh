@@ -23,7 +23,8 @@
 #   - The platform's secrets: External Secrets, from the secret store (deploy/secrets/),
 #     where each is generated once (platform plan 4.1). Nothing here makes them.
 #   - Each environment's namespace (restricted Pod Security) and its default-deny network
-#     policy: here. Its database is the app's own (the service chart's database.cluster,
+#     policy (deploy/app-namespace/): here, and by Argo CD too once the apps are on (the
+#     ApplicationSet creates the namespace and applies the same). Its database is the app's own (the service chart's database.cluster,
 #     CloudNativePG; platform plan 4.3), with its credentials and backups: nothing here.
 #   - The apps: Argo CD, from this repo's apps root (deploy/argocd/apps-root.yaml): its
 #     ApplicationSet generates one Application per apps/<app>/envs/<env>.yaml, rendering
@@ -90,7 +91,7 @@ app_namespace() {
     pod-security.kubernetes.io/enforce=restricted \
     pod-security.kubernetes.io/warn=restricted >/dev/null
   # Default-deny ingress. The chart adds the app's own policies (the app's, its database's).
-  kubectl -n "$ns" apply -f "$ROOT/deploy/kind/network-policies.yaml" >/dev/null
+  kubectl -n "$ns" apply -f "$ROOT/deploy/app-namespace/default-deny.yaml" >/dev/null
 }
 
 # Wait for an Application to be Synced AND Healthy. Healthy alone comes first when Argo CD

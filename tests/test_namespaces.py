@@ -56,3 +56,33 @@ def test_project_and_backups_admit_the_apps_namespaces() -> None:
     monitoring = yaml.safe_load((ROOT / "deploy/kind/monitoring-values.yaml").read_text())
     routes = monitoring["alertmanager"]["config"]["route"]["routes"]
     assert ['namespace =~ ".+-staging"'] in [r["matchers"] for r in routes]
+
+
+def test_argo_cd_creates_the_apps_namespaces_with_their_baseline() -> None:
+    """Each app's Application creates its namespace with the restricted Pod Security labels
+    and applies the platform's baseline (default-deny), as cluster.sh's app_namespace does;
+    the app's project lets it create exactly its own namespaces."""
+    appset = yaml.safe_load((ROOT / "apps/applicationset.yaml").read_text())["spec"]
+    policy = appset["template"]["spec"]["syncPolicy"]
+    assert "CreateNamespace=true" in policy["syncOptions"]
+    labels = policy["managedNamespaceMetadata"]["labels"]
+    assert labels == {
+        "pod-security.kubernetes.io/enforce": "restricted",
+        "pod-security.kubernetes.io/warn": "restricted",
+    }
+    cluster_sh = (ROOT / "scripts/cluster.sh").read_text()
+    for label, value in labels.items():
+        assert f"{label}={value}" in cluster_sh, label  # the two agree until cluster.sh stops
+
+    baseline = "deploy/app-namespace"
+    assert f"path: {baseline}\n" in appset["templatePatch"]
+    (deny,) = yaml.safe_load_all((ROOT / baseline / "default-deny.yaml").read_text())
+    assert deny["kind"] == "NetworkPolicy"
+    assert deny["spec"] == {"podSelector": {}, "policyTypes": ["Ingress"]}
+
+    project = yaml.safe_load((ROOT / "apps/shortly/project.yaml").read_text())["spec"]
+    assert "https://github.com/easypeasyops/platform.git" in project["sourceRepos"]
+    namespaces = {d["namespace"] for d in project["destinations"]}
+    whitelist = project["clusterResourceWhitelist"]
+    assert all((r["group"], r["kind"]) == ("", "Namespace") for r in whitelist), whitelist
+    assert {r["name"] for r in whitelist} == namespaces

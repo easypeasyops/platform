@@ -11,8 +11,9 @@
 For each apps/<app>/envs/<env>.yaml (the ApplicationSet's input):
   1. it has app, env, chart.version, chart.digest, values.repoURL/revision/files, and its
      app and env match its path;
-  2. apps/<app>/project.yaml exists and allows the app's namespace (<app>-<env>), its values
-     repo and the service chart;
+  2. apps/<app>/project.yaml exists and allows the app's namespace (<app>-<env>) as a
+     destination and as the Namespace its Application creates, its values repo, the service
+     chart and the platform's repo (the namespace's baseline);
   3. the chart digest is published, and is the version the file says; with VERIFY=1, the
      platform's release workflow signed it (gh attestation verify, as the file asks);
   4. the chart at that digest renders with the app's values files, fetched from its repo at
@@ -33,6 +34,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 CHART = "oci://ghcr.io/easypeasyops/charts/service"
+PLATFORM = "https://github.com/easypeasyops/platform.git"  # deploy/app-namespace
 SIGNER = "easypeasyops/platform/.github/workflows/release-chart.yml"
 errors: list[str] = []
 
@@ -76,7 +78,10 @@ def check(env_file: Path, out: Path) -> None:
     namespace = f"{app}-{env}"
     if namespace not in {d.get("namespace") for d in project.get("destinations", [])}:
         fail(where, f"project {app} doesn't allow namespace {namespace}")
-    for source in (CHART, repo):
+    created = {"group": "", "kind": "Namespace", "name": namespace}
+    if created not in project.get("clusterResourceWhitelist", []):
+        fail(where, f"project {app} doesn't let its Application create namespace {namespace}")
+    for source in (CHART, repo, PLATFORM):
         if source not in project.get("sourceRepos", []):
             fail(where, f"project {app} doesn't allow source {source}")
 

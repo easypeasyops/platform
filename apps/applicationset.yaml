@@ -7,7 +7,8 @@
 #
 # Each Application renders the platform's service chart from GHCR, pinned by the digest in
 # the env file (a chart version reaches staging before prod by editing one file at a time),
-# with the values files listed there, layered in order, from the app's repo.
+# with the values files listed there, layered in order, from the app's repo. The namespace
+# comes with it: created and labelled here, its baseline (deploy/app-namespace/) a source.
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
@@ -53,6 +54,15 @@ spec:
         syncOptions:
           # A sync must not reset what ignoreDifferences ignores (the canary's weights).
           - RespectIgnoreDifferences=true
+          # The namespace is the platform's: Argo CD creates it (never deletes it: deleting the
+          # Application leaves it), with the restricted Pod Security Standard, so the API
+          # server rejects any pod that runs as root, keeps capabilities or can escalate. On a
+          # namespace that already exists, the labels are applied (server-side) and others kept.
+          - CreateNamespace=true
+        managedNamespaceMetadata:
+          labels:
+            pod-security.kubernetes.io/enforce: restricted
+            pod-security.kubernetes.io/warn: restricted
         retry:
           limit: 3
           backoff: { duration: 10s, factor: 2, maxDuration: 1m }
@@ -86,3 +96,7 @@ spec:
         - repoURL: {{ .values.repoURL | quote }}
           targetRevision: {{ .values.revision | quote }}
           ref: values
+        # The namespace's baseline, the same for every app: default-deny ingress.
+        - repoURL: https://github.com/easypeasyops/platform.git
+          targetRevision: main
+          path: deploy/app-namespace
