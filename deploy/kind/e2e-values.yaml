@@ -5,6 +5,11 @@
 #   - canary analysis: 15 s delay (three scrapes), then 2 checks 5 s apart (production:
 #     60 s, 4 x 30 s). Still two measurements, so a latency check (which aborts on the
 #     second bad one) can still fail a canary.
+#   - the canary's minimum traffic: 0.2 req/s instead of 0.5. On CI's shared kind node k6
+#     delivers about 7 of its 20 req/s, so the canary's 10% step gets 0.5 to 0.7 req/s, and
+#     its first measurements, over a pod a few seconds old, read lower still (0.25 and 0.42
+#     in links #136's first run). At 0.5 the `traffic` check aborted healthy canaries in 3
+#     of 6 runs; 0.2 still proves traffic reaches the canary.
 # Together they take a canary step from about 2 minutes to about 20 s.
 monitoring:
   scrapeInterval: 5s
@@ -13,3 +18,4 @@ canary:
     initialDelay: 15s
     interval: 5s
     count: 2
+    minRequestRate: 0.2
