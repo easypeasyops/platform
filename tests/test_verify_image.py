@@ -17,7 +17,8 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 VERIFY = ROOT / "scripts/verify-image.sh"
 DIGEST = "a" * 64
-IMAGE = f"ghcr.io/statsguy/shortly@sha256:{DIGEST}"
+IMAGE = f"ghcr.io/statsguy/shortly@sha256:{DIGEST}"  # the old form: ghcr.io/<owner>/<repo>
+APP_IMAGE = f"ghcr.io/easypeasyops/links/shortly@sha256:{DIGEST}"  # ghcr.io/<owner>/<repo>/<app>
 # shortly v0.7.1, released by statsguy/shortly's release.yml (now easypeasyops/links).
 RELEASE = "ghcr.io/statsguy/shortly@sha256:" + (
     "f8e4982b3a4197e0d68b83ef7bd06f0213bd54afffd65f4a088c21fd0852e046"
@@ -56,6 +57,27 @@ def test_a_release_tag_build_of_this_digest_verifies(tmp_path: Path) -> None:
     assert "verified: built by" in result.stdout
 
 
+@pytest.mark.parametrize(
+    ("image", "ref", "ok"),
+    [
+        (APP_IMAGE, "refs/tags/shortly/v0.7.2", True),
+        (APP_IMAGE, "refs/tags/pager/v0.1.0", False),  # another app of the repo
+        (APP_IMAGE, "refs/tags/v0.7.2", False),  # the old form's tag
+        (APP_IMAGE, "refs/tags/shortly/v0.7.2-rc1", False),
+        (IMAGE, "refs/tags/shortly/v0.7.2", False),  # the old form takes plain vX.Y.Z only
+    ],
+)
+def test_an_app_image_needs_its_own_apps_tag(
+    tmp_path: Path, image: str, ref: str, ok: bool
+) -> None:
+    """ghcr.io/<owner>/<repo>/<app> is released from <app>/vX.Y.Z (platform plan 3.5), so one
+    app of a repo can't publish as another."""
+    result = _verify(tmp_path, image, _attestation(ref))
+    assert (result.returncode == 0) is ok, result.stderr
+    if not ok:
+        assert "not from a release tag" in result.stderr
+
+
 def test_no_valid_provenance_is_refused(tmp_path: Path) -> None:
     result = _verify(tmp_path, IMAGE, None)
     assert result.returncode != 0
@@ -78,9 +100,19 @@ def test_an_attestation_for_another_digest_is_refused(tmp_path: Path) -> None:
     ("ref", "reason"),
     [
         ("ghcr.io/statsguy/shortly:0.2.0", "is not a digest reference"),
-        ("docker.io/statsguy/shortly@sha256:" + "a" * 64, "is not a ghcr.io/<owner>/<repo> image"),
+        (
+            "docker.io/statsguy/shortly@sha256:" + "a" * 64,
+            "is not a ghcr.io/<owner>/<repo>/<app> image",
+        ),
         ("ghcr.io/evil/shortly@sha256:" + "a" * 64, "is not one of statsguy's images"),
-        ("ghcr.io/statsguy/a/b@sha256:" + "a" * 64, "is not a ghcr.io/<owner>/<repo> image"),
+        ("ghcr.io/evil/links/shortly@sha256:" + "a" * 64, "is not one of easypeasyops's images"),
+        # Each owner in its own form: no app image under the old, no old-form one under the new.
+        ("ghcr.io/statsguy/a/b@sha256:" + "a" * 64, "is not one of easypeasyops's images"),
+        ("ghcr.io/easypeasyops/links@sha256:" + "a" * 64, "is not one of statsguy's images"),
+        (
+            "ghcr.io/easypeasyops/a/b/c@sha256:" + "a" * 64,
+            "is not a ghcr.io/<owner>/<repo>/<app> image",
+        ),
     ],
 )
 def test_images_no_repo_of_ours_can_vouch_for_are_refused(ref: str, reason: str) -> None:

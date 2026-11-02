@@ -5,11 +5,15 @@
 #
 # Same rules as scripts/verify-image.sh:
 #   - SLSA provenance, signed keylessly via GitHub Actions' OIDC issuer, logged in Rekor
-#   - keyed by identity, not by app: an image ghcr.io/statsguy/<repo> must be signed by
-#     statsguy/<repo>'s release.yml running at a vX.Y.Z tag. The signer check accepts any
-#     statsguy repo's release workflow; a validation then requires the repository named in
-#     the signed provenance to be the image's own, so one repo can't vouch for another's
-#     images. A new app is covered without editing this policy.
+#   - keyed by identity, not by app: an image ghcr.io/easypeasyops/<repo>/<app> must be signed
+#     by easypeasyops/<repo>'s release.yml running at a <app>/vX.Y.Z tag. The signer check
+#     accepts any of our repos' release workflows; validations then require the repository
+#     named in the signed provenance to be the image's own, and its tag to be the image's
+#     app's, so one repo can't vouch for another's images, nor one app for another's. A new
+#     app is covered without editing this policy.
+#   - the old form (platform plan 3.5, expand / contract): ghcr.io/statsguy/<repo>, signed by
+#     statsguy/<repo>'s release.yml at a vX.Y.Z tag (shortly up to v0.7.1); removed once
+#     nothing deploys those releases.
 #   - the build was a GitHub Actions workflow build
 #   - by digest only: tags are refused, not resolved (mutateDigest: false)
 # Deployed by Argo CD (the platform's `kyverno-policies` Application), proven by tests/test_admission_policies.py (offline cases
@@ -21,8 +25,9 @@ metadata:
   annotations:
     policies.kyverno.io/title: Require release provenance for our images
     policies.kyverno.io/description: >-
-      Images from ghcr.io/statsguy/<repo> must be referenced by digest and carry SLSA
-      provenance signed by statsguy/<repo>'s release workflow at a release tag.
+      Images from ghcr.io/easypeasyops/<repo>/<app> (and the old ghcr.io/statsguy/<repo>)
+      must be referenced by digest and carry SLSA provenance signed by that repo's release
+      workflow at that app's release tag.
 spec:
   validationActions: [Deny]
   # Admission only. In the background the reports controller re-verified every running
@@ -53,6 +58,7 @@ spec:
     podControllers:
       controllers: [deployments, statefulsets, jobs, cronjobs, replicasets, daemonsets]
   matchImageReferences:
+    - glob: "ghcr.io/easypeasyops/*"
     - glob: "ghcr.io/statsguy/*"
   validationConfigurations:
     mutateDigest: false # don't quietly turn a tag into a digest...
@@ -64,7 +70,8 @@ spec:
         keyless:
           identities:
             - issuer: https://token.actions.githubusercontent.com
-              subjectRegExp: '^https://github\.com/statsguy/[A-Za-z0-9_.-]+/\.github/workflows/release\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$'
+              # An app's tag in one of our repos; or, the old form, a plain vX.Y.Z tag in statsguy's.
+              subjectRegExp: '^https://github\.com/(easypeasyops/[A-Za-z0-9_.-]+/\.github/workflows/release\.yml@refs/tags/[a-z0-9][a-z0-9-]*/v|statsguy/[A-Za-z0-9_.-]+/\.github/workflows/release\.yml@refs/tags/v)[0-9]+\.[0-9]+\.[0-9]+$'
         ctlog:
           url: https://rekor.sigstore.dev
   attestations:
@@ -77,22 +84,34 @@ spec:
     - name: ownImages
       expression: >-
         (images.containers + images.?initContainers.orValue([]) + images.?ephemeralContainers.orValue([]))
-        .filter(image, image.startsWith('ghcr.io/statsguy/'))
+        .filter(image, image.startsWith('ghcr.io/easypeasyops/') || image.startsWith('ghcr.io/statsguy/'))
+    # The rest of each name, split: [ghcr.io, owner, repo] or [ghcr.io, owner, repo, app].
+    - name: appImages
+      expression: variables.ownImages.filter(image, image.startsWith('ghcr.io/easypeasyops/'))
   validations:
     - expression: >-
         variables.ownImages.all(image, verifyAttestationSignatures(image, attestations.provenance, [attestors.release]) > 0)
       message: >-
-        ghcr.io/statsguy images must be a release digest with provenance from a
-        statsguy release.yml at a vX.Y.Z tag (see RUNBOOK: Admission policy)
-    # The signer check above accepts any statsguy repo's release workflow: the provenance
-    # must also name the image's own repository (ghcr.io/statsguy/<repo> -> statsguy/<repo>).
+        our images must be a release digest with provenance from their repo's release.yml
+        at a release tag (see RUNBOOK: Admission policy)
+    # The signer check above accepts any of our repos' release workflows: the provenance
+    # must also name the image's own repository (ghcr.io/<owner>/<repo>[/<app>] -> <owner>/<repo>).
     - expression: >-
         variables.ownImages.all(image,
           extractPayload(image, attestations.provenance).predicate.buildDefinition.externalParameters.workflow.repository ==
-          'https://github.com/' + image.split('@')[0].substring(8))
+          'https://github.com/' + image.split('@')[0].split('/')[1] + '/' + image.split('@')[0].split('/')[2])
       message: >-
-        provenance names a different repository than the image's: ghcr.io/statsguy/<repo>
-        must be built by statsguy/<repo>
+        provenance names a different repository than the image's: ghcr.io/<owner>/<repo>/<app>
+        must be built by <owner>/<repo>
+    # ...and an app image, its own app's tag: ghcr.io/easypeasyops/<repo>/<app> from <app>/vX.Y.Z,
+    # so one app in a repo can't publish as another.
+    - expression: >-
+        variables.appImages.all(image,
+          image.split('@')[0].split('/').size() == 4 &&
+          extractPayload(image, attestations.provenance).predicate.buildDefinition.externalParameters.workflow.ref.startsWith(
+            'refs/tags/' + image.split('@')[0].split('/')[3] + '/v'))
+      message: >-
+        an app image must be ghcr.io/easypeasyops/<repo>/<app>, built from a <app>/vX.Y.Z tag
     - expression: >-
         variables.ownImages.all(image,
           extractPayload(image, attestations.provenance).predicate.buildDefinition.buildType ==
