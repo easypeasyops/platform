@@ -25,6 +25,10 @@ on:
         description: "Install this Helm for tests that render charts; empty: no Helm"
         type: string
         default: ""
+      working-directory:
+        description: "The project's directory (its pyproject.toml, uv.lock and .python-version): an app in a domain repo is apps/<app>"
+        type: string
+        default: .
 
 permissions:
   contents: read
@@ -34,6 +38,9 @@ jobs:
     name: lint, type-check, test
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
     steps:
       # Actions pinned to commit SHAs: tags are mutable, SHAs are not.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -46,6 +53,7 @@ jobs:
         if: inputs.run
         with:
           enable-cache: true # Python version comes from .python-version
+          working-directory: ${{ inputs.working-directory }}
 
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         if: inputs.run && inputs.helm-version != ''
