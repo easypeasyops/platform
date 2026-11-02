@@ -3,7 +3,7 @@
 
 # The app this chart deploys. `name` is its app.kubernetes.io/name label (and so its pods'
 # selector); `partOf` is app.kubernetes.io/part-of on every pod of the chart, which the
-# database's network policy admits (the platform's deploy/kind/network-policies.yaml).
+# database's network policy admits (templates/database.yaml, with database.cluster).
 app:
   name: ""   # required
   partOf: "" # default: the app's name
