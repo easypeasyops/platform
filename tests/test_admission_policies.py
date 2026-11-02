@@ -25,10 +25,10 @@ KYVERNO_CLI = (
     "ghcr.io/kyverno/kyverno-cli:v1.19.1"
     "@sha256:ced7b2be0b04250cabfe695f15307f69eb715fe23234816388af4f3812915b2a"
 )
-# v0.2.0's per-platform (linux/amd64) manifest: a real image from the release, but the
+# v0.7.2's per-platform (linux/amd64) manifest: a real image from the release, but the
 # attestation names the index digest only.
-UNATTESTED_CHILD = "ghcr.io/statsguy/shortly@sha256:" + (
-    "7025c409513225aeb5e473d2e08951cfd8cbbe9d1f574a0ac042ad8e3aa0d4ec"
+UNATTESTED_CHILD = "ghcr.io/easypeasyops/links/shortly@sha256:" + (
+    "d4a610fb8ad3fa48a8df0089935b5d465e54001cf82daad4a47abaf06a4e95f9"
 )
 # A real release with valid provenance (tests/test_verify_image.py verifies the same one).
 RELEASE = test_verify_image.RELEASE
@@ -108,7 +108,6 @@ def test_provenance_policy_matches_the_deploy_gate() -> None:
     base = "https://github.com/easypeasyops/links/.github/workflows"
     old = "https://github.com/statsguy/shortly/.github/workflows"
     assert signer.match(f"{base}/release.yml@refs/tags/shortly/v0.7.2")
-    assert signer.match(f"{old}/release.yml@refs/tags/v0.2.0")  # the old form, until 3.5's contract
     # Keyed by identity: another of our repos' release workflow is a valid signer too...
     assert signer.match(
         "https://github.com/easypeasyops/oncall/.github/workflows/release.yml@refs/tags/pager/v0.1.0"
@@ -119,7 +118,8 @@ def test_provenance_policy_matches_the_deploy_gate() -> None:
         "https://github.com/evil/links/.github/workflows/release.yml@refs/tags/shortly/v0.7.2",
         f"{base}/release.yml@refs/tags/shortly/v0.7.2-evil",
         f"{base}/release.yml@refs/tags/v0.7.2",  # our repos release per app
-        f"{old}/release.yml@refs/tags/shortly/v0.7.2",  # the old owner, plain tags only
+        f"{old}/release.yml@refs/tags/v0.2.0",  # the old owner and form, refused since 3.5
+        f"{old}/release.yml@refs/tags/shortly/v0.7.2",
         "https://github.com/easypeasyops/a/b/.github/workflows/release.yml@refs/tags/x/v1.0.0",
     ):
         assert not signer.match(wrong), wrong
@@ -137,10 +137,7 @@ def test_provenance_policy_matches_the_deploy_gate() -> None:
     app = [v for v in policy["validations"] if "externalParameters.workflow.ref" in v["expression"]]
     assert len(app) == 1
     assert "'refs/tags/' + image.split('@')[0].split('/')[3] + '/v'" in app[0]["expression"]
-    assert policy["matchImageReferences"] == [
-        {"glob": "ghcr.io/easypeasyops/*"},
-        {"glob": "ghcr.io/statsguy/*"},
-    ]
+    assert policy["matchImageReferences"] == [{"glob": "ghcr.io/easypeasyops/*"}]
     verify = (ROOT / "scripts/verify-image.sh").read_text()
     assert "release.yml" in verify
     assert "https://slsa.dev/provenance/v1" in verify
@@ -197,11 +194,13 @@ def test_allowlist_verdicts(tmp_path: Path) -> None:
         ),
         _pod("cnpg-postgres-18", "ghcr.io/cloudnative-pg/postgresql:18.4-minimal-trixie"),
         _pod("cnpg-lookalike", "ghcr.io/cloudnative-pg-evil/postgresql:17.11-minimal-trixie"),
-        _pod("tag", "ghcr.io/statsguy/shortly:0.2.0"),
+        _pod("tag", "ghcr.io/easypeasyops/links/shortly:0.7.2"),
         _pod("other-image", "docker.io/attacker/miner:latest"),
         _pod("bad-init", release, init=("busybox:1.36",)),
         _pod("old-postgres", "postgres:16-alpine"),
-        _pod("lookalike", "ghcr.io/statsguy/shortly-evil@sha256:" + "a" * 64),
+        _pod("lookalike", "ghcr.io/easypeasyops/links/shortly-evil@sha256:" + "a" * 64),
+        # The old repository (shortly up to v0.7.1): refused since platform plan 3.5.
+        _pod("old-repo", "ghcr.io/statsguy/shortly@sha256:" + "a" * 64),
         _pod("app-image", "ghcr.io/easypeasyops/links/shortly@sha256:" + "a" * 64),
         _pod("app-tag", "ghcr.io/easypeasyops/links/shortly:0.7.2"),
         _pod("other-app", "ghcr.io/easypeasyops/links/other@sha256:" + "a" * 64),
@@ -211,7 +210,7 @@ def test_allowlist_verdicts(tmp_path: Path) -> None:
     for name in ("release", "db", "db-qualified", "k6", "cnpg-instance", "app-image"):
         assert verdicts[name][0] == "pass", (name, verdicts[name])
     refused = ("tag", "other-image", "bad-init", "old-postgres", "lookalike", "rclone",
-               "app-tag", "other-app")  # fmt: skip
+               "app-tag", "other-app", "old-repo")  # fmt: skip
     for name in (*refused, "cnpg-postgres-18", "cnpg-lookalike"):
         assert verdicts[name][0] == "fail", (name, verdicts.get(name))
     assert "docker.io/attacker/miner:latest" in verdicts["other-image"][1]
@@ -225,7 +224,7 @@ def test_provenance_verdicts_against_the_real_registry(tmp_path: Path) -> None:
     pods = [
         _pod("release", release),
         _pod("release-with-sidecar", release, "postgres:17-alpine"),
-        _pod("tag", "ghcr.io/statsguy/shortly:0.2.0"),
+        _pod("tag", "ghcr.io/easypeasyops/links/shortly:0.7.2"),
         _pod("unattested", UNATTESTED_CHILD),
         _pod("unattested-init", release, init=(UNATTESTED_CHILD,)),
     ]
@@ -234,7 +233,7 @@ def test_provenance_verdicts_against_the_real_registry(tmp_path: Path) -> None:
     assert verdicts["release-with-sidecar"][0] == "pass", verdicts["release-with-sidecar"]
     assert verdicts["tag"] == (
         "fail",
-        "image ghcr.io/statsguy/shortly:0.2.0 does not have a digest",
+        "image ghcr.io/easypeasyops/links/shortly:0.7.2 does not have a digest",
     )
     assert verdicts["unattested"][0] == "fail", verdicts["unattested"]
     assert verdicts["unattested-init"][0] == "fail", verdicts["unattested-init"]
