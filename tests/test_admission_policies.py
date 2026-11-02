@@ -105,29 +105,42 @@ def test_provenance_policy_matches_the_deploy_gate() -> None:
     identity = policy["attestors"][0]["cosign"]["keyless"]["identities"][0]
     assert identity["issuer"] == "https://token.actions.githubusercontent.com"
     signer = re.compile(identity["subjectRegExp"])
-    base = "https://github.com/statsguy/shortly/.github/workflows"
-    assert signer.match(f"{base}/release.yml@refs/tags/v0.2.0")
+    base = "https://github.com/easypeasyops/links/.github/workflows"
+    old = "https://github.com/statsguy/shortly/.github/workflows"
+    assert signer.match(f"{base}/release.yml@refs/tags/shortly/v0.7.2")
+    assert signer.match(f"{old}/release.yml@refs/tags/v0.2.0")  # the old form, until 3.5's contract
     # Keyed by identity: another of our repos' release workflow is a valid signer too...
     assert signer.match(
-        "https://github.com/statsguy/pager/.github/workflows/release.yml@refs/tags/v0.1.0"
+        "https://github.com/easypeasyops/oncall/.github/workflows/release.yml@refs/tags/pager/v0.1.0"
     )
     for wrong in (
         f"{base}/release.yml@refs/heads/main",  # a branch, not a release
-        f"{base}/ci.yml@refs/tags/v0.2.0",  # CI, not the release workflow
-        "https://github.com/evil/shortly/.github/workflows/release.yml@refs/tags/v0.2.0",
-        f"{base}/release.yml@refs/tags/v0.2.0-evil",
-        "https://github.com/statsguy/a/b/.github/workflows/release.yml@refs/tags/v1.0.0",
+        f"{base}/ci.yml@refs/tags/shortly/v0.7.2",  # CI, not the release workflow
+        "https://github.com/evil/links/.github/workflows/release.yml@refs/tags/shortly/v0.7.2",
+        f"{base}/release.yml@refs/tags/shortly/v0.7.2-evil",
+        f"{base}/release.yml@refs/tags/v0.7.2",  # our repos release per app
+        f"{old}/release.yml@refs/tags/shortly/v0.7.2",  # the old owner, plain tags only
+        "https://github.com/easypeasyops/a/b/.github/workflows/release.yml@refs/tags/x/v1.0.0",
     ):
         assert not signer.match(wrong), wrong
-    # ...so the provenance must also name the image's own repository.
+    # ...so the provenance must also name the image's own repository, and its app's tag.
     binding = [
         v
         for v in policy["validations"]
         if "externalParameters.workflow.repository" in v["expression"]
     ]
     assert len(binding) == 1
-    assert "'https://github.com/' + image.split('@')[0].substring(8)" in binding[0]["expression"]
-    assert policy["matchImageReferences"] == [{"glob": "ghcr.io/statsguy/*"}]
+    assert (
+        "image.split('@')[0].split('/')[1] + '/' + image.split('@')[0].split('/')[2]"
+        in (binding[0]["expression"])
+    )
+    app = [v for v in policy["validations"] if "externalParameters.workflow.ref" in v["expression"]]
+    assert len(app) == 1
+    assert "'refs/tags/' + image.split('@')[0].split('/')[3] + '/v'" in app[0]["expression"]
+    assert policy["matchImageReferences"] == [
+        {"glob": "ghcr.io/easypeasyops/*"},
+        {"glob": "ghcr.io/statsguy/*"},
+    ]
     verify = (ROOT / "scripts/verify-image.sh").read_text()
     assert "release.yml" in verify
     assert "https://slsa.dev/provenance/v1" in verify
@@ -189,12 +202,16 @@ def test_allowlist_verdicts(tmp_path: Path) -> None:
         _pod("bad-init", release, init=("busybox:1.36",)),
         _pod("old-postgres", "postgres:16-alpine"),
         _pod("lookalike", "ghcr.io/statsguy/shortly-evil@sha256:" + "a" * 64),
+        _pod("app-image", "ghcr.io/easypeasyops/links/shortly@sha256:" + "a" * 64),
+        _pod("app-tag", "ghcr.io/easypeasyops/links/shortly:0.7.2"),
+        _pod("other-app", "ghcr.io/easypeasyops/links/other@sha256:" + "a" * 64),
         _pod("elsewhere", "busybox:1.36", ns="default"),
     ]
     verdicts = _apply(tmp_path, (POLICIES / "allowed-images.yaml").read_text(), pods)
-    for name in ("release", "db", "db-qualified", "k6", "cnpg-instance"):
+    for name in ("release", "db", "db-qualified", "k6", "cnpg-instance", "app-image"):
         assert verdicts[name][0] == "pass", (name, verdicts[name])
-    refused = ("tag", "other-image", "bad-init", "old-postgres", "lookalike", "rclone")
+    refused = ("tag", "other-image", "bad-init", "old-postgres", "lookalike", "rclone",
+               "app-tag", "other-app")  # fmt: skip
     for name in (*refused, "cnpg-postgres-18", "cnpg-lookalike"):
         assert verdicts[name][0] == "fail", (name, verdicts.get(name))
     assert "docker.io/attacker/miner:latest" in verdicts["other-image"][1]
