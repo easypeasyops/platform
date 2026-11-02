@@ -34,7 +34,7 @@ tests:
             exp_annotations:
               summary: shortly-prod has differed from git for 15 minutes
               description: What runs is not what git says. A merged promotion or platform change hasn't landed, or someone changed the cluster by hand and self-heal can't undo it.
-              runbook_url: https://github.com/statsguy/shortly/blob/main/docs/RUNBOOK.md#argo-cd-alerts
+              runbook_url: https://github.com/easypeasyops/links/blob/main/apps/shortly/docs/RUNBOOK.md#argo-cd-alerts
       - eval_time: 20m
         alertname: ArgoCDDown
         exp_alerts: []
@@ -58,7 +58,7 @@ tests:
             exp_annotations:
               summary: monitoring has been unhealthy for 10 minutes
               description: Argo CD reports the application's resources as not working. For shortly-prod the SLO alerts say whether users notice; this one says the release itself needs attention.
-              runbook_url: https://github.com/statsguy/shortly/blob/main/docs/RUNBOOK.md#argo-cd-alerts
+              runbook_url: https://github.com/easypeasyops/links/blob/main/apps/shortly/docs/RUNBOOK.md#argo-cd-alerts
 
   - name: a failed sync opens a ticket at once
     interval: 1m
@@ -75,7 +75,7 @@ tests:
             exp_annotations:
               summary: Syncing kyverno-policies failed in the last 15 minutes
               description: Argo CD tried to apply git and the cluster refused (an admission policy, a bad manifest, a failed migration hook).
-              runbook_url: https://github.com/statsguy/shortly/blob/main/docs/RUNBOOK.md#argo-cd-alerts
+              runbook_url: https://github.com/easypeasyops/links/blob/main/apps/shortly/docs/RUNBOOK.md#argo-cd-alerts
 
   - name: no Argo CD controller scraped for 10 minutes opens a ticket
     interval: 1m
@@ -93,4 +93,4 @@ tests:
             exp_annotations:
               summary: Argo CD's application controller isn't running (or isn't scraped)
               description: Nothing in git reaches the cluster while it is down, and drift goes uncorrected. Running workloads are unaffected.
-              runbook_url: https://github.com/statsguy/shortly/blob/main/docs/RUNBOOK.md#argo-cd-alerts
+              runbook_url: https://github.com/easypeasyops/links/blob/main/apps/shortly/docs/RUNBOOK.md#argo-cd-alerts

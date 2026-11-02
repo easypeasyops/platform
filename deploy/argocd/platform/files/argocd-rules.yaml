@@ -15,7 +15,7 @@ groups:
         annotations:
           summary: Argo CD's application controller isn't running (or isn't scraped)
           description: Nothing in git reaches the cluster while it is down, and drift goes uncorrected. Running workloads are unaffected.
-          runbook_url: https://github.com/statsguy/shortly/blob/main/docs/RUNBOOK.md#argo-cd-alerts
+          runbook_url: https://github.com/easypeasyops/links/blob/main/apps/shortly/docs/RUNBOOK.md#argo-cd-alerts
       - alert: ArgoCDAppOutOfSync
         # Auto-sync applies a merge within about a minute; 15 minutes out of sync means it is
         # failing, or someone turned auto-sync off. (Unknown: Argo CD can't even compare.)
@@ -26,7 +26,7 @@ groups:
         annotations:
           summary: "{{ $labels.name }} has differed from git for 15 minutes"
           description: What runs is not what git says. A merged promotion or platform change hasn't landed, or someone changed the cluster by hand and self-heal can't undo it.
-          runbook_url: https://github.com/statsguy/shortly/blob/main/docs/RUNBOOK.md#argo-cd-alerts
+          runbook_url: https://github.com/easypeasyops/links/blob/main/apps/shortly/docs/RUNBOOK.md#argo-cd-alerts
       - alert: ArgoCDAppUnhealthy
         # Degraded (an aborted canary, a crash-looping pod), Missing (resources gone), or
         # Unknown. Not Progressing or Suspended: a canary between steps is both, for minutes.
@@ -37,7 +37,7 @@ groups:
         annotations:
           summary: "{{ $labels.name }} has been unhealthy for 10 minutes"
           description: Argo CD reports the application's resources as not working. For shortly-prod the SLO alerts say whether users notice; this one says the release itself needs attention.
-          runbook_url: https://github.com/statsguy/shortly/blob/main/docs/RUNBOOK.md#argo-cd-alerts
+          runbook_url: https://github.com/easypeasyops/links/blob/main/apps/shortly/docs/RUNBOOK.md#argo-cd-alerts
       - alert: ArgoCDSyncFailed
         # A sync that errored, even if a retry later succeeded: worth a look, not a page.
         expr: sum by (name, project) (increase(argocd_app_sync_total{phase=~"Error|Failed"}[15m])) > 0
@@ -46,4 +46,4 @@ groups:
         annotations:
           summary: "Syncing {{ $labels.name }} failed in the last 15 minutes"
           description: Argo CD tried to apply git and the cluster refused (an admission policy, a bad manifest, a failed migration hook).
-          runbook_url: https://github.com/statsguy/shortly/blob/main/docs/RUNBOOK.md#argo-cd-alerts
+          runbook_url: https://github.com/easypeasyops/links/blob/main/apps/shortly/docs/RUNBOOK.md#argo-cd-alerts
