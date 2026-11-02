@@ -12,6 +12,6 @@ values:
   repoURL: https://github.com/easypeasyops/links.git
   revision: main
   files:
-    - deploy/service/values.yaml
-    - deploy/service/slo-rules.values.yaml
-    - deploy/envs/prod.yaml
+    - apps/shortly/deploy/service/values.yaml
+    - apps/shortly/deploy/service/slo-rules.values.yaml
+    - apps/shortly/deploy/envs/prod.yaml
