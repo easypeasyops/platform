@@ -17,11 +17,10 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 VERIFY = ROOT / "scripts/verify-image.sh"
 DIGEST = "a" * 64
-IMAGE = f"ghcr.io/statsguy/shortly@sha256:{DIGEST}"  # the old form: ghcr.io/<owner>/<repo>
-APP_IMAGE = f"ghcr.io/easypeasyops/links/shortly@sha256:{DIGEST}"  # ghcr.io/<owner>/<repo>/<app>
-# shortly v0.7.1, released by statsguy/shortly's release.yml (now easypeasyops/links).
-RELEASE = "ghcr.io/statsguy/shortly@sha256:" + (
-    "f8e4982b3a4197e0d68b83ef7bd06f0213bd54afffd65f4a088c21fd0852e046"
+IMAGE = f"ghcr.io/easypeasyops/links/shortly@sha256:{DIGEST}"  # ghcr.io/<owner>/<repo>/<app>
+# shortly v0.7.2, released by easypeasyops/links' release.yml at shortly/v0.7.2.
+RELEASE = "ghcr.io/easypeasyops/links/shortly@sha256:" + (
+    "656822ee670d160ebde14c40308a411c9b3d1f1aa18d0935fb6cc580ddafa950"
 )
 
 
@@ -29,8 +28,8 @@ def _attestation(ref: str, digest: str = DIGEST) -> str:
     """What `gh attestation verify --format json` prints, trimmed to what is checked."""
     cert = {
         "sourceRepositoryRef": ref,
-        "buildSignerURI": f"https://github.com/statsguy/shortly/.github/workflows/release.yml@{ref}",
-        "sourceRepositoryURI": "https://github.com/statsguy/shortly",
+        "buildSignerURI": f"https://github.com/easypeasyops/links/.github/workflows/release.yml@{ref}",
+        "sourceRepositoryURI": "https://github.com/easypeasyops/links",
         "sourceRepositoryDigest": "0123456789abcdef",
     }
     statement = {"subject": [{"digest": {"sha256": digest}}]}
@@ -52,7 +51,7 @@ def _verify(tmp_path: Path, ref: str, gh_output: str | None) -> subprocess.Compl
 
 
 def test_a_release_tag_build_of_this_digest_verifies(tmp_path: Path) -> None:
-    result = _verify(tmp_path, IMAGE, _attestation("refs/tags/v0.2.0"))
+    result = _verify(tmp_path, IMAGE, _attestation("refs/tags/shortly/v0.7.2"))
     assert result.returncode == 0, result.stderr
     assert "verified: built by" in result.stdout
 
@@ -60,11 +59,10 @@ def test_a_release_tag_build_of_this_digest_verifies(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("image", "ref", "ok"),
     [
-        (APP_IMAGE, "refs/tags/shortly/v0.7.2", True),
-        (APP_IMAGE, "refs/tags/pager/v0.1.0", False),  # another app of the repo
-        (APP_IMAGE, "refs/tags/v0.7.2", False),  # the old form's tag
-        (APP_IMAGE, "refs/tags/shortly/v0.7.2-rc1", False),
-        (IMAGE, "refs/tags/shortly/v0.7.2", False),  # the old form takes plain vX.Y.Z only
+        (IMAGE, "refs/tags/shortly/v0.7.2", True),
+        (IMAGE, "refs/tags/pager/v0.1.0", False),  # another app of the repo
+        (IMAGE, "refs/tags/v0.7.2", False),  # a plain tag: no app
+        (IMAGE, "refs/tags/shortly/v0.7.2-rc1", False),
     ],
 )
 def test_an_app_image_needs_its_own_apps_tag(
@@ -92,23 +90,32 @@ def test_a_build_from_a_branch_is_refused(tmp_path: Path) -> None:
 
 
 def test_an_attestation_for_another_digest_is_refused(tmp_path: Path) -> None:
-    result = _verify(tmp_path, IMAGE, _attestation("refs/tags/v0.2.0", digest="b" * 64))
+    result = _verify(tmp_path, IMAGE, _attestation("refs/tags/shortly/v0.7.2", digest="b" * 64))
     assert result.returncode != 0
 
 
 @pytest.mark.parametrize(
     ("ref", "reason"),
     [
-        ("ghcr.io/statsguy/shortly:0.2.0", "is not a digest reference"),
+        ("ghcr.io/easypeasyops/links/shortly:0.7.2", "is not a digest reference"),
         (
-            "docker.io/statsguy/shortly@sha256:" + "a" * 64,
+            "docker.io/easypeasyops/links@sha256:" + "a" * 64,
             "is not a ghcr.io/<owner>/<repo>/<app> image",
         ),
-        ("ghcr.io/evil/shortly@sha256:" + "a" * 64, "is not one of statsguy's images"),
         ("ghcr.io/evil/links/shortly@sha256:" + "a" * 64, "is not one of easypeasyops's images"),
-        # Each owner in its own form: no app image under the old, no old-form one under the new.
-        ("ghcr.io/statsguy/a/b@sha256:" + "a" * 64, "is not one of easypeasyops's images"),
-        ("ghcr.io/easypeasyops/links@sha256:" + "a" * 64, "is not one of statsguy's images"),
+        # The old owner and form (shortly up to v0.7.1), refused since platform plan 3.5.
+        (
+            "ghcr.io/statsguy/shortly@sha256:" + "a" * 64,
+            "is not a ghcr.io/<owner>/<repo>/<app> image",
+        ),
+        (
+            "ghcr.io/statsguy/links/shortly@sha256:" + "a" * 64,
+            "is not one of easypeasyops's images",
+        ),
+        (
+            "ghcr.io/easypeasyops/links@sha256:" + "a" * 64,
+            "is not a ghcr.io/<owner>/<repo>/<app> image",
+        ),
         (
             "ghcr.io/easypeasyops/a/b/c@sha256:" + "a" * 64,
             "is not a ghcr.io/<owner>/<repo>/<app> image",
@@ -144,19 +151,19 @@ def _real(**env: str) -> subprocess.CompletedProcess[str]:
 def test_a_real_release_verifies() -> None:
     result = _real()
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "refs/tags/v" in result.stdout
+    assert "refs/tags/shortly/v" in result.stdout
 
 
 @pytest.mark.integration
 def test_a_real_release_is_refused_for_the_wrong_signer() -> None:
-    result = _real(VERIFY_SIGNER="statsguy/shortly/.github/workflows/ci.yml")
+    result = _real(VERIFY_SIGNER="easypeasyops/links/.github/workflows/ci.yml")
     assert result.returncode != 0
     assert "REFUSED" in result.stderr
 
 
 @pytest.mark.integration
 def test_a_real_release_is_refused_as_another_repos_image() -> None:
-    """The release's provenance names statsguy/shortly: claimed for another repo, it fails."""
-    result = _real(VERIFY_REPO="statsguy/pager")
+    """The release's provenance names easypeasyops/links: claimed for another repo, it fails."""
+    result = _real(VERIFY_REPO="easypeasyops/oncall")
     assert result.returncode != 0
     assert "REFUSED" in result.stderr
