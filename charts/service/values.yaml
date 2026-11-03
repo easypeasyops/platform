@@ -227,6 +227,21 @@ affinity: {}
 # network policy of their own: DNS and the database only. Set an entry to null to drop it.
 cronJobs: {}
 
+# Long-running processes beside the app, from the same release image (templates/workers.yaml):
+# a queue consumer such as a Celery worker. One Deployment per entry, named <release>-<key>,
+# running the entry's `command` with the app's env plus its own. No Service: nothing connects
+# to a worker, so its network policy admits no ingress and the same egress as the app (DNS,
+# the database, extraEgress). Its pods are labelled <app.name>-<key>, so neither the HPA nor
+# the PodDisruptionBudget counts them. No probes: a worker serves no HTTP, and a process that
+# dies is restarted by its container's exit. Set an entry to null to drop it.
+#   celery:
+#     command: [celery, -A, app.jobs.tasks, worker, --loglevel=info]
+#     replicas: 1                         # default 1
+#     resources: { requests: { cpu: 50m, memory: 192Mi }, limits: { memory: 384Mi } }
+#     terminationGracePeriodSeconds: 60   # time to finish the task in hand; default the app's
+#     env: []                             # entries like `env` above, after the app's
+workers: {}
+
 # Who may talk to the pods, and whom they may talk to (templates/networkpolicy.yaml). Needs a
 # CNI that enforces NetworkPolicy (kind's kindnet does; the e2e proves it); on one that
 # doesn't, these objects are silently ignored.

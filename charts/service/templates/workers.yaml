@@ -1,0 +1,80 @@
+{{- /* One Deployment per entry in workers (values.yaml): the release image running the
+     entry's command, with the app's env plus its own, and a network policy of its own. */}}
+{{- range $name, $w := .Values.workers }}
+{{- if $w }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "service.fullname" $ }}-{{ $name }}
+  labels:
+    {{- include "service.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $name }}
+spec:
+  replicas: {{ $w.replicas | default 1 }}
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      {{- include "service.jobSelectorLabels" (dict "root" $ "name" $name) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "service.jobSelectorLabels" (dict "root" $ "name" $name) | nindent 8 }}
+        app.kubernetes.io/version: {{ include "service.version" $ | quote }}
+    spec:
+      {{- with $.Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      automountServiceAccountToken: false
+      # SIGTERM first: a worker stops taking work and finishes what it holds within this.
+      terminationGracePeriodSeconds: {{ $w.terminationGracePeriodSeconds | default $.Values.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- include "service.podSecurityContext" $ | nindent 8 }}
+      containers:
+        - name: {{ $name }}
+          image: {{ include "service.image" $ }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          command:
+            {{- required (printf "workers.%s.command: what the worker runs" $name) $w.command | toYaml | nindent 12 }}
+          env:
+            {{- include "service.env" $ | trim | nindent 12 }}
+            {{- include "service.envList" (dict "root" $ "env" $w.env) | trim | nindent 12 }}
+          securityContext:
+            {{- include "service.containerSecurityContext" $ | nindent 12 }}
+          resources:
+            {{- toYaml ($w.resources | default $.Values.resources) | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp # read-only root FS; give Python a writable /tmp
+          emptyDir:
+            sizeLimit: 16Mi
+      {{- with $.Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $.Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- if $.Values.networkPolicy.enabled }}
+---
+# A worker's pods: nothing may connect to them; they reach what the app reaches.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "service.fullname" $ }}-{{ $name }}
+  labels:
+    {{- include "service.labels" $ | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "service.jobSelectorLabels" (dict "root" $ "name" $name) | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  egress:
+    {{- include "service.egress" $ | nindent 4 }}
+{{- end }}
+{{- end }}
+{{- end }}
