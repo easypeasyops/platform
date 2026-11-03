@@ -35,7 +35,8 @@ app.kubernetes.io/instance: {{ .root.Release.Name }}
 app.kubernetes.io/part-of: {{ include "service.partOf" .root }}
 {{- end -}}
 
-{{/* Egress every pod of the chart needs: DNS, and the database. Nothing else. */}}
+{{/* Egress every pod of the chart needs: DNS, the database, and the app's Redis if it has
+     one. Nothing else. */}}
 {{- define "service.egress" -}}
 - to:
     - namespaceSelector:
@@ -53,9 +54,22 @@ app.kubernetes.io/part-of: {{ include "service.partOf" .root }}
     {{- end }}
   ports:
     - { port: {{ .Values.networkPolicy.databasePort }}, protocol: TCP }
+{{- if .Values.redis.enabled }}
+- to: # the app's Redis (templates/redis.yaml)
+    - podSelector:
+        matchLabels:
+          {{- include "service.jobSelectorLabels" (dict "root" . "name" "redis") | nindent 10 }}
+  ports:
+    - { port: 6379, protocol: TCP }
+{{- end }}
 {{- with .Values.networkPolicy.extraEgress }}
 {{ toYaml . }}
 {{- end }}
+{{- end -}}
+
+{{/* The URL of the app's Redis (redis.enabled), database 0. Env entries template it. */}}
+{{- define "service.redisUrl" -}}
+redis://{{ include "service.fullname" . }}-redis:6379/0
 {{- end -}}
 
 {{/* Image reference: digest wins over tag. Fails the render if neither is set. */}}

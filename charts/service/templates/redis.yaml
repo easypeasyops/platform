@@ -1,0 +1,118 @@
+{{- if .Values.redis.enabled }}
+{{- $name := printf "%s-redis" (include "service.fullname" .) }}
+# The app's Redis (values.yaml, redis): one pod, its data on a volume, its address a
+# headless Service, so redis://<release>-redis:6379 resolves to the pod itself.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "service.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+spec:
+  clusterIP: None
+  selector:
+    {{- include "service.jobSelectorLabels" (dict "root" . "name" "redis") | nindent 4 }}
+  ports:
+    - { name: redis, port: 6379, targetPort: redis }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "service.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+spec:
+  serviceName: {{ $name }}
+  replicas: 1
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      {{- include "service.jobSelectorLabels" (dict "root" . "name" "redis") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "service.jobSelectorLabels" (dict "root" . "name" "redis") | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      # Redis writes the append-only file on SIGTERM before it exits.
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        {{- include "service.podSecurityContext" . | nindent 8 }}
+      containers:
+        - name: redis
+          image: {{ .Values.redis.image }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - redis-server
+            - --dir
+            - /data
+            - --appendonly
+            - "yes"
+            - --save
+            - "" # no RDB snapshots: the append-only file is the record
+            - --protected-mode
+            - "no" # listen beyond loopback without a password: the network policy guards it
+            - --maxmemory
+            - {{ .Values.redis.maxMemory | quote }}
+            - --maxmemory-policy
+            - noeviction
+          ports:
+            - { name: redis, containerPort: 6379 }
+          securityContext:
+            {{- include "service.containerSecurityContext" . | nindent 12 }}
+          readinessProbe:
+            exec: { command: [redis-cli, ping] }
+            periodSeconds: 5
+            timeoutSeconds: 2
+          livenessProbe:
+            tcpSocket: { port: redis }
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.redis.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: {{ .Values.redis.storage }}
+{{- if .Values.networkPolicy.enabled }}
+---
+# Who may connect to Redis: the chart's own pods (the app, its workers, its jobs: part-of).
+# Redis itself connects to nothing.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "service.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "service.jobSelectorLabels" (dict "root" . "name" "redis") | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - ports:
+        - { port: 6379, protocol: TCP }
+      from:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/part-of: {{ include "service.partOf" . }} }
+{{- end }}
+{{- end }}

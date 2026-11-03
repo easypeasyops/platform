@@ -97,6 +97,24 @@ database:
       secretStore: backup-bucket
       remoteSecret: seaweedfs-s3
 
+# A Redis for the app (templates/redis.yaml; platform plan 5.5): a broker or a session store
+# in the app's namespace, reachable only from the chart's own pods (part-of) and reaching
+# nothing itself. A StatefulSet of one, <release>-redis, with an append-only file on its
+# volume, so queued work and sessions survive a restart; no replica and no failover: a
+# restart is a few seconds without Redis. No password: the network policy is the boundary.
+# Env entries reach it by templating its URL, database 0:
+#   - { name: REDIS_URL, value: '{{ include "service.redisUrl" . }}' }
+redis:
+  enabled: false
+  image: docker.io/library/redis:8.10.3-alpine@sha256:21090af93f8324db2f0f0f4f38a7c60369d47d917e000c3423d89d2ae2883537
+  storage: 1Gi
+  # Writes fail (noeviction) beyond maxMemory rather than drop queued work; keep it under the
+  # memory limit, with room for Redis's own overhead and the append-only file's rewrites.
+  maxMemory: 160mb
+  resources:
+    requests: { cpu: 10m, memory: 64Mi }
+    limits: { memory: 256Mi }
+
 # OpenTelemetry: tracing is on only if an endpoint is set.
 otel:
   endpoint: ""

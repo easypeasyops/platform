@@ -1,0 +1,10 @@
+# An app with its own Redis (redis.enabled), reaching it through the URL the chart templates.
+app:
+  name: demo
+image:
+  repository: ghcr.io/easypeasyops/example/demo
+redis:
+  enabled: true
+env:
+  - name: REDIS_URL
+    value: '{{ include "service.redisUrl" . }}'
