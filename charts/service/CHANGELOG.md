@@ -7,7 +7,7 @@ an app that doesn't set it) is a major version; a new optional value is a minor 
 that changes no render an app relies on is a patch. Each release's digest is in its GitHub
 Release.
 
-## 1.2.0
+## 1.2.1
 
 Three new optional values, for an app with a queue (platform plan 5.4–5.6; postitglobal
 first). Additive: nothing renders differently from 1.1.0 for an app that sets none of them
@@ -28,6 +28,12 @@ first). Additive: nothing renders differently from 1.1.0 for an app that sets no
 - **`secretEnv`** (5.6): with `secretEnv.store`, an ExternalSecret `<release>-env` (Argo CD
   wave -3) copying every key of `remoteKey` (default: the app's name) from that
   ClusterSecretStore; env entries read single keys with `secret:`.
+
+## 1.2.0 (never released)
+
+The tag `service/v1.2.0` was pushed on a commit whose `Chart.yaml` still said 1.1.0, so the
+release workflow refused it and nothing was published. Release tags can't be moved or
+deleted (the `chart-release-tags` ruleset), so 1.2.0's changes were released as 1.2.1.
 
 ## 1.1.0
 
