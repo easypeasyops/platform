@@ -1,0 +1,24 @@
+# An app with a queue consumer beside it (workers): one with its own settings, one taking the
+# defaults, and one an environment dropped (null renders nothing).
+app:
+  name: demo
+image:
+  repository: ghcr.io/easypeasyops/example/demo
+env:
+  - name: QUEUE_URL
+    value: redis://queue:6379/0
+workers:
+  consumer:
+    command: [celery, -A, demo.tasks, worker, --loglevel=info]
+    replicas: 2
+    resources:
+      requests: { cpu: 50m, memory: 192Mi }
+      limits: { memory: 384Mi }
+    terminationGracePeriodSeconds: 60
+    env:
+      - name: WORKER_CONCURRENCY
+        value: "2"
+  defaults:
+    command: [demo-sweeper]
+  dropped:
+    command: [demo-old]

@@ -1,0 +1,3 @@
+environment: staging
+workers:
+  dropped: null

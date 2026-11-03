@@ -25,10 +25,10 @@ app.kubernetes.io/name: {{ include "service.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
-{{/* Labels of a scheduled job's pods, (dict "root" $ "name" <cronJobs key>). Deliberately
-     NOT the selector labels: a pod matching those is counted by the HPA (its CPU skews the
-     average) and the PodDisruptionBudget. part-of ties every pod of the chart together for
-     the database's network policy. */}}
+{{/* Labels of a scheduled job's or a worker's pods, (dict "root" $ "name" <cronJobs or
+     workers key>). Deliberately NOT the selector labels: a pod matching those is counted by
+     the HPA (its CPU skews the average) and the PodDisruptionBudget. part-of ties every pod
+     of the chart together for the database's network policy. */}}
 {{- define "service.jobSelectorLabels" -}}
 app.kubernetes.io/name: {{ include "service.name" .root }}-{{ .name }}
 app.kubernetes.io/instance: {{ .root.Release.Name }}
