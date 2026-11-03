@@ -7,6 +7,28 @@ an app that doesn't set it) is a major version; a new optional value is a minor 
 that changes no render an app relies on is a patch. Each release's digest is in its GitHub
 Release.
 
+## 1.2.0
+
+Three new optional values, for an app with a queue (platform plan 5.4–5.6; postitglobal
+first). Additive: nothing renders differently from 1.1.0 for an app that sets none of them
+(the goldens of shortly, minimal and notes are byte for byte the same).
+
+- **`workers`** (5.4): long-running processes beside the app, such as a Celery worker. A
+  Deployment `<release>-<key>` per entry, from the release image with the entry's `command`
+  and the app's env plus its own; `replicas`, `resources`, `terminationGracePeriodSeconds`
+  default to 1 and the app's. No Service, no probes; its own NetworkPolicy (no ingress, the
+  app's egress). Its pods carry the job labels (`<app.name>-<key>`), so the HPA and the PDB
+  don't count them.
+- **`redis`** (5.5): with `redis.enabled`, a Redis 8 for the app: a StatefulSet of one
+  `<release>-redis` (image pinned by digest, append-only file on a `storage` volume,
+  `noeviction` under `maxMemory`), a headless Service, and a NetworkPolicy admitting only
+  the chart's own pods (`part-of`) and giving Redis no egress. Every pod of the chart gets
+  egress to it; env entries template its URL with `service.redisUrl`. No password: the
+  network policy is the boundary.
+- **`secretEnv`** (5.6): with `secretEnv.store`, an ExternalSecret `<release>-env` (Argo CD
+  wave -3) copying every key of `remoteKey` (default: the app's name) from that
+  ClusterSecretStore; env entries read single keys with `secret:`.
+
 ## 1.1.0
 
 - With `database.cluster` and `monitoring.enabled`: a PodMonitor `<release>-db` scrapes each
