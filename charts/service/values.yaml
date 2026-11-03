@@ -125,6 +125,20 @@ otel:
 # `when` is rendered only if `when` renders to something other than "", "0" or "false".
 env: []
 
+# Secret environment variables (templates/secret-env.yaml; platform plan 5.6): API keys and
+# the like, which never go into git. An ExternalSecret copies every key of `remoteKey` in the
+# ClusterSecretStore `store` into the Secret <release>-env in the app's namespace, and env
+# entries read one key each:
+#   - name: ANTHROPIC_API_KEY
+#     secret: { name: '{{ include "service.fullname" . }}-env', key: ANTHROPIC_API_KEY }
+# The store is one the platform holds for the app; its keys are loaded into it by hand.
+secretEnv:
+  store: "" # empty: off
+  remoteKey: "" # default: the app's name
+  # A key changed in the store reaches the Secret within this. Pods read env when they
+  # start, so a changed key reaches the app on its next rollout (kubectl rollout restart).
+  refreshInterval: 1h
+
 migrations:
   enabled: false
   # The Job runs as a Helm pre-install/pre-upgrade hook: the schema is migrated BEFORE

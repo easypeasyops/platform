@@ -1,0 +1,13 @@
+# An app whose API keys come from a store the platform holds for it (secretEnv), read by env
+# entries one key at a time.
+app:
+  name: demo
+image:
+  repository: ghcr.io/easypeasyops/example/demo
+secretEnv:
+  store: demo
+env:
+  - name: PAYMENTS_API_KEY
+    secret:
+      name: '{{ include "service.fullname" . }}-env'
+      key: PAYMENTS_API_KEY
