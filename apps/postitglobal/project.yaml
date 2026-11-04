@@ -4,9 +4,7 @@
 # namespace's baseline, deploy/app-namespace), its two namespaces, and one cluster-scoped
 # thing: those two namespaces themselves, which its Applications create (CreateNamespace in
 # apps/applicationset.yaml; Argo CD checks the namespace it creates against this project).
-#
-# Dormant until its env files arrive (apps/postitglobal/envs/<env>.yaml, once a release
-# exists): the ApplicationSet makes Applications from env files, not from projects.
+
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
