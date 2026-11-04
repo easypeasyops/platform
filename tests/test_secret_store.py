@@ -137,9 +137,11 @@ def test_the_bucket_store_hands_out_the_bucket_keys_only() -> None:
     ]
     store = docs["ClusterSecretStore"]["spec"]
     assert store["provider"]["kubernetes"]["auth"]["serviceAccount"]["name"] == account
+    # App namespaces only: those the apps ApplicationSet labels with their app (5.7). The
+    # platform's own (monitoring, backups) carry no such label.
     (condition,) = store["conditions"]
-    platform = set(_docs()["ClusterSecretStore"]["spec"]["conditions"][0]["namespaces"])
-    assert not platform & set(condition["namespaces"])  # app namespaces only
+    app_label = {"key": "easypeasyops.github.io/app", "operator": "Exists"}
+    assert condition == {"namespaceSelector": {"matchExpressions": [app_label]}}
 
 
 def test_each_app_store_hands_its_own_keys_to_its_own_namespaces_only() -> None:

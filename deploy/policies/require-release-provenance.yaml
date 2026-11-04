@@ -40,8 +40,9 @@ spec:
   matchConstraints:
     namespaceSelector:
       matchExpressions:
-        # The app's namespaces: <app>-<env> (platform plan, Phase 2).
-        - { key: kubernetes.io/metadata.name, operator: In, values: [shortly-staging, shortly-prod] }
+        # Every app's namespaces: the label the apps ApplicationSet gives them (platform plan
+        # 5.7), so a new app is covered without editing this policy.
+        - { key: easypeasyops.github.io/app, operator: Exists }
     resourceRules:
       - apiGroups: [""]
         apiVersions: [v1]
