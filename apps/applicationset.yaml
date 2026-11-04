@@ -67,6 +67,11 @@ spec:
             # stores and Gateway select app namespaces by (platform plan 5.7), so a new app
             # needs no edit there. Only Argo CD sets a namespace's labels: an app's project
             # may create its namespaces, and the service chart renders no Namespace.
+            # A change here reaches a namespace that already exists only at its
+            # Application's next sync: it doesn't make the Application OutOfSync, so
+            # auto-sync won't run for it. Before anything selects by a new label, sync each
+            # Application and check `kubectl get ns -l <label>` (platform #61 merged
+            # without, and shortly's front door was down until the labels were set).
             easypeasyops.github.io/app: "{{ .app }}"
             easypeasyops.github.io/env: "{{ .env }}"
         retry:
