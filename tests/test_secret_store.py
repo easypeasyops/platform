@@ -140,3 +140,34 @@ def test_the_bucket_store_hands_out_the_bucket_keys_only() -> None:
     (condition,) = store["conditions"]
     platform = set(_docs()["ClusterSecretStore"]["spec"]["conditions"][0]["namespaces"])
     assert not platform & set(condition["namespaces"])  # app namespaces only
+
+
+def test_each_app_store_hands_its_own_keys_to_its_own_namespaces_only() -> None:
+    """An app's store (deploy/secrets/app-stores.yaml) reads one Secret, named after the app,
+    and only that app's namespaces may use it: one app can't read another's keys."""
+    docs = _all("deploy/secrets/app-stores.yaml")
+    stores = [d for d in docs if d["kind"] == "ClusterSecretStore"]
+    assert stores
+    by_kind_name = {(d["kind"], d["metadata"]["name"]): d for d in docs}
+    for store in stores:
+        app = store["metadata"]["name"]
+        reader = f"{app}-reader"
+        account = store["spec"]["provider"]["kubernetes"]["auth"]["serviceAccount"]
+        assert account == {"name": reader, "namespace": STORE_NS}
+        assert store["spec"]["provider"]["kubernetes"]["remoteNamespace"] == STORE_NS
+        role = by_kind_name[("Role", reader)]
+        assert role["rules"] == [
+            {"apiGroups": [""], "resources": ["secrets"], "resourceNames": [app], "verbs": ["get"]}
+        ]
+        binding = by_kind_name[("RoleBinding", reader)]
+        assert binding["roleRef"]["name"] == reader
+        assert binding["subjects"] == [
+            {"kind": "ServiceAccount", "name": reader, "namespace": STORE_NS}
+        ]
+        assert by_kind_name[("ServiceAccount", reader)]["automountServiceAccountToken"] is False
+        (condition,) = store["spec"]["conditions"]
+        selector = {"matchLabels": {"easypeasyops.github.io/app": app}}
+        assert condition == {"namespaceSelector": selector}
+    # The secret-store Application applies the file.
+    apps = (ROOT / "deploy/argocd/platform/templates/applications.yaml").read_text()
+    assert "app-stores.yaml" in apps
