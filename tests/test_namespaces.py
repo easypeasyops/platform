@@ -60,8 +60,8 @@ def test_project_and_backups_admit_the_apps_namespaces() -> None:
 
 def test_argo_cd_creates_the_apps_namespaces_with_their_baseline() -> None:
     """Each app's Application creates its namespace with the restricted Pod Security labels
-    and its app and environment as labels, and applies the platform's baseline (default-deny); the app's project lets it create
-    exactly its own namespaces."""
+    and its app and environment as labels, and applies the platform's baseline
+    (default-deny); the app's project lets it create exactly its own namespaces."""
     appset = yaml.safe_load((ROOT / "apps/applicationset.yaml").read_text())["spec"]
     policy = appset["template"]["spec"]["syncPolicy"]
     assert "CreateNamespace=true" in policy["syncOptions"]
