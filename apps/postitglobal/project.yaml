@@ -1,0 +1,29 @@
+# postitglobal's Argo CD project: what its Applications may deploy, and where. Least
+# privilege, as shortly's: the platform's service chart, postitglobal's repo (its values, in
+# easypeasyops/hotel_social_posts apps/postitglobal/deploy/) and the platform's repo (the
+# namespace's baseline, deploy/app-namespace), its two namespaces, and one cluster-scoped
+# thing: those two namespaces themselves, which its Applications create (CreateNamespace in
+# apps/applicationset.yaml; Argo CD checks the namespace it creates against this project).
+#
+# Dormant until its env files arrive (apps/postitglobal/envs/<env>.yaml, once a release
+# exists): the ApplicationSet makes Applications from env files, not from projects.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: postitglobal
+  namespace: argocd
+spec:
+  description: postitglobal's environments (apps/postitglobal/envs)
+  sourceRepos:
+    - oci://ghcr.io/easypeasyops/charts/service
+    - https://github.com/easypeasyops/hotel_social_posts.git
+    - https://github.com/easypeasyops/platform.git
+  destinations:
+    # One namespace per app and environment.
+    - { server: https://kubernetes.default.svc, namespace: postitglobal-staging }
+    - { server: https://kubernetes.default.svc, namespace: postitglobal-prod }
+  clusterResourceWhitelist: # by name: its own namespaces, no other
+    - { group: "", kind: Namespace, name: postitglobal-staging }
+    - { group: "", kind: Namespace, name: postitglobal-prod }
+  namespaceResourceWhitelist:
+    - { group: "*", kind: "*" }

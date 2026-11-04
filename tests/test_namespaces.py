@@ -87,3 +87,21 @@ def test_argo_cd_creates_the_apps_namespaces_with_their_baseline() -> None:
     whitelist = project["clusterResourceWhitelist"]
     assert all((r["group"], r["kind"]) == ("", "Namespace") for r in whitelist), whitelist
     assert {r["name"] for r in whitelist} == namespaces
+
+
+@pytest.mark.parametrize("project_file", sorted(ROOT.glob("apps/*/project.yaml")), ids=str)
+def test_each_apps_project_deploys_to_its_own_namespaces_only(project_file: Path) -> None:
+    """apps/<app>/project.yaml: the project named after its folder, its two namespaces
+    <app>-<env> and nothing else, the platform's chart and baseline among its sources."""
+    app = project_file.parent.name
+    project = yaml.safe_load(project_file.read_text())
+    assert project["metadata"] == {"name": app, "namespace": "argocd"}
+    spec = project["spec"]
+    want = {f"{app}-staging", f"{app}-prod"}
+    assert {d["namespace"] for d in spec["destinations"]} == want
+    assert {d["server"] for d in spec["destinations"]} == {"https://kubernetes.default.svc"}
+    assert spec["clusterResourceWhitelist"] == [
+        {"group": "", "kind": "Namespace", "name": ns} for ns in sorted(want, reverse=True)
+    ]
+    assert "oci://ghcr.io/easypeasyops/charts/service" in spec["sourceRepos"]
+    assert "https://github.com/easypeasyops/platform.git" in spec["sourceRepos"]
