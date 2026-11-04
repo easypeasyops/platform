@@ -11,9 +11,11 @@ from typing import Any
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
-# The app's listener admits the app's namespaces, <app>-<env> (platform plan, Phase 2).
-APP_NAMESPACES = {"shortly-staging", "shortly-prod"}
-LISTENER_NAMESPACES = {"http": APP_NAMESPACES, "tools": {"argocd", "monitoring"}}
+# The app's listener admits every app's namespaces, by the label the apps ApplicationSet
+# gives them (platform plan 5.7); the tools' listener, its two namespaces by name.
+APP_NAMESPACES = {"key": "easypeasyops.github.io/app", "operator": "Exists"}
+TOOL_NAMESPACES = {"argocd", "monitoring"}
+LISTENER_NAMESPACES = {"http": APP_NAMESPACES, "tools": TOOL_NAMESPACES}
 
 
 def _docs(path: Path) -> list[dict[str, Any]]:
@@ -29,9 +31,12 @@ def test_each_listener_admits_only_its_namespaces() -> None:
     assert {listener["name"] for listener in listeners} == set(LISTENER_NAMESPACES)
     for listener in listeners:
         (expr,) = listener["allowedRoutes"]["namespaces"]["selector"]["matchExpressions"]
-        assert expr["key"] == "kubernetes.io/metadata.name"
-        assert expr["operator"] == "In"
-        assert set(expr["values"]) == LISTENER_NAMESPACES[listener["name"]]
+        if listener["name"] == "http":
+            assert expr == APP_NAMESPACES
+        else:
+            assert expr["key"] == "kubernetes.io/metadata.name"
+            assert expr["operator"] == "In"
+            assert set(expr["values"]) == TOOL_NAMESPACES
 
 
 def test_tool_routes_attach_to_the_tools_listener_only() -> None:
@@ -43,7 +48,7 @@ def test_tool_routes_attach_to_the_tools_listener_only() -> None:
         "alertmanager",
     }
     for route in routes:
-        assert route["metadata"]["namespace"] in LISTENER_NAMESPACES["tools"]
+        assert route["metadata"]["namespace"] in TOOL_NAMESPACES
         assert route["spec"]["parentRefs"] == [
             {"name": "shortly", "namespace": "gateway", "sectionName": "tools"}
         ]

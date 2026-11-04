@@ -1,28 +1,30 @@
-# The other half of require-release-provenance: that policy checks shortly's images, so an
+# The other half of require-release-provenance: that policy checks our images, so an
 # attacker would simply run a different image. This one allows only known images in the app
-# namespaces at all.
+# namespaces at all, and of our images only the namespace's own app's (its
+# easypeasyops.github.io/app label), so one app's namespace can't run another app.
 #
-# Audit in kind: local builds (shortly:dev, shortly:e2e) are how this cluster is developed and
+# Audit in kind: local builds (an app's :dev and :e2e images) are how this cluster is developed and
 # tested, so violations are only reported (kubectl get policyreport -A). On a real cluster use
 # validationActions: [Deny]. Tested offline by tests/test_admission_policies.py.
 apiVersion: policies.kyverno.io/v1
 kind: ValidatingPolicy
 metadata:
-  name: shortly-allowed-images
+  name: app-allowed-images
   annotations:
     policies.kyverno.io/title: Only allow known images in the app namespaces
     policies.kyverno.io/description: >-
-      Pods in staging and prod may only run shortly's released image (by digest), Postgres
-      (the e2e's in-cluster client), the k6 load-test image, or the images of a
-      CloudNativePG database: its Postgres 17 image, the operator's (its instance manager)
-      and the Barman Cloud plugin's sidecar.
+      Pods in an app's namespaces may only run that app's released image (by digest),
+      Postgres (the e2e's in-cluster client), the k6 load-test image, Redis 8 (the service
+      chart's `redis`), or the images of a CloudNativePG database: its Postgres 17 image,
+      the operator's (its instance manager) and the Barman Cloud plugin's sidecar.
 spec:
   validationActions: [Audit]
   matchConstraints:
     namespaceSelector:
       matchExpressions:
-        # The app's namespaces: <app>-<env> (platform plan, Phase 2).
-        - { key: kubernetes.io/metadata.name, operator: In, values: [shortly-staging, shortly-prod] }
+        # Every app's namespaces: the label the apps ApplicationSet gives them (platform plan
+        # 5.7), so a new app is covered without editing this policy.
+        - { key: easypeasyops.github.io/app, operator: Exists }
     resourceRules:
       - apiGroups: [""]
         apiVersions: [v1]
@@ -33,13 +35,17 @@ spec:
       expression: >-
         (object.spec.containers + object.spec.?initContainers.orValue([])
          + object.spec.?ephemeralContainers.orValue([])).map(c, c.image)
+    # The namespace's app, as the apps ApplicationSet labels it.
+    - name: app
+      expression: namespaceObject.metadata.labels['easypeasyops.github.io/app']
     - name: allowed
-      # Regexes, anchored. Postgres and k6 are pinned to their major line.
+      # Regexes, anchored. Postgres, Redis and k6 are pinned to their major line.
       expression: >-
         [
-          '^ghcr\\.io/easypeasyops/links/shortly@sha256:[0-9a-f]{64}$',
+          '^ghcr\\.io/easypeasyops/[A-Za-z0-9_.-]+/' + variables.app + '@sha256:[0-9a-f]{64}$',
           '^(docker\\.io/(library/)?)?postgres:17-alpine(@sha256:[0-9a-f]{64})?$',
           '^(docker\\.io/)?grafana/k6:[0-9.]+(@sha256:[0-9a-f]{64})?$',
+          '^(docker\\.io/(library/)?)?redis:8\\.[0-9.]+-alpine(@sha256:[0-9a-f]{64})?$',
           '^ghcr\\.io/cloudnative-pg/postgresql:17\\.[0-9]+-minimal-trixie(@sha256:[0-9a-f]{64})?$',
           '^ghcr\\.io/cloudnative-pg/cloudnative-pg:[0-9.]+(@sha256:[0-9a-f]{64})?$',
           '^ghcr\\.io/cloudnative-pg/plugin-barman-cloud-sidecar:v[0-9.]+(@sha256:[0-9a-f]{64})?$'
@@ -47,5 +53,5 @@ spec:
   validations:
     - expression: variables.images.all(i, variables.allowed.exists(r, i.matches(r)))
       messageExpression: >-
-        'image not allowed in staging/prod: ' +
+        'image not allowed in the namespaces of app ' + variables.app + ': ' +
         variables.images.filter(i, !variables.allowed.exists(r, i.matches(r))).join(', ')

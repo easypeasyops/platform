@@ -86,8 +86,15 @@ spec:
     - from:
         - namespaceSelector:
             matchExpressions:
-              # The app's namespaces (<app>-<env>) and the restore drill's.
-              - { key: kubernetes.io/metadata.name, operator: In, values: [shortly-staging, shortly-prod, restore-drill] }
+              # Every app's namespaces, by the label the apps ApplicationSet gives them (5.7).
+              - { key: easypeasyops.github.io/app, operator: Exists }
+          podSelector:
+            matchExpressions:
+              - { key: cnpg.io/cluster, operator: Exists }
+        - namespaceSelector:
+            matchExpressions:
+              # The restore drill's scratch namespace.
+              - { key: kubernetes.io/metadata.name, operator: In, values: [restore-drill] }
           podSelector:
             matchExpressions:
               - { key: cnpg.io/cluster, operator: Exists }

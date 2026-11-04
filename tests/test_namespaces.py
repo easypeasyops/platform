@@ -42,17 +42,29 @@ def test_scripts_name_no_namespace_directly() -> None:
         assert not hits, (path.name, hits)
 
 
+APP_NAMESPACES = {"matchExpressions": [{"key": "easypeasyops.github.io/app", "operator": "Exists"}]}
+
+
 def test_project_and_backups_admit_the_apps_namespaces() -> None:
-    """What selects the app's namespaces by name lists <app>-<env> (platform plan, Phase 2)."""
+    """An app's project names its own namespaces, <app>-<env> (platform plan, Phase 2); what
+    serves every app selects their namespaces by the label the ApplicationSet gives them
+    (5.7)."""
     want = {"shortly-staging", "shortly-prod"}
     project = yaml.safe_load((ROOT / "apps/shortly/project.yaml").read_text())
     assert {d["namespace"] for d in project["spec"]["destinations"]} == want
-    backups = (ROOT / "deploy/kind/backups.yaml").read_text()
-    # The CloudNativePG pods: their Barman Cloud sidecar, and the restore drill's Cluster.
-    assert backups.count("values: [shortly-staging, shortly-prod, restore-drill]") == 1
+    docs = yaml.safe_load_all((ROOT / "deploy/kind/backups.yaml").read_text())
+    (bucket_policy,) = [d for d in docs if d and d["kind"] == "NetworkPolicy"]
+    # The CloudNativePG pods (their Barman Cloud sidecar) of every app, and the restore drill's.
+    peers = bucket_policy["spec"]["ingress"][0]["from"]
+    cnpg = {"matchExpressions": [{"key": "cnpg.io/cluster", "operator": "Exists"}]}
+    drill = {"key": "kubernetes.io/metadata.name", "operator": "In", "values": ["restore-drill"]}
+    assert peers == [
+        {"namespaceSelector": APP_NAMESPACES, "podSelector": cnpg},
+        {"namespaceSelector": {"matchExpressions": [drill]}, "podSelector": cnpg},
+    ]
     bucket = yaml.safe_load_all((ROOT / "deploy/secrets/bucket-store.yaml").read_text())
     (store,) = [d for d in bucket if d["kind"] == "ClusterSecretStore"]
-    assert store["spec"]["conditions"] == [{"namespaces": ["shortly-staging", "shortly-prod"]}]
+    assert store["spec"]["conditions"] == [{"namespaceSelector": APP_NAMESPACES}]
     monitoring = yaml.safe_load((ROOT / "deploy/kind/monitoring-values.yaml").read_text())
     routes = monitoring["alertmanager"]["config"]["route"]["routes"]
     assert ['namespace =~ ".+-staging"'] in [r["matchers"] for r in routes]

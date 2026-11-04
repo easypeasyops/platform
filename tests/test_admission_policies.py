@@ -61,12 +61,38 @@ def _pod(
     }
 
 
+APP_LABEL = "easypeasyops.github.io/app"
+
+
+def _namespace_labels(ns: str) -> dict[str, str]:
+    """The labels the apps ApplicationSet gives an app namespace, <app>-<env>; none for others."""
+    app, _, env = ns.rpartition("-")
+    if env not in ("staging", "prod"):
+        return {}
+    return {APP_LABEL: app, "easypeasyops.github.io/env": env}
+
+
 def _apply(tmp_path: Path, policy: str, pods: list[dict[str, Any]]) -> dict[str, tuple[str, str]]:
-    """Run `kyverno apply`; return {pod name: (result, message)}."""
+    """Run `kyverno apply`; return {pod name: (result, message)}. The pods' namespaces are
+    labelled as the apps ApplicationSet labels them (given to the CLI both as Namespace
+    objects, for namespaceObject, and as its values file's namespaceSelector)."""
     work = tmp_path / "kyverno"
     work.mkdir()
     (work / "policy.yaml").write_text(policy)
-    (work / "pods.yaml").write_text(yaml.safe_dump_all(pods))
+    namespaces = sorted({p["metadata"]["namespace"] for p in pods})
+    labels = {ns: {"kubernetes.io/metadata.name": ns, **_namespace_labels(ns)} for ns in namespaces}
+    ns_objects = [
+        {"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": ns, "labels": ls}}
+        for ns, ls in labels.items()
+    ]
+    (work / "pods.yaml").write_text(yaml.safe_dump_all([*ns_objects, *pods]))
+    values = {
+        "apiVersion": "cli.kyverno.io/v1alpha1",
+        "kind": "Value",
+        "metadata": {"name": "values"},
+        "namespaceSelector": [{"name": ns, "labels": ls} for ns, ls in labels.items()],
+    }
+    (work / "values.yaml").write_text(yaml.safe_dump(values))
     work.chmod(0o755)
     for f in work.iterdir():
         f.chmod(0o644)
@@ -77,7 +103,8 @@ def _apply(tmp_path: Path, policy: str, pods: list[dict[str, Any]]) -> dict[str,
             cmd += ["-e", var]
     if ca := os.environ.get("SSL_CERT_FILE"):
         cmd += ["-v", f"{ca}:/ca.crt:ro", "-e", "SSL_CERT_FILE=/ca.crt"]
-    cmd += [KYVERNO_CLI, "apply", "policy.yaml", "--resource", "pods.yaml", "--policy-report"]
+    cmd += [KYVERNO_CLI, "apply", "policy.yaml", "--resource", "pods.yaml",
+            "--values-file", "values.yaml", "--policy-report"]  # fmt: skip
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
     report = yaml.safe_load(result.stdout) if result.stdout.strip() else None
     assert report, result.stdout + result.stderr
@@ -164,10 +191,10 @@ def test_expensive_checks_stay_out_of_the_background() -> None:
 
 
 def test_policies_cover_the_app_namespaces_only() -> None:
+    """Every app's namespaces, by the label the apps ApplicationSet gives them (5.7)."""
     for name in ("require-release-provenance.yaml", "allowed-images.yaml"):
         selector = _load(name)["spec"]["matchConstraints"]["namespaceSelector"]
-        values = selector["matchExpressions"][0]["values"]
-        assert sorted(values) == ["shortly-prod", "shortly-staging"], name  # <app>-<env>
+        assert selector == {"matchExpressions": [{"key": APP_LABEL, "operator": "Exists"}]}, name
 
 
 # ------------------------------------------------------------------ Kyverno CLI cases
@@ -204,13 +231,23 @@ def test_allowlist_verdicts(tmp_path: Path) -> None:
         _pod("app-image", "ghcr.io/easypeasyops/links/shortly@sha256:" + "a" * 64),
         _pod("app-tag", "ghcr.io/easypeasyops/links/shortly:0.7.2"),
         _pod("other-app", "ghcr.io/easypeasyops/links/other@sha256:" + "a" * 64),
+        # Another app's namespaces admit that app's image, from its own repo, and not shortly's.
+        _pod("second-app", "ghcr.io/easypeasyops/hotel_social_posts/postitglobal@sha256:"
+             + "a" * 64, ns="postitglobal-staging"),
+        _pod("cross-app", "ghcr.io/easypeasyops/links/shortly@sha256:" + "a" * 64,
+             ns="postitglobal-staging"),
+        # The service chart's Redis (redis.enabled).
+        _pod("redis", "docker.io/library/redis:8.10.3-alpine@sha256:" + "d" * 64),
+        _pod("old-redis", "redis:7.4-alpine"),
         _pod("elsewhere", "busybox:1.36", ns="default"),
-    ]
+    ]  # fmt: skip
     verdicts = _apply(tmp_path, (POLICIES / "allowed-images.yaml").read_text(), pods)
-    for name in ("release", "db", "db-qualified", "k6", "cnpg-instance", "app-image"):
+    allowed = ("release", "db", "db-qualified", "k6", "cnpg-instance", "app-image", "second-app",
+               "redis")  # fmt: skip
+    for name in allowed:
         assert verdicts[name][0] == "pass", (name, verdicts[name])
     refused = ("tag", "other-image", "bad-init", "old-postgres", "lookalike", "rclone",
-               "app-tag", "other-app", "old-repo")  # fmt: skip
+               "app-tag", "other-app", "old-repo", "cross-app", "old-redis")  # fmt: skip
     for name in (*refused, "cnpg-postgres-18", "cnpg-lookalike"):
         assert verdicts[name][0] == "fail", (name, verdicts.get(name))
     assert "docker.io/attacker/miner:latest" in verdicts["other-image"][1]
