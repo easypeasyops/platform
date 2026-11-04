@@ -60,7 +60,7 @@ def test_project_and_backups_admit_the_apps_namespaces() -> None:
 
 def test_argo_cd_creates_the_apps_namespaces_with_their_baseline() -> None:
     """Each app's Application creates its namespace with the restricted Pod Security labels
-    and applies the platform's baseline (default-deny); the app's project lets it create
+    and its app and environment as labels, and applies the platform's baseline (default-deny); the app's project lets it create
     exactly its own namespaces."""
     appset = yaml.safe_load((ROOT / "apps/applicationset.yaml").read_text())["spec"]
     policy = appset["template"]["spec"]["syncPolicy"]
@@ -69,6 +69,9 @@ def test_argo_cd_creates_the_apps_namespaces_with_their_baseline() -> None:
     assert labels == {
         "pod-security.kubernetes.io/enforce": "restricted",
         "pod-security.kubernetes.io/warn": "restricted",
+        # What app namespaces are selected by (platform plan 5.7), filled in per Application.
+        "easypeasyops.github.io/app": "{{ .app }}",
+        "easypeasyops.github.io/env": "{{ .env }}",
     }
     # Argo CD alone makes them: cluster.sh only bootstraps Argo CD (platform plan 4.3).
     cluster_sh = (ROOT / "scripts/cluster.sh").read_text()

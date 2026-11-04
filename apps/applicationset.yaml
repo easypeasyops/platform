@@ -8,7 +8,7 @@
 # Each Application renders the platform's service chart from GHCR, pinned by the digest in
 # the env file (a chart version reaches staging before prod by editing one file at a time),
 # with the values files listed there, layered in order, from the app's repo. The namespace
-# comes with it: created and labelled here, its baseline (deploy/app-namespace/) a source.
+# comes with it: created and labelled here (its app and environment among the labels), its baseline (deploy/app-namespace/) a source.
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
@@ -63,6 +63,12 @@ spec:
           labels:
             pod-security.kubernetes.io/enforce: restricted
             pod-security.kubernetes.io/warn: restricted
+            # Which app and environment the namespace holds: what the platform's policies,
+            # stores and Gateway select app namespaces by (platform plan 5.7), so a new app
+            # needs no edit there. Only Argo CD sets a namespace's labels: an app's project
+            # may create its namespaces, and the service chart renders no Namespace.
+            easypeasyops.github.io/app: "{{ .app }}"
+            easypeasyops.github.io/env: "{{ .env }}"
         retry:
           limit: 3
           backoff: { duration: 10s, factor: 2, maxDuration: 1m }
