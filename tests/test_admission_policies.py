@@ -232,10 +232,10 @@ def test_allowlist_verdicts(tmp_path: Path) -> None:
         _pod("app-tag", "ghcr.io/easypeasyops/links/shortly:0.7.2"),
         _pod("other-app", "ghcr.io/easypeasyops/links/other@sha256:" + "a" * 64),
         # Another app's namespaces admit that app's image, from its own repo, and not shortly's.
-        _pod("second-app", "ghcr.io/easypeasyops/hotel_social_posts/postitglobal@sha256:"
-             + "a" * 64, ns="postitglobal-staging"),
+        _pod("second-app", "ghcr.io/easypeasyops/hotel_social_posts/aipostit@sha256:"
+             + "a" * 64, ns="aipostit-staging"),
         _pod("cross-app", "ghcr.io/easypeasyops/links/shortly@sha256:" + "a" * 64,
-             ns="postitglobal-staging"),
+             ns="aipostit-staging"),
         # The service chart's Redis (redis.enabled).
         _pod("redis", "docker.io/library/redis:8.10.3-alpine@sha256:" + "d" * 64),
         _pod("old-redis", "redis:7.4-alpine"),

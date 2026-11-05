@@ -3,7 +3,7 @@
 # secret-store, which the app's own ClusterSecretStore (deploy/secrets/app-stores.yaml) hands
 # to its namespaces, where the service chart's `secretEnv` copies it into <release>-env.
 #
-#   scripts/load-app-env.sh postitglobal ../hotel_social_posts/apps/postitglobal/.env
+#   scripts/load-app-env.sh aipostit ../hotel_social_posts/apps/aipostit/.env
 #
 # From a dotenv file (KEY=value lines; # comments and blank lines skipped; quotes are kept
 # as part of the value, so write none). Every key in the file replaces what the Secret held:
