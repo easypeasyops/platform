@@ -1,0 +1,17 @@
+# aipostit in staging: the Application aipostit-staging, in namespace aipostit-staging.
+# aipostit is postitglobal under its new name; it replaces postitglobal-staging.
+app: aipostit
+env: staging
+# The platform's service chart, pinned by digest (the version is for people). Move a pin
+# only to a released digest whose provenance verifies (the release's notes say how); move
+# staging's first. 1.2.1 is the first with workers, redis and secretEnv.
+chart:
+  version: 1.2.1
+  digest: sha256:ca3d68b758d57577660a870180415210590c9ed299d80756102debb502d012f4
+# aipostit's values, from hotel_social_posts at this revision, layered in this order.
+values:
+  repoURL: https://github.com/easypeasyops/hotel_social_posts.git
+  revision: main
+  files:
+    - apps/aipostit/deploy/service/values.yaml
+    - apps/aipostit/deploy/envs/staging.yaml
