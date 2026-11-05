@@ -1,0 +1,27 @@
+# aipostit's Argo CD project: what its Applications may deploy, and where. Least
+# privilege, as shortly's: the platform's service chart, aipostit's repo (its values, in
+# easypeasyops/hotel_social_posts apps/aipostit/deploy/) and the platform's repo (the
+# namespace's baseline, deploy/app-namespace), its two namespaces, and one cluster-scoped
+# thing: those two namespaces themselves, which its Applications create (CreateNamespace in
+# apps/applicationset.yaml; Argo CD checks the namespace it creates against this project).
+
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: aipostit
+  namespace: argocd
+spec:
+  description: aipostit's environments (apps/aipostit/envs)
+  sourceRepos:
+    - oci://ghcr.io/easypeasyops/charts/service
+    - https://github.com/easypeasyops/hotel_social_posts.git
+    - https://github.com/easypeasyops/platform.git
+  destinations:
+    # One namespace per app and environment.
+    - { server: https://kubernetes.default.svc, namespace: aipostit-staging }
+    - { server: https://kubernetes.default.svc, namespace: aipostit-prod }
+  clusterResourceWhitelist: # by name: its own namespaces, no other
+    - { group: "", kind: Namespace, name: aipostit-staging }
+    - { group: "", kind: Namespace, name: aipostit-prod }
+  namespaceResourceWhitelist:
+    - { group: "*", kind: "*" }
