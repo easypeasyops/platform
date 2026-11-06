@@ -1,5 +1,5 @@
 # aipostit in staging: the Application aipostit-staging, in namespace aipostit-staging.
-# aipostit is postitglobal under its new name; it replaces postitglobal-staging.
+# It was called postitglobal until v0.3.8 (hotel_social_posts' postitglobal/v* tags).
 app: aipostit
 env: staging
 # The platform's service chart, pinned by digest (the version is for people). Move a pin
