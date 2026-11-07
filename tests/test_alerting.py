@@ -8,6 +8,7 @@ An app's own alert rules are tested in the app's repo.
 """
 
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -17,6 +18,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 RULES = ROOT / "deploy/argocd/platform/files/argocd-rules.yaml"
+RUNBOOK = ROOT / "docs/RUNBOOK.md"
+RUNBOOK_URL = "https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md"
 PROMTOOL_TESTS = ROOT / "deploy/prometheus/tests"
 PROMETHEUS_IMAGE = "prom/prometheus:v3.15.0"
 # The Alertmanager that kube-prometheus-stack (deploy/argocd/platform/values.yaml) runs.
@@ -50,6 +53,29 @@ def test_every_platform_alert_has_a_scenario() -> None:
     }
     assert alerts, "no alerts found"
     assert alerts <= tested, f"alerts never shown to fire: {sorted(alerts - tested)}"
+
+
+def _anchor(heading: str) -> str:
+    """GitHub's anchor for a Markdown heading: lower case, punctuation gone, spaces to -."""
+    return re.sub(r"[^\w\- ]", "", heading.strip().lower()).replace(" ", "-")
+
+
+def test_every_runbook_link_names_a_heading() -> None:
+    anchors = {
+        _anchor(line.lstrip("#"))
+        for line in RUNBOOK.read_text().splitlines()
+        if line.startswith("#")
+    }
+    links = [
+        rule["annotations"]["runbook_url"]
+        for group in yaml.safe_load(RULES.read_text())["groups"]
+        for rule in group["rules"]
+        if "alert" in rule
+    ]
+    assert links, "no runbook links found"
+    for link in links:
+        assert link.startswith(RUNBOOK_URL + "#"), f"{link} is not in docs/RUNBOOK.md"
+        assert link.split("#", 1)[1] in anchors, f"{link}: no such heading"
 
 
 @pytest.mark.integration
