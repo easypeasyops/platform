@@ -46,6 +46,9 @@ prometheus:
 alertmanager:
   alertmanagerSpec:
     externalUrl: http://alertmanager.localhost:8090 # links in notifications point here
+    # The Slack webhooks (deploy/secrets/monitoring.yaml), mounted at
+    # /etc/alertmanager/secrets/alertmanager-slack/<key> for the receivers' api_url_file.
+    secrets: [alertmanager-slack]
     resources:
       requests: { cpu: 10m, memory: 32Mi }
   # Routing for shortly's alerts. Receivers are named placeholders with no integration, so
