@@ -51,11 +51,12 @@ alertmanager:
     secrets: [alertmanager-slack]
     resources:
       requests: { cpu: 10m, memory: 32Mi }
-  # Routing for shortly's alerts. Receivers are named placeholders with no integration, so
-  # nothing leaves the cluster; in a real setup `pager` gets pagerduty_configs and `tickets`
-  # slack_configs (with the webhook in a Secret). tests/test_alert_rules.py checks these
-  # routes with amtool.
+  # Routing. aipostit's alerts go to its two Slack channels (docs/RUNBOOK.md, Slack alerts).
+  # shortly's go to named placeholders with no integration, so nothing of its leaves the
+  # cluster; in a real setup `pager` gets pagerduty_configs and `tickets` slack_configs.
+  # tests/test_alerting.py checks these routes and the Slack messages with amtool.
   config:
+    templates: [/etc/alertmanager/config/*.tmpl] # templateFiles below
     route:
       receiver: "null"
       group_by: [alertname, namespace, slo]
@@ -65,6 +66,26 @@ alertmanager:
       routes:
         - receiver: "null" # always-firing heartbeat from the stack: proves the pipeline works
           matchers: ['alertname = "Watchdog"']
+        # aipostit, one Slack channel per environment, before the generic staging route.
+        # Its own rules' severities only: the stack's warning/critical alerts on the same
+        # pods stay on "null". For PagerDuty later, aipostit-prod gets child routes: one
+        # for severity="page" to a receiver with pagerduty_configs, `continue: true`, and a
+        # catch-all to aipostit-prod, so Slack still has every alert.
+        - receiver: aipostit-staging
+          matchers: ['namespace = "aipostit-staging"', 'severity =~ "page|ticket"']
+          group_by: [alertname, namespace]
+        - receiver: aipostit-prod
+          matchers: ['namespace = "aipostit-prod"', 'severity =~ "page|ticket"']
+          group_by: [alertname, namespace]
+        # Argo CD's alerts on aipostit's Applications have no namespace, only the
+        # Application's name and project: staging's go to staging, any other to prod, so
+        # none is lost.
+        - receiver: aipostit-staging
+          matchers: ['project = "aipostit"', 'name = "aipostit-staging"']
+          group_by: [alertname, name]
+        - receiver: aipostit-prod
+          matchers: ['project = "aipostit"']
+          group_by: [alertname, name]
         - receiver: staging # staging never pages anyone, whatever its severity
           # Any app's staging namespace, <app>-staging (platform plan, Phase 2).
           matchers: ['namespace =~ ".+-staging"']
@@ -82,11 +103,47 @@ alertmanager:
       - source_matchers: ['alertname = "ShortlyNoAvailablePods"']
         target_matchers: ['alertname =~ ".*BudgetBurn|ShortlyNotReady|ShortlyLoadShedding"']
         equal: [namespace]
+      # aipostit: a page in an environment covers its tickets there (the API down covers its
+      # errors and readiness; Redis down covers everything that needs Redis).
+      - source_matchers: ['alertname =~ "Aipostit.+"', 'severity = "page"']
+        target_matchers: ['alertname =~ "Aipostit.+"', 'severity = "ticket"']
+        equal: [namespace]
     receivers:
       - name: "null"
       - name: pager
       - name: tickets
       - name: staging
+      # The webhooks are files Alertmanager reads (alertmanagerSpec.secrets above), never
+      # in this config.
+      - name: aipostit-prod
+        slack_configs:
+          - api_url_file: /etc/alertmanager/secrets/alertmanager-slack/aipostit-prod-webhook-url
+            send_resolved: true
+            title: '{{ template "aipostit.slack.title" . }}'
+            text: '{{ template "aipostit.slack.text" . }}'
+      - name: aipostit-staging
+        slack_configs:
+          - api_url_file: /etc/alertmanager/secrets/alertmanager-slack/aipostit-staging-webhook-url
+            send_resolved: true
+            title: '{{ template "aipostit.slack.title" . }}'
+            text: '{{ template "aipostit.slack.text" . }}'
+  # aipostit's Slack messages. Title: red for a page, yellow for a ticket, the alert and its
+  # environment. Text: @channel on a firing page in prod only, each alert's summary, and its
+  # runbook link. Resolved alerts say so (send_resolved).
+  templateFiles:
+    aipostit-slack.tmpl: |-
+      {{ define "aipostit.slack.env" }}{{ if .CommonLabels.namespace }}{{ reReplaceAll "^aipostit-" "" .CommonLabels.namespace }}{{ else }}{{ reReplaceAll "^aipostit-" "" .CommonLabels.name }}{{ end }}{{ end }}
+      {{ define "aipostit.slack.title" -}}
+      {{ if eq .CommonLabels.severity "page" }}🔴{{ else }}🟡{{ end }} {{ if eq .Status "resolved" }}RESOLVED {{ end }}{{ .CommonLabels.alertname }} in {{ template "aipostit.slack.env" . }}
+      {{- end }}
+      {{ define "aipostit.slack.text" -}}
+      {{ if and (eq .Status "firing") (eq .CommonLabels.severity "page") (eq .Receiver "aipostit-prod") }}<!channel> {{ end -}}
+      severity *{{ .CommonLabels.severity }}*, env *{{ template "aipostit.slack.env" . }}*
+      {{ range .Alerts -}}
+      • {{ if eq .Status "resolved" }}resolved: {{ end }}{{ .Annotations.summary }}
+      {{ end -}}
+      {{ with (index .Alerts 0).Annotations.runbook_url }}<{{ . }}|Runbook>{{ end }}
+      {{- end }}
 
 grafana:
   fullnameOverride: grafana
