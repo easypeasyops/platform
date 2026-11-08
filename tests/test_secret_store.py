@@ -5,7 +5,8 @@ Secrets copies them to where they are used. These checks keep it a store and not
   - the identity External Secrets reads it with may read Secrets there and nowhere else;
   - the ClusterSecretStore reads only that namespace, and only for the namespaces it names;
   - each value is generated once and replaced only by deleting it, and the consumers read
-    keys their generator makes;
+    keys their generator makes (or, for the few made outside the cluster, keys the runbook
+    says to load);
   - cluster.sh makes none of them.
 """
 
@@ -16,6 +17,9 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 STORE_NS = "secret-store"
+# Store values no generator can make (a Slack webhook), loaded by hand: store secret -> the
+# keys docs/RUNBOOK.md tells the operator to load.
+LOADED = {"alertmanager-slack": ["aipostit-prod-webhook-url", "aipostit-staging-webhook-url"]}
 
 
 def _docs() -> dict[str, dict[str, Any]]:
@@ -88,7 +92,7 @@ def test_store_values_are_made_once_and_kept() -> None:
 
 
 def test_consumers_read_keys_the_store_has() -> None:
-    made = _generated()
+    made = _generated() | LOADED
     store = _docs()["ClusterSecretStore"]
     allowed = set(store["spec"]["conditions"][0]["namespaces"])
     consumers = [d for f in ("monitoring", "backups") for d in _all(f"deploy/secrets/{f}.yaml")]
@@ -173,3 +177,13 @@ def test_each_app_store_hands_its_own_keys_to_its_own_namespaces_only() -> None:
     # The secret-store Application applies the file.
     apps = (ROOT / "deploy/argocd/platform/templates/applications.yaml").read_text()
     assert "app-stores.yaml" in apps
+
+
+def test_loaded_values_are_in_the_runbook() -> None:
+    """Each key loaded by hand is named in the runbook's loading steps, and not generated."""
+    runbook = (ROOT / "docs/RUNBOOK.md").read_text()
+    for name, keys in LOADED.items():
+        assert name not in _generated(), name
+        assert f"create secret generic {name}" in runbook, name
+        for key in keys:
+            assert f"{key}=" in runbook, key
