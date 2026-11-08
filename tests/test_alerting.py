@@ -7,11 +7,13 @@ An alert that never fires looks exactly like a healthy system, so:
 An app's own alert rules are tested in the app's repo.
 """
 
+import json
 import os
 import re
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
@@ -97,8 +99,15 @@ def alertmanager_config(tmp_path_factory: pytest.TempPathFactory) -> Path:
     values = yaml.safe_load((ROOT / "deploy/kind/monitoring-values.yaml").read_text())
     directory = tmp_path_factory.mktemp("alertmanager")
     directory.chmod(0o755)  # the amtool container runs as nobody
+    # Where the stack puts them, /etc/alertmanager/config/, is /c/ in the amtool container.
+    for name, text in values["alertmanager"]["templateFiles"].items():
+        (directory / name).write_text(text)
+        (directory / name).chmod(0o644)
+    config_values = values["alertmanager"]["config"]
+    assert config_values["templates"] == ["/etc/alertmanager/config/*.tmpl"]
+    config_values["templates"] = ["/c/*.tmpl"]
     config = directory / "alertmanager.yaml"
-    config.write_text(yaml.safe_dump(values["alertmanager"]["config"]))
+    config.write_text(yaml.safe_dump(config_values))
     config.chmod(0o644)
     return config
 
@@ -130,6 +139,18 @@ def test_alertmanager_config_is_valid(alertmanager_config: Path) -> None:
         (["namespace=prodstaging", "severity=page"], "pager"),  # the regex is anchored
         (["alertname=Watchdog", "severity=none"], "null"),
         (["namespace=monitoring", "severity=warning"], "null"),  # the stack's own alerts
+        # aipostit: every alert of its own to its environment's Slack channel.
+        (["namespace=aipostit-prod", "severity=page"], "aipostit-prod"),
+        (["namespace=aipostit-prod", "severity=ticket"], "aipostit-prod"),
+        (["namespace=aipostit-staging", "severity=page"], "aipostit-staging"),
+        (["namespace=aipostit-staging", "severity=ticket"], "aipostit-staging"),
+        # The stack's alerts on aipostit's pods: its own rules cover them.
+        (["namespace=aipostit-prod", "severity=warning"], "null"),
+        # Argo CD on aipostit's Applications: by Application; one not staging's goes to prod.
+        (["project=aipostit", "name=aipostit-staging", "severity=ticket"], "aipostit-staging"),
+        (["project=aipostit", "name=aipostit-prod", "severity=ticket"], "aipostit-prod"),
+        (["project=aipostit", "name=aipostit-preview", "severity=ticket"], "aipostit-prod"),
+        (["project=shortly", "name=shortly-prod", "severity=ticket"], "tickets"),
     ],
 )
 def test_alerts_route_to_the_right_receiver(
@@ -141,3 +162,65 @@ def test_alerts_route_to_the_right_receiver(
         f"--verify.receivers={receiver}", *labels,
     )  # fmt: skip
     assert result.returncode == 0, f"{labels} -> {result.stdout.strip()}, want {receiver}"
+
+
+def _slack(config: Path, data: dict[str, Any]) -> str:
+    """aipostit's Slack title and text for this notification (template.Data)."""
+    (config.parent / "data.json").write_text(json.dumps(data))
+    (config.parent / "data.json").chmod(0o644)
+    text = '{{ template "aipostit.slack.title" . }}\n{{ template "aipostit.slack.text" . }}'
+    result = _amtool(
+        config,
+        "template", "render", "--template.glob=/c/*.tmpl", f"--template.text={text}",
+        "--template.data=/c/data.json",
+    )  # fmt: skip
+    assert result.returncode == 0, result.stdout + result.stderr
+    return result.stdout
+
+
+def _notification(receiver: str, status: str, labels: dict[str, str]) -> dict[str, Any]:
+    alert = {
+        "status": status,
+        "labels": {"alertname": "AipostitApiDown", **labels},
+        "annotations": {"summary": "The API is down", "runbook_url": "https://example.test#x"},
+    }
+    return {
+        "receiver": receiver,
+        "status": status,
+        "alerts": [alert],
+        "groupLabels": {},
+        "commonLabels": alert["labels"],
+        "commonAnnotations": alert["annotations"],
+        "externalURL": "http://alertmanager.localhost:8090",
+    }
+
+
+@pytest.mark.integration
+def test_a_prod_page_is_red_and_notifies_the_channel(alertmanager_config: Path) -> None:
+    labels = {"namespace": "aipostit-prod", "severity": "page"}
+    message = _slack(alertmanager_config, _notification("aipostit-prod", "firing", labels))
+    assert message.startswith("🔴 AipostitApiDown in prod\n<!channel> "), message
+    assert "The API is down" in message
+    assert "<https://example.test#x|Runbook>" in message
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("receiver", "status", "labels", "title"),
+    [
+        ("aipostit-prod", "firing", {"namespace": "aipostit-prod", "severity": "ticket"},
+         "🟡 AipostitApiDown in prod"),
+        ("aipostit-prod", "resolved", {"namespace": "aipostit-prod", "severity": "page"},
+         "🔴 RESOLVED AipostitApiDown in prod"),
+        ("aipostit-staging", "firing", {"namespace": "aipostit-staging", "severity": "page"},
+         "🔴 AipostitApiDown in staging"),
+        ("aipostit-prod", "firing", {"name": "aipostit-prod", "severity": "ticket"},
+         "🟡 AipostitApiDown in prod"),
+    ],
+)  # fmt: skip
+def test_other_messages_never_notify_the_channel(
+    alertmanager_config: Path, receiver: str, status: str, labels: dict[str, str], title: str
+) -> None:
+    message = _slack(alertmanager_config, _notification(receiver, status, labels))
+    assert message.startswith(title + "\n"), message
+    assert "<!channel>" not in message

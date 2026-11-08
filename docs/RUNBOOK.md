@@ -56,3 +56,32 @@ Write no quotes around the values. Every key must be in the file: a key left out
 removed. A replaced URL reaches Alertmanager within the hour (the ExternalSecret's
 refresh); check with `kubectl -n monitoring get externalsecret alertmanager-slack` (Ready
 `True`). If a webhook leaks, delete it in Slack first, then load the new one.
+
+**Where alerts go** (`deploy/kind/monitoring-values.yaml`, checked by
+`tests/test_alerting.py`). aipostit's rules (severity `page` or `ticket`) go to its
+environment's channel: `aipostit-prod` to #aipostit-alerts-prod, `aipostit-staging` to
+#aipostit-alerts-staging. Argo CD's alerts on its Applications go by the Application's name:
+`aipostit-staging`'s to staging, any other to prod. Grouped by alert and environment, repeated
+every 4 hours while firing, and a message when it resolves. A page is red and, in prod,
+notifies the channel (`@channel`); a ticket is yellow and doesn't. While a page fires in an
+environment, its tickets there are held back (inhibited). The stack's own warning and
+critical alerts on the same pods stay on `null`: aipostit's rules cover them.
+
+**Test the route end to end** (posts to the real channels: say so there first). An alert sent
+by hand, which resolves itself after its end time:
+
+```sh
+amtool --alertmanager.url=http://alertmanager.localhost:8090 alert add AipostitTest \
+  namespace=aipostit-staging severity=ticket \
+  --annotation=summary="Test alert, please ignore" --end="$(date -u -v+5M +%Y-%m-%dT%H:%M:%SZ)"
+```
+
+It reaches #aipostit-alerts-staging after `group_wait` (30 s), and a resolved message about
+5 minutes after the end time. `namespace=aipostit-prod severity=page` tests the prod channel
+and its `@channel`. Nothing arrives: `kubectl -n monitoring logs alertmanager-kps-alertmanager-0
+-c alertmanager | grep -i slack` (a 404 or `invalid_token` is a revoked webhook: load a new
+one, above).
+
+**Silence** a known alert while you work on it: Alertmanager's UI
+(http://alertmanager.localhost:8090, New Silence) or `amtool silence add alertname=<name>
+namespace=<ns> --duration=2h --comment="<why>"`.
