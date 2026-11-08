@@ -32,7 +32,18 @@ prometheus:
   prometheusSpec:
     scrapeInterval: 15s
     evaluationInterval: 15s
-    retention: 2d
+    # 10 days on a volume of its own, so the data outlives the pod (an emptyDir lost it at
+    # every recreation). About 0.5 GB a day at today's scrape load; retentionSize keeps it
+    # inside the claim if that grows.
+    retention: 10d
+    retentionSize: 12GB
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: standard # kind's local-path provisioner
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests: { storage: 15Gi }
     # Where it's reached (deploy/kind/tools/monitoring.yaml): alert links ("Source") use it.
     externalUrl: http://prometheus.localhost:8090
     # Select ServiceMonitors and PrometheusRules from every release in every namespace,

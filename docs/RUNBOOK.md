@@ -85,3 +85,15 @@ one, above).
 **Silence** a known alert while you work on it: Alertmanager's UI
 (http://alertmanager.localhost:8090, New Silence) or `amtool silence add alertname=<name>
 namespace=<ns> --duration=2h --comment="<why>"`.
+
+## Prometheus data
+
+Prometheus keeps 10 days (`retention: 10d`, capped at 12 GB by `retentionSize`) on its own
+15Gi volume, `prometheus-kps-prometheus-db-prometheus-kps-prometheus-0` in `monitoring`
+(kind's local-path storage, under the node's disk), so restarts and upgrades keep it.
+Settings: `deploy/kind/monitoring-values.yaml`.
+
+- How far back it goes: `min(prometheus_tsdb_lowest_timestamp)` in Prometheus, in ms.
+- How much it holds: `prometheus_tsdb_storage_blocks_bytes`. About 0.5 GB a day at today's
+  load; past 12 GB the oldest blocks go first, whatever their age.
+- Deleting the PVC (or the kind cluster) loses the history; Prometheus starts empty.
