@@ -49,8 +49,8 @@ def test_project_and_backups_admit_the_apps_namespaces() -> None:
     """An app's project names its own namespaces, <app>-<env> (platform plan, Phase 2); what
     serves every app selects their namespaces by the label the ApplicationSet gives them
     (5.7)."""
-    want = {"shortly-staging", "shortly-prod"}
-    project = yaml.safe_load((ROOT / "apps/shortly/project.yaml").read_text())
+    want = {"aipostit-staging", "aipostit-prod"}
+    project = yaml.safe_load((ROOT / "apps/aipostit/project.yaml").read_text())
     assert {d["namespace"] for d in project["spec"]["destinations"]} == want
     docs = yaml.safe_load_all((ROOT / "deploy/kind/backups.yaml").read_text())
     (bucket_policy,) = [d for d in docs if d and d["kind"] == "NetworkPolicy"]
@@ -96,7 +96,7 @@ def test_argo_cd_creates_the_apps_namespaces_with_their_baseline() -> None:
     assert deny["kind"] == "NetworkPolicy"
     assert deny["spec"] == {"podSelector": {}, "policyTypes": ["Ingress"]}
 
-    project = yaml.safe_load((ROOT / "apps/shortly/project.yaml").read_text())["spec"]
+    project = yaml.safe_load((ROOT / "apps/aipostit/project.yaml").read_text())["spec"]
     assert "https://github.com/easypeasyops/platform.git" in project["sourceRepos"]
     namespaces = {d["namespace"] for d in project["destinations"]}
     whitelist = project["clusterResourceWhitelist"]
