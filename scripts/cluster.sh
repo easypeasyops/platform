@@ -32,7 +32,7 @@ set -euo pipefail
 
 CLUSTER=shortly
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-# ENVS: the environments, whose Applications up() waits for
+# ENVS: the environments, whose old Applications take_over_apps() hands over
 # shellcheck source=scripts/lib/namespaces.sh
 source "$ROOT/scripts/lib/namespaces.sh"
 # Argo CD: deploys the platform and the app from git. Pinned by version and digest: the
@@ -73,7 +73,9 @@ up() {
   if on ARGOCD_APPS; then
     take_over_apps
     kubectl apply -f "$APPS_ROOT/apps-project.yaml" -f "$APPS_ROOT/apps-root.yaml" >/dev/null
-    for env in "${ENVS[@]}"; do wait_synced "shortly-$env" 300; done
+    for f in "$ROOT"/apps/*/envs/*.yaml; do # one Application per file: <app>-<env>
+      wait_synced "$(basename "$(dirname "$(dirname "$f")")")-$(basename "$f" .yaml)" 300
+    done
     kubectl -n argocd get applications
   fi
 }

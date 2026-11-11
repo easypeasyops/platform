@@ -63,8 +63,8 @@ alertmanager:
     resources:
       requests: { cpu: 10m, memory: 32Mi }
   # Routing. aipostit's alerts go to its two Slack channels (docs/RUNBOOK.md, Slack alerts).
-  # shortly's go to named placeholders with no integration, so nothing of its leaves the
-  # cluster; in a real setup `pager` gets pagerduty_configs and `tickets` slack_configs.
+  # Any other app's go to named placeholders with no integration, so nothing of its leaves
+  # the cluster; in a real setup `pager` gets pagerduty_configs and `tickets` slack_configs.
   # tests/test_alerting.py checks these routes and the Slack messages with amtool.
   config:
     templates: [/etc/alertmanager/config/*.tmpl] # templateFiles below
@@ -110,10 +110,6 @@ alertmanager:
       - source_matchers: ['severity = "page"']
         target_matchers: ['severity = "ticket"']
         equal: [alertname, namespace, slo]
-      # No pods at all: the burn-rate and readiness alerts are symptoms of the same cause.
-      - source_matchers: ['alertname = "ShortlyNoAvailablePods"']
-        target_matchers: ['alertname =~ ".*BudgetBurn|ShortlyNotReady|ShortlyLoadShedding"']
-        equal: [namespace]
       # aipostit: a page in an environment covers its tickets there (the API down covers its
       # errors and readiness; Redis down covers everything that needs Redis).
       - source_matchers: ['alertname =~ "Aipostit.+"', 'severity = "page"']

@@ -18,9 +18,9 @@ platform's own. Rules: `deploy/argocd/platform/files/argocd-rules.yaml`.
 | `ArgoCDSyncFailed` | A sync was refused in the last 15 minutes (admission policy, invalid manifest, failed hook), even if a retry worked | `kubectl -n argocd get application <name> -o jsonpath='{.status.operationState.message}'` |
 | `ArgoCDDown` | No application controller scraped for 10 minutes: nothing syncs, nothing self-heals, and the three above are blind | `kubectl -n argocd get pods`; `kubectl -n argocd logs statefulset/argocd-application-controller --tail=50` |
 
-Then the app's own runbook for its Application (shortly: "A merged change didn't deploy";
-aipostit: "API health check fails"), or, for a platform Application, shortly's runbook's
-table of platform sync failures (links `apps/shortly/docs/RUNBOOK.md`, Argo CD alerts).
+Then the app's own runbook for its Application (aipostit: "API health check fails"), or,
+for a platform Application, the table of platform sync failures in links'
+`apps/shortly/docs/RUNBOOK.md` (Argo CD alerts).
 
 ## Slack alerts
 
