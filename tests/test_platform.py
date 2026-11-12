@@ -162,6 +162,82 @@ def test_logs_ship_with_monitoring_and_leave_its_namespace_labels_alone() -> Non
     assert not {"logs", "monitoring"} & without
 
 
+def test_the_log_collector_is_the_only_privileged_namespace() -> None:
+    """Reading the node's log files takes a hostPath volume, which Pod Security allows only
+    at "privileged": one namespace has that level, holds only the collector, and is the one
+    the store's NetworkPolicy lets write."""
+    privileged = {
+        a["spec"]["destination"]["namespace"]
+        for a in _render()
+        if "privileged"
+        in a["spec"]["syncPolicy"].get("managedNamespaceMetadata", {}).get("labels", {}).values()
+    }
+    assert privileged == {"log-collector"}
+    in_it = [a for a in _render() if a["spec"]["destination"]["namespace"] == "log-collector"]
+    assert [a["metadata"]["name"] for a in in_it] == ["log-collector"]
+    assert "log-collector" not in {
+        a["metadata"]["name"] for a in _render("components.monitoring=false")
+    }
+    store = yaml.safe_load((ROOT / "deploy/kind/victoria-logs-values.yaml").read_text())
+    (rule,) = store["networkPolicy"]["ingress"]
+    assert store["networkPolicy"]["enabled"] is True
+    assert rule["ports"] == [{"port": 9428, "protocol": "TCP"}]
+    assert rule["from"] == [
+        {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "log-collector"}}},
+        {"podSelector": {"matchLabels": {"app.kubernetes.io/name": "grafana"}}},
+        {"podSelector": {"matchLabels": {"app.kubernetes.io/name": "prometheus"}}},
+    ]
+
+
+@pytest.mark.integration
+def test_the_log_collector_gets_less_than_its_namespace_allows() -> None:
+    """The chart, rendered with our values: no host network, PID or IPC, no privileged
+    container or capability, the node's disk read-only except its state directory, and no
+    stream field beyond where a line came from (a per-request one would be a stream each)."""
+    chart = VALUES["charts"]["logCollector"]
+    _render()  # skips without helm
+    out = subprocess.run(
+        [
+            *("helm", "template", "log-collector", f"{chart['repo']}@{chart['digest']}"),
+            *("--namespace", "log-collector"),
+            *("--values", str(ROOT / "deploy/kind/log-collector-values.yaml")),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    docs = [d for d in yaml.safe_load_all(out) if d]
+    (daemonset,) = [d for d in docs if d["kind"] == "DaemonSet"]
+    pod = daemonset["spec"]["template"]["spec"]
+    assert not {"hostNetwork", "hostPID", "hostIPC", "initContainers"} & set(pod)
+    (container,) = pod["containers"]
+    assert container["securityContext"] == {
+        "allowPrivilegeEscalation": False,
+        "capabilities": {"drop": ["ALL"]},
+        "readOnlyRootFilesystem": True,
+    }
+    host_paths = {v["name"]: v["hostPath"]["path"] for v in pod["volumes"]}
+    assert set(host_paths.values()) == {"/var/log", "/var/lib/vl-collector"}
+    assert len(host_paths) == len(pod["volumes"])  # no other kind of volume either
+    writable = {m["name"] for m in container["volumeMounts"] if not m.get("readOnly")}
+    assert {host_paths[name] for name in writable} == {"/var/lib/vl-collector"}
+    args = container["args"]
+    assert "--remoteWrite.url=http://victoria-logs.monitoring.svc:9428/insert/native" in args
+    assert (
+        "--kubernetesCollector.streamFields="
+        "kubernetes.container_name,kubernetes.pod_name,kubernetes.pod_namespace"
+    ) in args
+    # What it may read from the API: where pods run, nothing of theirs.
+    (role,) = [d for d in docs if d["kind"] == "ClusterRole"]
+    assert role["rules"] == [
+        {
+            "apiGroups": [""],
+            "resources": ["nodes", "namespaces", "pods"],
+            "verbs": ["get", "list", "watch"],
+        }
+    ]
+
+
 def test_logs_are_kept_for_a_time_and_a_size_that_fit_the_volume() -> None:
     """The size cap is what keeps the volume from filling: it must stay under the claim."""
     server = yaml.safe_load((ROOT / "deploy/kind/victoria-logs-values.yaml").read_text())["server"]

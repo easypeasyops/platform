@@ -1,0 +1,64 @@
+# vlagent (the victoria-logs-collector chart) for the local kind cluster, deployed by Argo
+# CD (deploy/argocd/platform/, the `log-collector` Application): one pod per node that reads
+# every container's log file as the kubelet writes it and sends the lines to VictoriaLogs
+# (deploy/kind/victoria-logs-values.yaml; docs/RUNBOOK.md, Logs).
+#
+# Reading the node's files needs hostPath volumes, which Pod Security allows only at
+# "privileged": so it has a namespace of its own with that level, and holds nothing else.
+# What it gets is narrower than the level allows (tests/test_platform.py checks the render):
+# no host network, PID or IPC, no privileged container, and the node's disk read-only
+# except its own state directory.
+
+fullnameOverride: log-collector
+
+remoteWrite:
+  - url: http://victoria-logs.monitoring.svc:9428
+    # While VictoriaLogs is away, lines wait on the node's disk (the state directory below)
+    # and are sent when it is back; past this the oldest go first.
+    maxDiskUsagePerURL: 1GiB
+
+# collector.streamFields stays the chart's default (namespace, pod, container): what a line
+# is indexed by. Everything inside a JSON line (request_id, route, status...) becomes an
+# ordinary field: never add one of those here, each value would be a stream of its own.
+
+# Only /var/log, read-only: on kind (containerd) /var/log/containers/*.log are links into
+# /var/log/pods, nothing under /var/lib (the chart's default mounts that too, for Docker).
+defaultVolumes:
+  - name: varlog
+    hostPath: { path: /var/log }
+defaultVolumeMounts:
+  - { name: varlog, mountPath: /var/log, readOnly: true }
+# Its state (how far it has read each file, and the buffer above) stays the chart's
+# default: the node's /var/lib/vl-collector, so replacing the pod neither re-sends nor
+# skips lines. The one host path it may write.
+
+# Root, because the kubelet's log files are root's alone (/var/log/pods is 0750, each file
+# 0640, root:root), but with nothing else root has: no capabilities, no way to gain any, a
+# read-only root filesystem.
+podSecurityContext:
+  enabled: true
+  runAsUser: 0
+  seccompProfile: { type: RuntimeDefault }
+securityContext:
+  enabled: true
+  allowPrivilegeEscalation: false
+  capabilities: { drop: [ALL] }
+  readOnlyRootFilesystem: true
+
+resources:
+  requests: { cpu: 20m, memory: 64Mi }
+
+# Its own metrics (vlagent_*), scraped like everything else; nothing but Prometheus may
+# connect to it.
+podMonitor:
+  enabled: true
+  annotations:
+    # As the store's ServiceMonitor: the CRD comes with kube-prometheus-stack, in the same wave.
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+networkPolicy:
+  enabled: true
+  ingress:
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: monitoring } }
+          podSelector: { matchLabels: { app.kubernetes.io/name: prometheus } }
+      ports: [{ port: 9429, protocol: TCP }]
