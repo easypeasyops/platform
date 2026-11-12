@@ -61,7 +61,10 @@ refresh); check with `kubectl -n monitoring get externalsecret alertmanager-slac
 `tests/test_alerting.py`). aipostit's rules (severity `page` or `ticket`) go to its
 environment's channel: `aipostit-prod` to #aipostit-alerts-prod, `aipostit-staging` to
 #aipostit-alerts-staging. Argo CD's alerts on its Applications go by the Application's name:
-`aipostit-staging`'s to staging, any other to prod. Grouped by alert and environment, repeated
+`aipostit-staging`'s to staging, any other to prod. Argo CD's alerts on `deploybot-ops`
+(aipostit's release bot, hotel_social_posts `apps/deploybot/`) go to #aipostit-alerts-prod
+too, as tickets: it has no rules of its own, and a crash loop, a pod never Ready or a failed
+sync shows there as `ArgoCDAppUnhealthy` or `ArgoCDSyncFailed`, titled "in deploybot-ops". Grouped by alert and environment, repeated
 every 4 hours while firing, and a message when it resolves. A page is red and, in prod,
 notifies the channel (`@channel`); a ticket is yellow and doesn't. While a page fires in an
 environment, its tickets there are held back (inhibited). The stack's own warning and

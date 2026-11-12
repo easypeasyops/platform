@@ -97,6 +97,13 @@ alertmanager:
         - receiver: aipostit-prod
           matchers: ['project = "aipostit"']
           group_by: [alertname, name]
+        # deploybot (hotel_social_posts' /aipostit Slack command, aipostit's release tool):
+        # Argo CD's alerts on its Application go to aipostit's prod channel, as tickets. It
+        # has no rules of its own: a crash loop, a pod never Ready (no Slack connection) or a
+        # refused sync makes the Application unhealthy or its sync fail, which these cover.
+        - receiver: aipostit-prod
+          matchers: ['project = "deploybot"']
+          group_by: [alertname, name]
         - receiver: staging # staging never pages anyone, whatever its severity
           # Any app's staging namespace, <app>-staging (platform plan, Phase 2).
           matchers: ['namespace =~ ".+-staging"']
