@@ -151,6 +151,10 @@ def test_alertmanager_config_is_valid(alertmanager_config: Path) -> None:
         (["project=aipostit", "name=aipostit-prod", "severity=ticket"], "aipostit-prod"),
         (["project=aipostit", "name=aipostit-preview", "severity=ticket"], "aipostit-prod"),
         (["project=shortly", "name=shortly-prod", "severity=ticket"], "tickets"),
+        # deploybot: Argo CD on its Application to aipostit's prod channel; the stack's
+        # alerts on its pod stay on "null", as aipostit's.
+        (["project=deploybot", "name=deploybot-ops", "severity=ticket"], "aipostit-prod"),
+        (["namespace=deploybot-ops", "severity=warning"], "null"),
     ],
 )
 def test_alerts_route_to_the_right_receiver(
@@ -216,6 +220,8 @@ def test_a_prod_page_is_red_and_notifies_the_channel(alertmanager_config: Path) 
          "🔴 AipostitApiDown in staging"),
         ("aipostit-prod", "firing", {"name": "aipostit-prod", "severity": "ticket"},
          "🟡 AipostitApiDown in prod"),
+        ("aipostit-prod", "firing", {"name": "deploybot-ops", "severity": "ticket"},
+         "🟡 AipostitApiDown in deploybot-ops"),
     ],
 )  # fmt: skip
 def test_other_messages_never_notify_the_channel(
