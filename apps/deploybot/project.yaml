@@ -1,0 +1,23 @@
+# deploybot's Argo CD project (hotel_social_posts apps/deploybot): the /aipostit Slack
+# command, a tool for aipostit's releases. Least privilege, as aipostit's: the platform's
+# service chart, its repo's values (apps/deploybot/deploy/) and the platform's repo (the
+# namespace's baseline), its one namespace and that namespace itself.
+
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: deploybot
+  namespace: argocd
+spec:
+  description: deploybot's environment (apps/deploybot/envs)
+  sourceRepos:
+    - oci://ghcr.io/easypeasyops/charts/service
+    - https://github.com/easypeasyops/hotel_social_posts.git
+    - https://github.com/easypeasyops/platform.git
+  destinations:
+    # One environment: it serves aipostit's staging and prod releases, it isn't staged itself.
+    - { server: https://kubernetes.default.svc, namespace: deploybot-ops }
+  clusterResourceWhitelist: # by name: its own namespace, no other
+    - { group: "", kind: Namespace, name: deploybot-ops }
+  namespaceResourceWhitelist:
+    - { group: "*", kind: "*" }

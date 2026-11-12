@@ -1,0 +1,14 @@
+# deploybot: the Application deploybot-ops, in namespace deploybot-ops.
+app: deploybot
+env: ops
+# The platform's service chart, pinned by digest (the version is for people), as aipostit's.
+chart:
+  version: 1.2.1
+  digest: sha256:ca3d68b758d57577660a870180415210590c9ed299d80756102debb502d012f4
+# deploybot's values, from hotel_social_posts at this revision, layered in this order.
+values:
+  repoURL: https://github.com/easypeasyops/hotel_social_posts.git
+  revision: main
+  files:
+    - apps/deploybot/deploy/service/values.yaml
+    - apps/deploybot/deploy/envs/ops.yaml
