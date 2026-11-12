@@ -1,6 +1,6 @@
 # VictoriaLogs (single node) for the local kind cluster, deployed by Argo CD
 # (deploy/argocd/platform/, the `logs` Application): where the pods' logs are kept, so they
-# outlive the pod that wrote them. In `monitoring`, beside Grafana, which will read it.
+# outlive the pod that wrote them. In `monitoring`, beside Grafana, which reads it.
 # The collector (deploy/kind/log-collector-values.yaml) writes to it (docs/RUNBOOK.md, Logs).
 
 # VictoriaLogs has no login: whoever reaches port 9428 can read and write every log. So only
@@ -15,7 +15,7 @@ networkPolicy:
       ports: [{ port: 9428, protocol: TCP }]
 
 server:
-  fullnameOverride: victoria-logs # the Service the collector names, and Grafana will: port 9428
+  fullnameOverride: victoria-logs # the Service the collector and Grafana name, port 9428
   # 30 days, or less if the logs outgrow 4 GiB first: the oldest day goes, whatever its
   # age, so the volume never fills. The cluster wrote about 15 MiB of logs a day when this
   # was sized (2026-11-11), so the cap is far away.

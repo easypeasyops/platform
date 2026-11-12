@@ -107,8 +107,8 @@ Every pod's log lines are kept in VictoriaLogs (single node, `victoria-logs-0` i
 `monitoring`, the platform's `logs` Application), so they outlive the pod that wrote them.
 The collector (vlagent, the DaemonSet `log-collector` in the namespace of that name, the
 platform's `log-collector` Application) reads each container's log file on the node and
-sends the lines within seconds. Grafana's data source is a change of its own: until then,
-ask VictoriaLogs directly (below).
+sends the lines within seconds. Read them in Grafana, or ask VictoriaLogs directly (both
+below).
 
 **What a line looks like there.** It is indexed by where it came from, its stream:
 `kubernetes.pod_namespace`, `kubernetes.pod_name`, `kubernetes.container_name`. A JSON line
@@ -117,7 +117,26 @@ key (`request_id`, `route`, `status`, `level`...) is a field to search by. Any o
 kept whole as `_msg`. Never make a per-request value a stream field
 (`deploy/kind/log-collector-values.yaml`).
 
-**Asking it.** `kubectl -n monitoring port-forward svc/victoria-logs 9428`, then its own UI
+**In Grafana.** http://grafana.localhost:8090, Explore, data source **VictoriaLogs**. The
+query language is LogsQL (not Loki's LogQL): a stream filter in braces, then fields, then
+pipes.
+
+```
+{kubernetes.pod_namespace="aipostit-prod"} request_id:="<id>"
+{kubernetes.pod_namespace="aipostit-prod"} level:=error
+_time:1h | stats by (kubernetes.pod_namespace) count() lines
+```
+
+The data source is provisioned (`grafana.additionalDataSources`,
+`deploy/kind/monitoring-values.yaml`), so it can't be edited in the UI. Is it healthy:
+Connections, Data sources, VictoriaLogs, **Test**. If it is missing or says the plugin is
+not found, Grafana started without `victoriametrics-logs-datasource`: it downloads the
+plugin from grafana.com at every start of its pod (`kubectl -n monitoring logs
+deploy/grafana -c grafana | grep -i plugin`), so restart it once the laptop is online:
+propose `kubectl -n monitoring rollout restart deploy/grafana`. If Test fails with the
+plugin there, the store is down or its NetworkPolicy no longer admits Grafana's pods.
+
+**Asking it directly.** `kubectl -n monitoring port-forward svc/victoria-logs 9428`, then its own UI
 at http://localhost:9428/select/vmui, or:
 
 ```sh
