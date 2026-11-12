@@ -100,3 +100,26 @@ Settings: `deploy/kind/monitoring-values.yaml`.
 - How much it holds: `prometheus_tsdb_storage_blocks_bytes`. About 0.5 GB a day at today's
   load; past 12 GB the oldest blocks go first, whatever their age.
 - Deleting the PVC (or the kind cluster) loses the history; Prometheus starts empty.
+
+## Logs
+
+VictoriaLogs (single node, `victoria-logs-0` in `monitoring`, the platform's `logs`
+Application) is where the pods' logs are kept, so they outlive the pod that wrote them.
+**Nothing writes to it yet**: the collector that reads the node's pod logs is a change of
+its own, and Grafana's data source another after it. Until then, `kubectl logs` as before.
+
+It keeps 30 days (`retentionPeriod: 30d`), or less if the logs outgrow 4 GiB first
+(`retentionDiskSpaceUsage`: the oldest day goes, whatever its age), on its own 5Gi volume,
+`server-volume-victoria-logs-0` in `monitoring` (kind's local-path storage, under the
+node's disk), so restarts and upgrades keep it. Settings: `deploy/kind/victoria-logs-values.yaml`.
+It listens on `victoria-logs.monitoring.svc:9428`, inside the cluster only and with no
+login of its own: don't give it a route on the Gateway.
+
+- Is it up: the `logs` Application is Synced and Healthy, and in Prometheus
+  `up{job="victoria-logs"}` is 1.
+- How much it holds: `sum(vl_data_size_bytes)` in Prometheus; `vl_rows_ingested_total` counts
+  the lines it has taken in (0 until the collector runs).
+- Ask it directly: `kubectl -n monitoring port-forward svc/victoria-logs 9428`, then
+  `curl -s localhost:9428/select/logsql/query -d 'query=*' -d 'limit=5'` (its own UI is at
+  http://localhost:9428/select/vmui while the port-forward runs).
+- Deleting the PVC (or the kind cluster) loses the logs; VictoriaLogs starts empty.
