@@ -106,13 +106,15 @@ def test_argo_cd_creates_the_apps_namespaces_with_their_baseline() -> None:
 
 @pytest.mark.parametrize("project_file", sorted(ROOT.glob("apps/*/project.yaml")), ids=str)
 def test_each_apps_project_deploys_to_its_own_namespaces_only(project_file: Path) -> None:
-    """apps/<app>/project.yaml: the project named after its folder, its two namespaces
-    <app>-<env> and nothing else, the platform's chart and baseline among its sources."""
+    """apps/<app>/project.yaml: the project named after its folder, one namespace <app>-<env>
+    per env file in apps/<app>/envs/ (staging and prod for most apps) and nothing else, the
+    platform's chart and baseline among its sources."""
     app = project_file.parent.name
     project = yaml.safe_load(project_file.read_text())
     assert project["metadata"] == {"name": app, "namespace": "argocd"}
     spec = project["spec"]
-    want = {f"{app}-staging", f"{app}-prod"}
+    want = {f"{app}-{env.stem}" for env in (project_file.parent / "envs").glob("*.yaml")}
+    assert want
     assert {d["namespace"] for d in spec["destinations"]} == want
     assert {d["server"] for d in spec["destinations"]} == {"https://kubernetes.default.svc"}
     assert spec["clusterResourceWhitelist"] == [
