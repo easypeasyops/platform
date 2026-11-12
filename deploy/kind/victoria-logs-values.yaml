@@ -1,0 +1,26 @@
+# VictoriaLogs (single node) for the local kind cluster, deployed by Argo CD
+# (deploy/argocd/platform/, the `logs` Application): where the pods' logs are kept, so they
+# outlive the pod that wrote them. In `monitoring`, beside Grafana, which will read it.
+# Nothing writes to it yet: the collector is a change of its own (docs/RUNBOOK.md, Logs).
+
+server:
+  fullnameOverride: victoria-logs # the Service the collector and Grafana will name, port 9428
+  # 30 days, or less if the logs outgrow 4 GiB first: the oldest day goes, whatever its
+  # age, so the volume never fills. The cluster wrote about 15 MiB of logs a day when this
+  # was sized (2026-11-11), so the cap is far away.
+  retentionPeriod: 30d
+  retentionDiskSpaceUsage: 4 # GiB
+  persistentVolume:
+    storageClassName: standard # kind's local-path provisioner
+    size: 5Gi
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+  # Its own metrics (vl_*), scraped like everything else: Prometheus selects ServiceMonitors
+  # in every namespace (deploy/kind/monitoring-values.yaml).
+  serviceMonitor:
+    enabled: true
+    annotations:
+      # Its CRD comes with kube-prometheus-stack, another Application in the same wave. Argo
+      # CD dry-runs every resource first, and the dry run of a kind that doesn't exist yet
+      # fails the whole sync: skip it for this one (as deploy/argocd/platform/templates/monitoring.yaml).
+      argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true

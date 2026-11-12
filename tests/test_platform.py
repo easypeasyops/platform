@@ -148,6 +148,28 @@ def test_one_application_sets_each_namespaces_labels() -> None:
     assert managers["cnpg-system"] == ["cloudnative-pg"]
 
 
+def test_logs_ship_with_monitoring_and_leave_its_namespace_labels_alone() -> None:
+    """VictoriaLogs lives in kube-prometheus-stack's namespace: installed and skipped with
+    it (cluster.sh's MONITORING knob), and the Pod Security label stays the monitoring
+    Application's to set."""
+    (logs,) = [a for a in _render() if a["metadata"]["name"] == "logs"]
+    assert logs["spec"]["destination"]["namespace"] == "monitoring"
+    assert "managedNamespaceMetadata" not in logs["spec"]["syncPolicy"]
+    chart = logs["spec"]["sources"][0]
+    assert chart["repoURL"] == VALUES["charts"]["victoriaLogs"]["repo"]
+    assert chart["helm"]["valueFiles"] == ["$values/deploy/kind/victoria-logs-values.yaml"]
+    without = {a["metadata"]["name"] for a in _render("components.monitoring=false")}
+    assert not {"logs", "monitoring"} & without
+
+
+def test_logs_are_kept_for_a_time_and_a_size_that_fit_the_volume() -> None:
+    """The size cap is what keeps the volume from filling: it must stay under the claim."""
+    server = yaml.safe_load((ROOT / "deploy/kind/victoria-logs-values.yaml").read_text())["server"]
+    assert server["retentionPeriod"] == "30d"
+    assert server["persistentVolume"]["size"].endswith("Gi")
+    assert server["retentionDiskSpaceUsage"] < int(server["persistentVolume"]["size"][:-2])
+
+
 def test_the_project_is_kept_from_git() -> None:
     """The child that syncs the AppProject syncs the very file cluster.sh bootstraps with,
     into the namespace the project lives in."""

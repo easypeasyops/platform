@@ -124,6 +124,17 @@ spec:
     - group: admissionregistration.k8s.io
       kind: MutatingWebhookConfiguration
       jqPathExpressions: [".webhooks[]?.clientConfig.caBundle"]
+---
+# VictoriaLogs: where the pods' logs are kept (docs/RUNBOOK.md, Logs). In kube-prometheus-stack's
+# namespace, beside Grafana; the namespace's labels are set once, by the monitoring
+# Application (two Applications managing them would fight). Its ServiceMonitor's CRD comes
+# with that Application, in the same wave: the sync retry covers the race.
+{{ include "platform.meta" (dict "name" "logs" "wave" 0) }}
+spec:
+  project: platform
+  {{- include "platform.chartSources" (dict "root" $ "chart" $v.charts.victoriaLogs "release" "logs" "values" "deploy/kind/victoria-logs-values.yaml") | nindent 2 }}
+  destination: { server: {{ $dest }}, namespace: monitoring }
+  {{- include "platform.syncPolicy" (dict) | nindent 2 }}
 {{- end }}
 {{- if $v.components.policies }}
 ---
