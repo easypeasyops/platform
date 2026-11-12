@@ -10,22 +10,24 @@ its own code, values and the release each environment runs; this repo owns every
 The files here came from [easypeasyops/links](https://github.com/easypeasyops/links)
 (formerly `statsguy/shortly`) with their history, as plan step 3.1. Since 3.4 this repo is
 the only copy: Argo CD syncs the platform from here, the laptop cluster is started from a
-checkout here, and links runs it at the commit its `platform.lock` names.
+checkout here, and an app's repo uses it at the commit its `platform.lock` names. shortly
+left the cluster in #80; the apps here today are aipostit and deploybot
+([easypeasyops/hotel_social_posts](https://github.com/easypeasyops/hotel_social_posts)).
 
 | Step | Change | State |
 | --- | --- | --- |
 | 3.1 | Platform files copied here with history | done |
 | 3.2 | A generic `service` chart, released to GHCR as a signed OCI chart | done: 0.1.0; 1.0.0 since 4.2; 1.1.0 scrapes the databases; 1.2.1 adds workers, Redis and secret env (5.4–5.6) |
-| 3.3 | An ApplicationSet over `apps/*`; `apps/shortly/` points at links | done |
+| 3.3 | An ApplicationSet over `apps/*`; `apps/shortly/` points at links | done; `apps/shortly/` removed in #80 |
 | 3.4 | links drops what moved and pins this repo's workflows and chart | done |
-| 3.5 | Releases per app (`shortly/vX.Y.Z`, `ghcr.io/easypeasyops/links/shortly`) | |
+| 3.5 | Releases per app (`shortly/vX.Y.Z`, `ghcr.io/easypeasyops/links/shortly`) | not in links (its tags are still `vX.Y.Z`); hotel_social_posts releases this way (`aipostit/vX.Y.Z`, `deploybot/vX.Y.Z`) |
 
 ## What's here
 
 | Path | What |
 | --- | --- |
 | `apps/` | Every app's environments: `apps/applicationset.yaml` generates one Argo CD Application per `apps/<app>/envs/<env>.yaml` (the service chart pinned by digest, values from the app's repo); `apps/<app>/project.yaml` is the app's AppProject. Applied by the `apps` root (`deploy/argocd/apps-{root,project}.yaml`) |
-| `charts/service/` | The chart every app deploys with (3.2, not used by anything yet): Deployment or canary Rollout, HPA, PDB, probes, network policies, monitoring; workers, Redis and secret env beside the app. `tests/<app>/` holds an app's values and the golden render CI checks |
+| `charts/service/` | The chart every app deploys with (3.2): Deployment or canary Rollout, HPA, PDB, probes, network policies, monitoring; workers, Redis and secret env beside the app. `tests/<app>/` holds an app's values and the golden render CI checks |
 | `.github/workflows/reusable-*.yml` | Reusable workflows (`workflow_call`) an app's CI calls: Python check, image build/scan/smoke test |
 | `deploy/argocd/platform/` | The platform chart (app-of-apps): External Secrets and the secret store, cert-manager, CloudNativePG and its Barman Cloud plugin, Envoy Gateway, Argo Rollouts, metrics-server, kube-prometheus-stack, VictoriaLogs and its log collector, Kyverno and its policies, the backup bucket |
 | `deploy/argocd/platform-{root,project}.yaml` | The root Application and the AppProject it runs in |
