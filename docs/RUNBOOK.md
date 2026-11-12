@@ -103,23 +103,56 @@ Settings: `deploy/kind/monitoring-values.yaml`.
 
 ## Logs
 
-VictoriaLogs (single node, `victoria-logs-0` in `monitoring`, the platform's `logs`
-Application) is where the pods' logs are kept, so they outlive the pod that wrote them.
-**Nothing writes to it yet**: the collector that reads the node's pod logs is a change of
-its own, and Grafana's data source another after it. Until then, `kubectl logs` as before.
+Every pod's log lines are kept in VictoriaLogs (single node, `victoria-logs-0` in
+`monitoring`, the platform's `logs` Application), so they outlive the pod that wrote them.
+The collector (vlagent, the DaemonSet `log-collector` in the namespace of that name, the
+platform's `log-collector` Application) reads each container's log file on the node and
+sends the lines within seconds. Grafana's data source is a change of its own: until then,
+ask VictoriaLogs directly (below).
 
-It keeps 30 days (`retentionPeriod: 30d`), or less if the logs outgrow 4 GiB first
-(`retentionDiskSpaceUsage`: the oldest day goes, whatever its age), on its own 5Gi volume,
-`server-volume-victoria-logs-0` in `monitoring` (kind's local-path storage, under the
-node's disk), so restarts and upgrades keep it. Settings: `deploy/kind/victoria-logs-values.yaml`.
-It listens on `victoria-logs.monitoring.svc:9428`, inside the cluster only and with no
-login of its own: don't give it a route on the Gateway.
+**What a line looks like there.** It is indexed by where it came from, its stream:
+`kubernetes.pod_namespace`, `kubernetes.pod_name`, `kubernetes.container_name`. A JSON line
+(aipostit's) is taken apart: `msg` becomes `_msg`, `ts` becomes `_time`, and every other
+key (`request_id`, `route`, `status`, `level`...) is a field to search by. Any other line is
+kept whole as `_msg`. Never make a per-request value a stream field
+(`deploy/kind/log-collector-values.yaml`).
+
+**Asking it.** `kubectl -n monitoring port-forward svc/victoria-logs 9428`, then its own UI
+at http://localhost:9428/select/vmui, or:
+
+```sh
+q() { curl -s localhost:9428/select/logsql/query --data-urlencode "query=$1"; }
+# Lines per namespace over the last hour: is everything arriving?
+q '_time:1h | stats by (kubernetes.pod_namespace) count() lines'
+# Everything one aipostit request logged (its X-Request-ID)
+q '{kubernetes.pod_namespace="aipostit-prod"} request_id:="<id>"'
+```
+
+**The store.** It keeps 30 days (`retentionPeriod: 30d`), or less if the logs outgrow 4 GiB
+first (`retentionDiskSpaceUsage`: the oldest day goes, whatever its age), on its own 5Gi
+volume, `server-volume-victoria-logs-0` in `monitoring` (kind's local-path storage, under
+the node's disk), so restarts and upgrades keep it. Settings:
+`deploy/kind/victoria-logs-values.yaml`. It listens on `victoria-logs.monitoring.svc:9428`
+and has no login of its own, so a NetworkPolicy lets only the collector's namespace,
+Grafana and Prometheus connect: don't give it a route on the Gateway.
 
 - Is it up: the `logs` Application is Synced and Healthy, and in Prometheus
   `up{job="victoria-logs"}` is 1.
-- How much it holds: `sum(vl_data_size_bytes)` in Prometheus; `vl_rows_ingested_total` counts
-  the lines it has taken in (0 until the collector runs).
-- Ask it directly: `kubectl -n monitoring port-forward svc/victoria-logs 9428`, then
-  `curl -s localhost:9428/select/logsql/query -d 'query=*' -d 'limit=5'` (its own UI is at
-  http://localhost:9428/select/vmui while the port-forward runs).
+- How much it holds: `sum(vl_data_size_bytes)` in Prometheus.
 - Deleting the PVC (or the kind cluster) loses the logs; VictoriaLogs starts empty.
+
+**The collector.** `log-collector` is the one namespace at Pod Security `privileged`,
+because reading the node's files takes a hostPath volume; nothing else belongs in it. The
+pod runs as root (the kubelet's log files are root's alone) with no capabilities, the
+node's `/var/log` read-only, and one directory it may write: the node's
+`/var/lib/vl-collector`, where it notes how far it has read each file and buffers lines
+(up to 1 GiB) while VictoriaLogs is away, so that replacing either pod neither skips nor
+re-sends lines. Settings: `deploy/kind/log-collector-values.yaml`.
+
+- Is it sending: `rate(vl_rows_ingested_total[5m])` in Prometheus is above 0 (Argo CD alone
+  logs every few seconds), and the per-namespace count above lists every namespace.
+- Nothing arrives: `kubectl -n log-collector get pods` and `logs ds/log-collector` (a refused
+  connection is the store down or its NetworkPolicy; "permission denied" is the security
+  context).
+- A pod deleted before its lines were read loses them: the kubelet removes its files with it.
+  Recreating the kind node loses the reading positions with the rest of its disk.

@@ -135,6 +135,17 @@ spec:
   {{- include "platform.chartSources" (dict "root" $ "chart" $v.charts.victoriaLogs "release" "logs" "values" "deploy/kind/victoria-logs-values.yaml") | nindent 2 }}
   destination: { server: {{ $dest }}, namespace: monitoring }
   {{- include "platform.syncPolicy" (dict) | nindent 2 }}
+---
+# vlagent: reads every container's log file on the node and sends the lines to VictoriaLogs.
+# A namespace of its own, because it is the one platform namespace at "privileged": Pod
+# Security allows a hostPath volume at no other level. Nothing else goes in it
+# (deploy/kind/log-collector-values.yaml says what the pod gets).
+{{ include "platform.meta" (dict "name" "log-collector" "wave" 0) }}
+spec:
+  project: platform
+  {{- include "platform.chartSources" (dict "root" $ "chart" $v.charts.logCollector "release" "log-collector" "values" "deploy/kind/log-collector-values.yaml") | nindent 2 }}
+  destination: { server: {{ $dest }}, namespace: log-collector }
+  {{- include "platform.syncPolicy" (dict "labels" (dict "pod-security.kubernetes.io/enforce" "privileged")) | nindent 2 }}
 {{- end }}
 {{- if $v.components.policies }}
 ---

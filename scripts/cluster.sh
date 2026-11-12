@@ -3,7 +3,7 @@
 # its own database — the shape of real environments, on a laptop.
 #
 #   scripts/cluster.sh up              # idempotent
-#   MONITORING=0 scripts/cluster.sh up # skip kube-prometheus-stack and VictoriaLogs (saves ~1 GB of RAM)
+#   MONITORING=0 scripts/cluster.sh up # skip kube-prometheus-stack, VictoriaLogs and the log collector (saves ~1 GB of RAM)
 #   POLICIES=0 scripts/cluster.sh up   # skip Kyverno and the admission policies
 #   BACKUPS=0 scripts/cluster.sh up    # skip the backup bucket (the databases can't archive)
 #   ARGOCD_APPS=0 scripts/cluster.sh up # don't let Argo CD manage the app (CI: the e2e
@@ -17,7 +17,7 @@
 # What runs where:
 #   - Argo CD: bootstrapped here with Helm, the one component not deployed from git.
 #   - The platform (Envoy Gateway and the Gateway, Argo Rollouts, metrics-server,
-#     kube-prometheus-stack, VictoriaLogs, Kyverno and its policies, the backup bucket, the tool routes):
+#     kube-prometheus-stack, VictoriaLogs and its log collector, Kyverno and its policies, the backup bucket, the tool routes):
 #     Argo CD, from deploy/argocd/platform/ (app-of-apps). A merged change to it reaches the
 #     cluster within a minute; this script only applies the root and waits for it.
 #   - The platform's secrets: External Secrets, from the secret store (deploy/secrets/),
