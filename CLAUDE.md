@@ -75,6 +75,7 @@ version.
   (dormant pieces first, then the switch that uses them), and its description says where it
   sits in the stack.
 - A refactor and a behaviour change never share a PR.
-- Docs-only PRs: turn on auto-merge (squash) when opening them. Code, CI, chart and policy
-  PRs: never auto-merge.
+- **Auto-merge once CI is green** (Emrah, 2026-11-12): turn on auto-merge (squash) when
+  opening a PR, docs, code, CI, chart and policy alike. A merge here reaches the cluster,
+  prod included, right away: say in the description what it changes there.
 - Squash merges only: a PR's commits become one commit on `main`.
