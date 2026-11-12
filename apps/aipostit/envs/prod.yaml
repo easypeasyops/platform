@@ -14,4 +14,7 @@ values:
   revision: main
   files:
     - apps/aipostit/deploy/service/values.yaml
+    # The SLO rules, generated from aipostit's SLO spec. Prod only: the one release per
+    # cluster that ships rules (monitoring.clusterWide); the SLO dashboard comes with them.
+    - apps/aipostit/deploy/service/slo-rules.values.yaml
     - apps/aipostit/deploy/envs/prod.yaml
