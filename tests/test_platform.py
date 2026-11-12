@@ -238,6 +238,29 @@ def test_the_log_collector_gets_less_than_its_namespace_allows() -> None:
     ]
 
 
+def test_grafana_reads_the_logs_from_the_store_that_admits_it() -> None:
+    """Grafana's data source, the store's Service and the store's NetworkPolicy are three
+    values files' worth of names: a rename on one side must fail here, not in Explore."""
+    grafana = yaml.safe_load((ROOT / "deploy/kind/monitoring-values.yaml").read_text())["grafana"]
+    store = yaml.safe_load((ROOT / "deploy/kind/victoria-logs-values.yaml").read_text())
+    (logs,) = [a for a in _render() if a["metadata"]["name"] == "logs"]
+    (rule,) = store["networkPolicy"]["ingress"]
+    (port,) = rule["ports"]
+    (source,) = grafana["additionalDataSources"]
+    service = store["server"]["fullnameOverride"]
+    namespace = logs["spec"]["destination"]["namespace"]
+    assert source["url"] == f"http://{service}.{namespace}.svc:{port['port']}"
+    assert source["access"] == "proxy"  # from Grafana's pod: the policy admits no browser
+    # The policy admits Grafana's pods by the subchart's name label, in the store's namespace.
+    assert {"podSelector": {"matchLabels": {"app.kubernetes.io/name": "grafana"}}} in rule["from"]
+    assert "nameOverride" not in grafana
+    (monitoring,) = [a for a in _render() if a["metadata"]["name"] == "monitoring"]
+    assert monitoring["spec"]["destination"]["namespace"] == namespace
+    # The plugin the data source needs, at a pinned version.
+    (plugin,) = grafana["plugins"]
+    assert re.fullmatch(rf"{re.escape(source['type'])}@\d+\.\d+\.\d+", plugin)
+
+
 def test_logs_are_kept_for_a_time_and_a_size_that_fit_the_volume() -> None:
     """The size cap is what keeps the volume from filling: it must stay under the claim."""
     server = yaml.safe_load((ROOT / "deploy/kind/victoria-logs-values.yaml").read_text())["server"]
