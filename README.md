@@ -89,7 +89,8 @@ every PR against a throwaway registry (`chart release rehearsal`).
 
 ## Docs
 
-[docs/RUNBOOK.md](docs/RUNBOOK.md) holds what the platform's alerts link to. The rest of the
-design and runbook still live in links ([DESIGN](https://github.com/easypeasyops/links/blob/main/docs/DESIGN.md),
-[RUNBOOK](https://github.com/easypeasyops/links/blob/main/docs/RUNBOOK.md)) and move here
-with the platform's parts of them.
+[docs/DESIGN.md](docs/DESIGN.md) is the platform's design: what each part is for and why
+it is shaped this way. [docs/RUNBOOK.md](docs/RUNBOOK.md) holds what the platform's alerts
+link to; the rest of the runbook still lives in links
+([RUNBOOK](https://github.com/easypeasyops/links/blob/main/apps/shortly/docs/RUNBOOK.md))
+and moves here with the platform's parts of it.
