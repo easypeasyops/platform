@@ -26,6 +26,15 @@ server:
     size: 5Gi
   resources:
     requests: { cpu: 50m, memory: 128Mi }
+  # The namespace enforces Pod Security "restricted", and the chart's defaults miss one thing
+  # it asks for, the seccomp profile. The other three are the chart's defaults, repeated
+  # because a map given here replaces them.
+  podSecurityContext:
+    enabled: true
+    fsGroup: 2000
+    runAsNonRoot: true
+    runAsUser: 1000
+    seccompProfile: { type: RuntimeDefault }
   # Its own metrics (vl_*), scraped like everything else: Prometheus selects ServiceMonitors
   # in every namespace (deploy/kind/monitoring-values.yaml).
   serviceMonitor:

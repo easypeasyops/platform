@@ -114,8 +114,9 @@ spec:
   project: platform
   {{- include "platform.chartSources" (dict "root" $ "chart" $v.charts.kubePrometheusStack "release" "monitoring" "values" "deploy/kind/monitoring-values.yaml" "extra" "deploy/secrets/monitoring.yaml") | nindent 2 }}
   destination: { server: {{ $dest }}, namespace: monitoring }
-  # "baseline", not "restricted": some of the stack's pods don't meet "restricted" yet.
-  {{- include "platform.syncPolicy" (dict "labels" (dict "pod-security.kubernetes.io/enforce" "baseline")) | nindent 2 }}
+  # Every pod of the stack and of VictoriaLogs meets "restricted" (tests/test_platform.py);
+  # node-exporter, which never could, is off (deploy/kind/monitoring-values.yaml).
+  {{- include "platform.syncPolicy" (dict "labels" (dict "pod-security.kubernetes.io/enforce" "restricted")) | nindent 2 }}
   ignoreDifferences:
     # The chart's admission-webhook Job writes the CA bundle into these after install.
     - group: admissionregistration.k8s.io
