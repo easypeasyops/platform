@@ -1,0 +1,44 @@
+// Renovate bumps the pins Dependabot can't read (dependabot.yaml has the rest): it opens a PR
+// when one of them has a new release, and CI decides whether it's safe to merge.
+//
+// Only the two regex managers below run. Renovate's own managers stay off, so the pinned
+// GitHub Actions keep one bumper (Dependabot), not two.
+//
+// Renovate never merges: a chart bump reaches the cluster, prod included, on merge, so a
+// person reads the upstream release notes first. A chart's comment in values.yaml names the
+// app version it ships (e.g. "Argo Rollouts v1.10.0"); Renovate can't see that, so update it
+// in the bump PR.
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  extends: ["config:recommended", "schedule:weekly"],
+  enabledManagers: ["custom.regex"],
+  customManagers: [
+    {
+      // The upstream charts the platform chart pins: version and digest move together.
+      // An OCI chart is read through the docker datasource; its digest is the manifest's,
+      // the one tests/test_platform.py checks the version still resolves to.
+      customType: "regex",
+      managerFilePatterns: ["/^deploy/argocd/platform/values\\.yaml$/"],
+      matchStrings: [
+        "repo: oci://(?<depName>\\S+)\\n\\s+version: (?<currentValue>\\S+)\\n\\s+digest: (?<currentDigest>sha256:[a-f0-9]{64})",
+      ],
+      datasourceTemplate: "docker",
+    },
+    {
+      // The tool images ci.yml runs with `docker run`.
+      customType: "regex",
+      managerFilePatterns: ["/^\\.github/workflows/ci\\.yml$/"],
+      matchStrings: [
+        "(?<depName>ghcr\\.io/yannh/kubeconform|rhysd/actionlint):(?<currentValue>[\\w.-]+)",
+      ],
+      datasourceTemplate: "docker",
+    },
+  ],
+  packageRules: [
+    {
+      // Envoy Gateway pushes every release under two tags (v1.9.2 and 1.9.2): stay on the v one.
+      matchPackageNames: ["registry-1.docker.io/envoyproxy/gateway-helm"],
+      allowedVersions: "/^v/",
+    },
+  ],
+}

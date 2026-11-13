@@ -6,7 +6,7 @@
 #
 # Not covered by Dependabot: the tool images ci.yml runs with `docker run` (kubeconform,
 # actionlint) and the upstream charts the platform chart pins by digest in
-# deploy/argocd/platform/values.yaml. Those are bumped by hand.
+# deploy/argocd/platform/values.yaml. Renovate bumps those (renovate.json5).
 version: 2
 updates:
   - package-ecosystem: github-actions # bumps the pinned SHAs (and their # vX comments)
