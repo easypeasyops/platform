@@ -238,6 +238,57 @@ def test_the_log_collector_gets_less_than_its_namespace_allows() -> None:
     ]
 
 
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("name", "release", "values"),
+    [
+        ("kubePrometheusStack", "monitoring", "monitoring-values.yaml"),
+        ("victoriaLogs", "logs", "victoria-logs-values.yaml"),
+    ],
+)
+def test_monitoring_pods_meet_the_restricted_level(name: str, release: str, values: str) -> None:
+    """The monitoring namespace enforces Pod Security "restricted": a pod below it is refused
+    at its next start. Every pod the two charts there render with our values meets it,
+    their install hooks' Jobs too. (Prometheus's and Alertmanager's pods are made by the
+    operator, not rendered: the cluster's e2e sees those.)"""
+    (monitoring,) = [a for a in _render() if a["metadata"]["name"] == "monitoring"]
+    assert monitoring["spec"]["syncPolicy"]["managedNamespaceMetadata"]["labels"] == {
+        "pod-security.kubernetes.io/enforce": "restricted"
+    }
+    chart = VALUES["charts"][name]
+    out = subprocess.run(
+        [
+            *("helm", "template", release, f"{chart['repo']}@{chart['digest']}"),
+            *("--namespace", "monitoring"),
+            *("--values", str(ROOT / "deploy/kind" / values)),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    pods = {
+        f"{d['kind']}/{d['metadata']['name']}": d["spec"]
+        if d["kind"] == "Pod"
+        else d["spec"]["template"]["spec"]
+        for d in yaml.safe_load_all(out)
+        if d and d["kind"] in {"Pod", "Deployment", "StatefulSet", "DaemonSet", "Job"}
+    }
+    assert pods
+    for owner, pod in pods.items():
+        assert not any(pod.get(k) for k in ("hostNetwork", "hostPID", "hostIPC")), owner
+        assert all("hostPath" not in v for v in pod.get("volumes") or []), owner
+        of_pod = pod.get("securityContext") or {}
+        for container in pod["containers"] + (pod.get("initContainers") or []):
+            where = f"{owner}, container {container['name']}"
+            own = container.get("securityContext") or {}
+            assert own.get("allowPrivilegeEscalation") is False, where
+            assert own.get("capabilities") == {"drop": ["ALL"]}, where
+            assert not own.get("privileged"), where
+            assert (of_pod | own).get("runAsNonRoot") is True, where
+            assert (of_pod | own).get("runAsUser") != 0, where
+            assert (of_pod | own).get("seccompProfile") == {"type": "RuntimeDefault"}, where
+
+
 def test_grafana_reads_the_logs_from_the_store_that_admits_it() -> None:
     """Grafana's data source, the store's Service and the store's NetworkPolicy are three
     values files' worth of names: a rename on one side must fail here, not in Explore."""
