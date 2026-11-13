@@ -46,12 +46,32 @@ on the board.
 
 **When you start a ticket**, before touching a file:
 
-1. Read it. Labelled `parked`, or with a "Waits on" that hasn't happened: ask Emrah first.
-2. Move it to In Progress.
+1. Read it and its comments (reading the issue returns only their count: list them too).
+   Labelled `parked`, or with a "Waits on" that hasn't happened: ask Emrah first. Already
+   In Progress or assigned, and not by you: another session may have it, ask first.
+2. Move it to In Progress and assign it to Emrah (the account the connector acts as).
 3. Put it in the sprint: the active one, or the upcoming one when none is started.
 
-**When its PR has merged** and its "Done when" holds, move it to Done. If only part of it
-landed, leave it In Progress and say in your report what is left.
+**While you work on it**, the ticket carries what a later reader needs, as comments:
+
+- When you open the PR: its link, and a line or two on what it does and what you found.
+- When you stop with it unfinished or blocked: what is done, what is left, what it waits
+  on. Leave it In Progress.
+- A comment is a finding, a decision or a link, not a log of your steps. No long pasted
+  output: quote the lines that matter.
+
+The summary, description and "Done when" are Emrah's: don't edit them. If "Done when" turns
+out wrong or too big, say so in a comment and ask. Work you find outside the ticket is a
+new ticket to propose, not a wider PR.
+
+**When its PR has merged** and its "Done when" holds, comment first, then move it to Done:
+the merged PR, and for each part of "Done when" what shows it holds (a file, a test, what
+the cluster showed). If only part of it landed, leave it In Progress and say in the comment
+and in your report what is left. A ticket closed without the work (it no longer applies, a
+duplicate) says why in the same way.
+
+Outside planning, change only the ticket you are working on: not another ticket's status,
+priority, labels or sprint.
 
 **When asked to plan or prioritise the board**, for every ticket that isn't Done:
 
