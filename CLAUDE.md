@@ -77,5 +77,7 @@ version.
 - A refactor and a behaviour change never share a PR.
 - **Auto-merge once CI is green** (Emrah, 2026-11-12): turn on auto-merge (squash) when
   opening a PR, docs, code, CI, chart and policy alike. A merge here reaches the cluster,
-  prod included, right away: say in the description what it changes there.
+  prod included, right away: say in the description what it changes there. The exception
+  is a PR that changes an `apps/<app>/envs/prod.yaml` (the chart prod runs): never
+  auto-merge it, Emrah merges it.
 - Squash merges only: a PR's commits become one commit on `main`.
