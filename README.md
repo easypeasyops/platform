@@ -90,7 +90,5 @@ every PR against a throwaway registry (`chart release rehearsal`).
 ## Docs
 
 [docs/DESIGN.md](docs/DESIGN.md) is the platform's design: what each part is for and why
-it is shaped this way. [docs/RUNBOOK.md](docs/RUNBOOK.md) holds what the platform's alerts
-link to; the rest of the runbook still lives in links
-([RUNBOOK](https://github.com/easypeasyops/links/blob/main/apps/shortly/docs/RUNBOOK.md))
-and moves here with the platform's parts of it.
+it is shaped this way. [docs/RUNBOOK.md](docs/RUNBOOK.md) is its runbook: the local cluster,
+Argo CD, admission, the front door, secrets, alerts, metrics, logs and the backup bucket.
