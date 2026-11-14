@@ -268,6 +268,75 @@ def test_the_log_collector_gets_less_than_its_namespace_allows() -> None:
     ]
 
 
+def test_the_event_exporter_reads_events_and_nothing_else() -> None:
+    """Kubernetes events into the logs (PT-24): one pod, in a namespace of its own at
+    "restricted", that may list and watch events and nothing else, writes them to its stdout
+    for the log collector, and admits no connection."""
+    docs = list(yaml.safe_load_all((ROOT / "deploy/kind/event-exporter.yaml").read_text()))
+    by_kind = {d["kind"]: d for d in docs}
+    assert len(by_kind) == len(docs)  # one of each
+    assert set(by_kind) == {
+        *("ServiceAccount", "ClusterRole", "ClusterRoleBinding"),
+        *("ConfigMap", "Deployment", "NetworkPolicy"),
+    }
+    assert by_kind["ClusterRole"]["rules"] == [
+        {"apiGroups": [""], "resources": ["events"], "verbs": ["list", "watch"]}
+    ]
+    binding = by_kind["ClusterRoleBinding"]
+    assert binding["roleRef"]["name"] == by_kind["ClusterRole"]["metadata"]["name"]
+    sa = by_kind["ServiceAccount"]["metadata"]["name"]
+    assert binding["subjects"] == [
+        {"kind": "ServiceAccount", "name": sa, "namespace": "event-exporter"}
+    ]
+
+    deployment = by_kind["Deployment"]["spec"]
+    assert deployment["replicas"] == 1  # two would write every event twice
+    pod = deployment["template"]["spec"]
+    assert pod["serviceAccountName"] == sa
+    assert not any(pod.get(k) for k in ("hostNetwork", "hostPID", "hostIPC", "initContainers"))
+    assert [v["name"] for v in pod["volumes"] if set(v) != {"name", "configMap"}] == []
+    assert pod["securityContext"]["runAsNonRoot"] is True
+    assert pod["securityContext"]["runAsUser"] != 0
+    assert pod["securityContext"]["seccompProfile"] == {"type": "RuntimeDefault"}
+    (container,) = pod["containers"]
+    assert re.fullmatch(r"[a-z0-9./-]+@sha256:[0-9a-f]{64}", container["image"])
+    assert container["securityContext"] == {
+        "allowPrivilegeEscalation": False,
+        "capabilities": {"drop": ["ALL"]},
+        "readOnlyRootFilesystem": True,
+    }
+    assert "ports" not in container
+    policy = by_kind["NetworkPolicy"]["spec"]
+    assert policy == {"podSelector": {}, "policyTypes": ["Ingress"]}  # no one may connect
+
+    # Only to its stdout, never asking for the object an event is about (the role has no
+    # `get`), and with the fields RUNBOOK's queries search by.
+    config = yaml.safe_load(by_kind["ConfigMap"]["data"]["config.yaml"])
+    assert config["omitLookup"] is True
+    assert "leaderElection" not in config  # it would need leases
+    (receiver,) = config["receivers"]
+    assert set(receiver) == {"name", "stdout"}
+    layout = receiver["stdout"]["layout"]
+    assert {"message", "reason", "type"} <= set(layout)
+    assert {"kind", "namespace", "name"} <= set(layout["involvedObject"])
+    runbook = (ROOT / "docs/RUNBOOK.md").read_text()
+    for field in ("involvedObject.kind", "involvedObject.name", "reason", "type"):
+        assert f"{field}:=" in runbook, field
+
+    # Its Application: with the logs it writes for, into that namespace alone, "restricted".
+    (app,) = [a for a in _render() if a["metadata"]["name"] == "event-exporter"]
+    assert app["spec"]["destination"]["namespace"] == "event-exporter"
+    assert app["spec"]["source"]["directory"] == {"include": "event-exporter.yaml"}
+    assert app["spec"]["syncPolicy"]["managedNamespaceMetadata"]["labels"] == {
+        "pod-security.kubernetes.io/enforce": "restricted"
+    }
+    in_it = [a for a in _render() if a["spec"]["destination"]["namespace"] == "event-exporter"]
+    assert in_it == [app]
+    assert "event-exporter" not in {
+        a["metadata"]["name"] for a in _render("components.monitoring=false")
+    }
+
+
 @pytest.mark.integration
 def test_node_exporter_gets_less_than_its_namespace_allows() -> None:
     """The chart, rendered with our values: the node's /proc, /sys and / read-only and

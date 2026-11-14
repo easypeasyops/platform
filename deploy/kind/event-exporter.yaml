@@ -1,0 +1,114 @@
+# Kubernetes events into the logs (docs/RUNBOOK.md, Logs). The API server forgets an event
+# an hour after its last occurrence; the logs are kept 30 days. So one pod watches every
+# namespace's events and writes each as one JSON line to its stdout, and the log collector
+# carries it to VictoriaLogs like any other pod's lines: no new way into the store.
+#
+# kubernetes-event-exporter (resmoio, Apache-2.0) as one Deployment rather than a chart: the
+# only chart for it is Bitnami's, whose images moved to a legacy registry in 2025. Deployed
+# by Argo CD (deploy/argocd/platform/, the `event-exporter` Application) into a namespace of
+# its own at Pod Security "restricted"; tests/test_platform.py checks what it is allowed.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: event-exporter
+---
+# Read events, nothing else: no Secrets, no pods, not even `get` on the object an event is
+# about (omitLookup below, so it never asks).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: event-exporter
+rules:
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: event-exporter
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: event-exporter
+subjects:
+  - { kind: ServiceAccount, name: event-exporter, namespace: event-exporter }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: event-exporter
+data:
+  config.yaml: |
+    # Its own log lines (JSON, on stderr): warnings and errors only.
+    logLevel: warn
+    logFormat: json
+    # Events up to a minute old when it starts are written again, so a restart (Recreate,
+    # below) loses none; older ones were written by the pod before.
+    maxEventAgeSeconds: 60
+    omitLookup: true
+    route:
+      routes:
+        - match: [{ receiver: stdout }]
+    receivers:
+      - name: stdout
+        stdout:
+          # One line per event, with the fields worth searching by. `message` becomes the
+          # line's _msg; _time is when it was written, within seconds of the event. A
+          # repeat of an event (its count going up) is not written again: the first one is.
+          layout:
+            message: "{{ .Message }}"
+            reason: "{{ .Reason }}"
+            type: "{{ .Type }}"
+            involvedObject:
+              kind: "{{ .InvolvedObject.Kind }}"
+              namespace: "{{ .InvolvedObject.Namespace }}"
+              name: "{{ .InvolvedObject.Name }}"
+              fieldPath: "{{ .InvolvedObject.FieldPath }}"
+            reportingController: "{{ coalesce .ReportingController .Source.Component }}"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: event-exporter
+  labels: { app.kubernetes.io/name: event-exporter }
+spec:
+  replicas: 1 # two would write every event twice
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app.kubernetes.io/name: event-exporter }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: event-exporter }
+    spec:
+      serviceAccountName: event-exporter
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: event-exporter
+          image: ghcr.io/resmoio/kubernetes-event-exporter@sha256:8abb52b66557d3333f9e473e0eff2951309abfd018bd8d7fcfd86c4ecce6b9cf # v1.7
+          args: [-conf=/config/config.yaml]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+            readOnlyRootFilesystem: true
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { memory: 128Mi }
+          volumeMounts:
+            - { name: config, mountPath: /config, readOnly: true }
+      volumes:
+        - name: config
+          configMap: { name: event-exporter }
+---
+# It serves its metrics on :2112 to anyone who asks; nobody needs to.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: event-exporter
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]

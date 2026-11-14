@@ -152,6 +152,22 @@ spec:
   destination: { server: {{ $dest }}, namespace: log-collector }
   {{- include "platform.syncPolicy" (dict "labels" (dict "pod-security.kubernetes.io/enforce" "privileged")) | nindent 2 }}
 ---
+# kubernetes-event-exporter: every Kubernetes event as a line on its stdout, which the log
+# collector carries to VictoriaLogs, so the events outlive the API server's hour. With the
+# logs, or it would write for nobody (deploy/kind/event-exporter.yaml).
+{{ include "platform.meta" (dict "name" "event-exporter" "wave" 0) }}
+spec:
+  project: platform
+  source:
+    repoURL: {{ $v.repoURL }}
+    targetRevision: {{ $v.revision }}
+    path: deploy/kind
+    directory: { include: event-exporter.yaml }
+  destination:
+    server: {{ $dest }}
+    namespace: event-exporter
+  {{- include "platform.syncPolicy" (dict "labels" (dict "pod-security.kubernetes.io/enforce" "restricted")) | nindent 2 }}
+---
 # node-exporter: the node's CPU, memory and disk, scraped by Prometheus. Its own chart, not
 # the one kube-prometheus-stack bundles, and a namespace of its own for the same reason as
 # the log collector: it reads the node through hostPath volumes, so the namespace is at
