@@ -26,6 +26,16 @@ hostPID: false
 resources:
   requests: { cpu: 10m, memory: 32Mi }
 
+# The node's one disk is mounted at /var, and again at /etc/hostname, /etc/hosts and
+# /etc/resolv.conf: files Docker binds into the kind node from the same disk. Reported, they
+# are three more copies of /var's series, and each disk alert fired four times for one disk
+# (docs/RUNBOOK.md, The node's disk is filling up). So they are left out. Setting extraArgs
+# replaces the chart's list, so both of its arguments are repeated (chart 5.1.0's defaults),
+# the mount points with the three files added (tests/test_platform.py pins it).
+extraArgs:
+  - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run/containerd/.+|var/lib/docker/.+|var/lib/kubelet/.+|etc/(hostname|hosts|resolv\.conf))($|/)
+  - --collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tracefs|erofs)$
+
 # Scraped like everything else, by a PodMonitor: no Service, nothing else needs to find it.
 # Nothing but Prometheus may connect to it, and it may connect to nothing.
 service:

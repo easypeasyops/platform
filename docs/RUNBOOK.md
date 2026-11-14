@@ -507,6 +507,12 @@ Settings: `deploy/kind/monitoring-values.yaml`.
 - How much it holds: `prometheus_tsdb_storage_blocks_bytes`. About 0.5 GB a day at today's
   load; past 12 GB the oldest blocks go first, whatever their age.
 - Deleting the PVC (or the kind cluster) loses the history; Prometheus starts empty.
+- **An error budget looks back only this far.** The SLO rules' 30-day window
+  (`slo:sli_error:ratio_rate30d`, the SLO dashboard's "Error budget remaining") is a rate
+  over the data there is: today the last 10 days at most, less after a cap or a new volume.
+  An incident older than that no longer counts against the budget. Before trusting a
+  budget, check how far back the data goes:
+  `(time() - min(prometheus_tsdb_lowest_timestamp) / 1000) / 86400`, in days.
 
 ## Prometheus misses rule evaluations
 
@@ -660,11 +666,11 @@ alerts (`Node...`) go to #platform-alerts.
 
 `NodeFilesystemSpaceFillingUp` (under 15% free and, at the last 6 hours' pace, none left
 within a day: warning; under 10% and 4 hours: critical) and `NodeFilesystemAlmostOutOfSpace`
-(under 5% free: warning; under 3%: critical). On `mountpoint="/var"` it is the disk
-everything shares; the same disk is listed again as `/etc/hostname`, `/etc/hosts` and
-`/etc/resolv.conf`, so the alert comes four at a time for one problem. Act on the warning: the kubelet starts evicting pods, prod's too, when
-the disk it keeps images and pods on is nearly full, and Postgres stops when it can't
-write.
+(under 5% free: warning; under 3%: critical). It names `mountpoint="/var"`, once: the disk
+everything shares (the files Docker binds into the node from it, `/etc/hostname`, `/etc/hosts`
+and `/etc/resolv.conf`, aren't reported). Act on the warning: the kubelet starts evicting
+pods, prod's too, when the disk it keeps images and pods on is nearly full, and Postgres
+stops when it can't write.
 
 ```sh
 # Free space on the node's disk, as a share of it
