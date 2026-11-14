@@ -52,10 +52,15 @@ kube-state-metrics:
   # for True, 0 for False; the labels are the ones a route's Envoy series carry
   # (deploy/argocd/platform/templates/monitoring.yaml). The first parent's conditions only
   # (a path can't walk two lists): every route here attaches to the one Gateway.
+  # The Gateways' own status too: Programmed False, or a listener not Accepted, shows in no
+  # other metric (docs/RUNBOOK.md, The front door is down). gateway_status_condition{
+  # gateway_namespace, gateway, type, reason}, the Gateway's conditions; and
+  # gateway_listener_accepted{gateway_namespace, gateway, listener, reason}, each listener's
+  # Accepted condition, picked from its list by type.
   rbac:
     extraRules:
       - apiGroups: [gateway.networking.k8s.io]
-        resources: [httproutes]
+        resources: [httproutes, gateways]
         verbs: [list, watch]
       - apiGroups: [argoproj.io]
         resources: [applications]
@@ -106,6 +111,28 @@ kube-state-metrics:
                   info:
                     path: [status, operationState, syncResult, revisions]
                     labelsFromPath: { revision: [] }
+          - groupVersionKind: { group: gateway.networking.k8s.io, version: v1, kind: Gateway }
+            metricNamePrefix: gateway
+            labelsFromPath:
+              gateway_namespace: [metadata, namespace]
+              gateway: [metadata, name]
+            metrics:
+              - name: status_condition
+                help: A condition of the Gateway (1 True, 0 False)
+                each:
+                  type: Gauge
+                  gauge:
+                    path: [status, conditions]
+                    labelsFromPath: { type: [type], reason: [reason] }
+                    valueFrom: [status]
+              - name: listener_accepted
+                help: Whether the Gateway's listener is Accepted (1 True, 0 False)
+                each:
+                  type: Gauge
+                  gauge:
+                    path: [status, listeners]
+                    labelsFromPath: { listener: [name], reason: [conditions, "[type=Accepted]", reason] }
+                    valueFrom: [conditions, "[type=Accepted]", status]
 
 prometheus:
   prometheusSpec:

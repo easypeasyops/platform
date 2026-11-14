@@ -1,9 +1,9 @@
 # Alerts on the front door (docs/RUNBOOK.md, The front door): the one path every user
 # request takes. Its proxies and its controller, from `up` (the PodMonitor and the
-# ServiceMonitor in templates/monitoring.yaml); the routes, from the HTTPRoutes' status,
-# which kube-state-metrics turns into series (deploy/kind/monitoring-values.yaml). An app's
-# own alerts can't see a request that never reached it. Shipped as a PrometheusRule by the
-# platform chart; tested by deploy/prometheus/tests/front_door_test.yaml (promtool).
+# ServiceMonitor in templates/monitoring.yaml); the Gateway and the routes, from their
+# status, which kube-state-metrics turns into series (deploy/kind/monitoring-values.yaml).
+# An app's own alerts can't see a request that never reached it. Shipped as a
+# PrometheusRule by the platform chart; tested by deploy/prometheus/tests/front_door_test.yaml (promtool).
 groups:
   - name: front-door
     rules:
@@ -54,3 +54,35 @@ groups:
           description: Requests to a route whose Service has no ready pod, or doesn't exist, get a 503 or 500 from the proxy. They never reach the app, so its own metrics and alerts don't show them.
           runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#a-route-with-no-backend
           dashboard_url: /d/front-door # a path under Grafana's root_url: the Slack message links it
+      - alert: FrontDoorGatewayNotProgrammed
+        # The Gateway's own status, which no proxy metric shows: not Accepted (its class or
+        # EnvoyProxy is invalid) or not Programmed (the controller couldn't make its proxy,
+        # or the proxy has no ready replica: FrontDoorDown's case too). From kube-state-
+        # metrics (deploy/kind/monitoring-values.yaml), so it needs the controller no more
+        # than traffic. 5 minutes: a proxy rollout makes it False for seconds.
+        expr: |
+          max by (gateway_namespace, gateway, type, reason) (
+            gateway_status_condition{job="kube-state-metrics", type=~"Accepted|Programmed"}
+          ) == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Gateway {{ $labels.gateway_namespace }}/{{ $labels.gateway }} isn't {{ $labels.type }} ({{ $labels.reason }})"
+          description: "Gateway {{ $labels.gateway_namespace }}/{{ $labels.gateway }} has not been {{ $labels.type }} for 5 minutes ({{ $labels.reason }}): its routes' changes don't reach the proxies, or no proxy serves it."
+          runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#the-front-door-is-down
+      - alert: FrontDoorListenerNotAccepted
+        # A listener the controller refused (a port or protocol it can't serve, a conflict
+        # with another listener): nothing that attaches to it is served, while the Gateway's
+        # other listener may be fine.
+        expr: |
+          max by (gateway_namespace, gateway, listener, reason) (
+            gateway_listener_accepted{job="kube-state-metrics"}
+          ) == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Listener {{ $labels.listener }} of Gateway {{ $labels.gateway_namespace }}/{{ $labels.gateway }} isn't Accepted ({{ $labels.reason }})"
+          description: "Listener {{ $labels.listener }} of Gateway {{ $labels.gateway_namespace }}/{{ $labels.gateway }} has not been Accepted for 5 minutes ({{ $labels.reason }}): no route attached to it is served."
+          runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#the-front-door-is-down

@@ -215,8 +215,8 @@ The `tools` listener has no login of its own: the forwarders listen on 127.0.0.1
 
 The Gateway is the user path; probes and Prometheus go around it. So a broken front door
 looks like **traffic dropping**, not errors: no alert fires on the pods. The proxies' own
-metrics show it (the dashboard below); alerts watch the proxies and the controller
-([the front door is down](#the-front-door-is-down)), the routes' status
+metrics show it (the dashboard below); alerts watch the proxies, the controller and the
+Gateway ([the front door is down](#the-front-door-is-down)), the routes' status
 ([a route with no backend](#a-route-with-no-backend)), and each hostname, asked for
 through the proxies every minute as a user would
 ([a hostname the front door doesn't serve](#a-hostname-the-front-door-doesnt-serve)).
@@ -270,13 +270,18 @@ the ones that never reached an app included; a route's series (`envoy_cluster_*`
 ### The front door is down
 
 To #platform-alerts. Rules: `deploy/argocd/platform/files/front-door-rules.yaml`. With
-the pod gone the stack's `TargetDown` has no target left to be down, so these read
-`absent(up{job=...} == 1)`.
+the pod gone the stack's `TargetDown` has no target left to be down, so the first two read
+`absent(up{job=...} == 1)`. The Gateway's two read its status, which kube-state-metrics
+exports as `gateway_status_condition{gateway_namespace, gateway, type, reason}` and
+`gateway_listener_accepted{gateway_namespace, gateway, listener, reason}` (1 True, 0
+False; `deploy/kind/monitoring-values.yaml`).
 
 | Alert | Means | First look |
 | --- | --- | --- |
 | `FrontDoorDown` (critical) | No proxy (job `envoy`) scraped for 3 minutes: every app and tool is unreachable from outside | `kubectl -n envoy-gateway-system get deploy,pods -l app.kubernetes.io/component=proxy`; `kubectl -n envoy-gateway-system describe pod -l app.kubernetes.io/component=proxy` (OOMKilled? its limit is the EnvoyProxy's, `deploy/kind/gateway.yaml`); `kubectl -n gateway get gateway shortly` |
 | `FrontDoorControllerDown` (warning) | No controller (job `envoy-gateway`) scraped for 10 minutes: what runs keeps serving, but no Gateway or route change reaches the proxies, and a proxy that goes is not replaced | `kubectl -n envoy-gateway-system get pods`; `kubectl -n envoy-gateway-system logs deploy/envoy-gateway --tail=50` (add `--previous` after a crash) |
+| `FrontDoorGatewayNotProgrammed` (warning) | The Gateway (named, with the condition's reason) hasn't been `Accepted` or `Programmed` for 5 minutes: changes don't reach the proxies, or no proxy serves it (then `FrontDoorDown` fires too) | `kubectl -n gateway get gateway shortly -o jsonpath='{.status.conditions}'`; "Gateway not `Programmed`" in the table above |
+| `FrontDoorListenerNotAccepted` (warning) | A listener (named, with its reason) hasn't been `Accepted` for 5 minutes: no route attached to it is served | `kubectl -n gateway get gateway shortly -o jsonpath='{.status.listeners}'`; the listener in `deploy/kind/gateway.yaml`; the controller's logs |
 
 The controller makes the proxy's Deployment: a proxy Deployment that is gone with the
 controller up comes back within seconds, so `FrontDoorDown` with no proxy Deployment
