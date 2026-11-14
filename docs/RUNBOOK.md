@@ -286,6 +286,39 @@ table above). No controller pod at all: the `envoy-gateway` Application
 above). Either alert with its pod running and Ready is the scrape: Prometheus's Targets
 page (http://prometheus.localhost:8090/targets), `envoy` and `envoy-gateway`.
 
+### The access log
+
+The metrics count what the proxy answered itself; its access log says which request: one
+JSON line per request (`telemetry.accessLog` on the EnvoyProxy, `deploy/kind/gateway.yaml`)
+in VictoriaLogs ([Logs](#logs)), container `envoy` in `envoy-gateway-system`. Fields:
+`request_id`, `method`, `authority` (the hostname), `path` (never the query string),
+`response_code`, `response_flags`, `response_code_details`, `duration_ms`, `upstream_host`
+(the pod it went to; none when the proxy answered itself) and `route_name` (`httproute/<namespace>/<name>/rule/<n>/...`).
+
+`request_id` is the `X-Request-ID` the proxy generated for the request (it ignores one a
+client sends); the app keeps it and logs it as `request_id` too. So one query finds the
+request at the door and in the app, and a request with a door line but no app line stopped
+at the door.
+
+```
+# One request, at the door and in the app (any namespace)
+request_id:="<id>"
+# What the proxy answered 503 (a route with no backend, UH): which host and path
+{kubernetes.pod_namespace="envoy-gateway-system", kubernetes.container_name="envoy"} response_code:=503 | fields _time, authority, path, response_flags, route_name
+# Hostnames no route matches (404, NR)
+{kubernetes.pod_namespace="envoy-gateway-system", kubernetes.container_name="envoy"} response_flags:=NR | stats by (authority) count() requests
+# The door's 5xx per route and why, over a day
+_time:1d {kubernetes.pod_namespace="envoy-gateway-system", kubernetes.container_name="envoy"} response_code:~"^5" | stats by (route_name, response_flags) count() requests
+```
+
+| Flag | Means |
+| --- | --- |
+| `UH` | No healthy upstream: the route's Service has no ready pod (503) |
+| `UF` | Connecting to the pod failed (503): the pod died, or its NetworkPolicy doesn't admit `envoy-gateway-system` |
+| `NR` | No route for this hostname or path (404) |
+| `UT` | The pod didn't answer within the route's timeout (504) |
+| `UC` / `DC` | The pod / the client closed the connection mid-request |
+
 ### A route with no backend
 
 `FrontDoorRouteWithoutBackend` (a ticket, to #platform-alerts): for 5 minutes an HTTPRoute
@@ -646,7 +679,12 @@ q() { curl -s localhost:9428/select/logsql/query --data-urlencode "query=$1"; }
 q '_time:1h | stats by (kubernetes.pod_namespace) count() lines'
 # Everything one aipostit request logged (its X-Request-ID)
 q '{kubernetes.pod_namespace="aipostit-prod"} request_id:="<id>"'
+# The same request at the front door too: no stream filter
+q 'request_id:="<id>"'
 ```
+
+The front door's proxy logs every request it answers, the ones that never reached an app
+included: [The access log](#the-access-log).
 
 **The store.** It keeps 30 days (`retentionPeriod: 30d`), or less if the logs outgrow 4 GiB
 first (`retentionDiskSpaceUsage`: the oldest day goes, whatever its age), on its own 5Gi
