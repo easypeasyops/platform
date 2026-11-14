@@ -270,7 +270,12 @@ critical alerts on the same pods stay on `null`: aipostit's rules cover them.
 
 The platform's own alerts go to #platform-alerts: `ArgoCDDown`, and Argo CD's alerts on the
 platform's Applications (projects `platform` and `apps`), titled "on <Application>". All
-tickets: yellow, never `@channel`. The stack's warning and critical alerts stay on `null`.
+tickets: yellow, never `@channel`. So do the stack's own `warning` and `critical` alerts (a
+crash loop, a volume filling up, a target down, a failed rule evaluation) on the platform's
+namespaces, or on none (`KubeAPIDown`): titled "in <namespace>", red when critical, with the
+alert's description and the upstream runbook. The namespaces are listed in the route; a new
+platform namespace is added there (`tests/test_alerting.py` fails until it is). The stack's
+`info` alerts and `Watchdog` stay on `null`.
 
 **Test the route end to end** (posts to the real channels: say so there first). An alert sent
 by hand, which resolves itself after its end time:

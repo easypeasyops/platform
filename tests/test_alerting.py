@@ -138,7 +138,15 @@ def test_alertmanager_config_is_valid(alertmanager_config: Path) -> None:
         (["namespace=shortly-prod", "severity=page"], "pager"),
         (["namespace=prodstaging", "severity=page"], "pager"),  # the regex is anchored
         (["alertname=Watchdog", "severity=none"], "null"),
-        (["namespace=monitoring", "severity=warning"], "null"),  # the stack's own alerts
+        # The stack's own alerts: warning and critical on the platform's namespaces, or on
+        # none, to the platform's channel; info, and any on an app's namespace, to nobody.
+        (["namespace=monitoring", "severity=warning"], "platform"),
+        (["namespace=kube-system", "severity=critical"], "platform"),
+        (["alertname=KubeAPIDown", "severity=critical"], "platform"),
+        (["namespace=monitoring", "severity=info"], "null"),
+        (["alertname=InfoInhibitor", "severity=none"], "null"),
+        (["namespace=aipostit-prod", "severity=critical"], "null"),
+        (["namespace=shortly-prod", "severity=warning"], "null"),
         # aipostit: every alert of its own to its environment's Slack channel.
         (["namespace=aipostit-prod", "severity=page"], "aipostit-prod"),
         (["namespace=aipostit-prod", "severity=ticket"], "aipostit-prod"),
@@ -192,6 +200,25 @@ def test_alerts_route_to_the_right_receiver(
     assert result.returncode == 0, f"{labels} -> {result.stdout.strip()}, want {receiver}"
 
 
+def test_the_stack_route_names_every_platform_namespace() -> None:
+    """A namespace the platform chart deploys to, missing from the route, alerts nobody."""
+    values = yaml.safe_load((ROOT / "deploy/kind/monitoring-values.yaml").read_text())
+    (matcher,) = [
+        matcher
+        for route in values["alertmanager"]["config"]["route"]["routes"]
+        for matcher in route["matchers"]
+        if route["receiver"] == "platform" and matcher.startswith("namespace")
+    ]
+    routed = set(matcher.split('"')[1].split("|"))
+    deployed = {
+        name
+        for path in (ROOT / "deploy/argocd/platform").rglob("*.yaml")
+        for name in re.findall(r"^\s*namespace: ([a-z0-9-]+)$", path.read_text(), re.M)
+    }
+    assert deployed, "no namespaces found"
+    assert deployed <= routed, f"not in the platform's route: {sorted(deployed - routed)}"
+
+
 def _slack(config: Path, data: dict[str, Any], who: str = "aipostit") -> str:
     """aipostit's (or the platform's) Slack title and text for this notification."""
     (config.parent / "data.json").write_text(json.dumps(data))
@@ -206,11 +233,16 @@ def _slack(config: Path, data: dict[str, Any], who: str = "aipostit") -> str:
     return result.stdout
 
 
-def _notification(receiver: str, status: str, labels: dict[str, str]) -> dict[str, Any]:
+def _notification(
+    receiver: str, status: str, labels: dict[str, str], description: str | None = None
+) -> dict[str, Any]:
+    annotations = {"summary": "The API is down", "runbook_url": "https://example.test#x"}
+    if description:
+        annotations["description"] = description
     alert = {
         "status": status,
         "labels": {"alertname": "AipostitApiDown", **labels},
-        "annotations": {"summary": "The API is down", "runbook_url": "https://example.test#x"},
+        "annotations": annotations,
     }
     return {
         "receiver": receiver,
@@ -273,3 +305,32 @@ def test_a_platform_message_names_the_alert_and_its_application(
     assert message.startswith(title + "\n"), message
     assert "<!channel>" not in message
     assert "<https://example.test#x|Runbook>" in message
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("labels", "title"),
+    [
+        ({"alertname": "KubePodCrashLooping", "namespace": "monitoring", "severity": "warning"},
+         "🟡 KubePodCrashLooping in monitoring"),
+        ({"alertname": "KubeAPIDown", "severity": "critical"}, "🔴 KubeAPIDown"),
+    ],
+)  # fmt: skip
+def test_a_stack_message_says_where_and_gives_the_description(
+    alertmanager_config: Path, labels: dict[str, str], title: str
+) -> None:
+    data = _notification("platform", "firing", labels, "Pod monitoring/grafana-0 is waiting")
+    message = _slack(alertmanager_config, data, "platform")
+    assert message.startswith(title + "\n"), message
+    assert "• Pod monitoring/grafana-0 is waiting" in message
+    assert "The API is down" not in message  # the summary alone doesn't say which pod
+    assert "<!channel>" not in message
+
+
+@pytest.mark.integration
+def test_an_argo_cd_message_keeps_its_summary(alertmanager_config: Path) -> None:
+    labels = {"alertname": "ArgoCDAppUnhealthy", "name": "monitoring", "severity": "ticket"}
+    data = _notification("platform", "firing", labels, "Argo CD reports it as not working")
+    message = _slack(alertmanager_config, data, "platform")
+    assert "• The API is down" in message
+    assert "Argo CD reports" not in message
