@@ -208,6 +208,7 @@ def test_alertmanager_config_is_valid(alertmanager_config: Path) -> None:
         ),
         # The platform's own: Argo CD down (no project) and on the platform's Applications.
         (["alertname=ArgoCDDown", "severity=ticket"], "platform"),
+        (["alertname=ArgoCDCantReachGit", "severity=ticket"], "platform"),
         (
             [
                 "alertname=ArgoCDAppUnhealthy",
