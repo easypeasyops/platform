@@ -658,3 +658,32 @@ kubectl -n cnpg-system get pods                               # the operator and
 
 Deleting the PVC (or the kind cluster) loses every backup; on a real cluster this is a
 bucket in another account, with versioning and object lock.
+
+## CloudNativePG alerts
+
+Warnings, to the platform's channel whichever app the database belongs to. Neither breaks
+what runs: the databases serve queries without the operator, and a missing backup is missed
+on the day of a restore. In `DatabaseBackupTooOld`, label `exported_namespace` is the
+database's namespace and `cluster` its Cluster (`<release>-db`). Rules:
+`deploy/argocd/platform/files/cloudnative-pg-rules.yaml`.
+
+| Alert | Means | First look |
+| --- | --- | --- |
+| `CloudNativePGOperatorDown` | The operator hasn't been scraped for 10 minutes: no failover, no scheduled backup, no change to a Cluster | `kubectl -n cnpg-system get pods`; `kubectl -n cnpg-system logs deploy/cloudnative-pg --tail=50` (add `--previous` after a crash) |
+| `DatabaseBackupTooOld` | A database's last successful base backup is more than 24 hours old, or it never had one | `kubectl -n <ns> get backups.postgresql.cnpg.io --sort-by=.metadata.creationTimestamp \| tail -5` (the last ones' phase); `kubectl -n <ns> describe backups.postgresql.cnpg.io <name>` (why it failed); `kubectl -n <ns> get scheduledbackup,objectstore` |
+
+| What you find | Cause | Fix |
+| --- | --- | --- |
+| The operator's pod is there, not Ready or in a crash loop | Its logs say; OOMKilled shows in `kubectl -n cnpg-system describe pod` (its limit is in `deploy/kind/cloudnative-pg-values.yaml`) | Propose `kubectl -n cnpg-system rollout restart deploy/cloudnative-pg` |
+| No operator pod at all | The `cloudnative-pg` Application | `kubectl -n argocd get application cloudnative-pg`; An Application that won't sync, above |
+| No Backup objects since a certain time | The operator was down, or the laptop slept | The ScheduledBackup catches up at its next run; the alert clears with the next backup |
+| Backups there, phase `failed` | The bucket, its keys, or the plugin: the Backup's description names it | The backup bucket, above; `kubectl -n cnpg-system logs deploy/plugin-barman-cloud --tail=50`; an expired certificate between the two is cert-manager alerts, above |
+| Backups `completed`, and the alert stays | The ObjectStore's status isn't updated, which is what the metric reads | `kubectl -n <ns> get objectstore <release>-db -o jsonpath='{.status}'`; the plugin's sidecar in the instance: `kubectl -n <ns> logs <release>-db-1 -c plugin-barman-cloud --tail=50` |
+
+To take a backup now rather than wait for the schedule, propose
+`kubectl cnpg backup <release>-db -n <ns> --method plugin --plugin-name barman-cloud.cloudnative-pg.io`
+(the `cnpg` kubectl plugin). `CloudNativePGOperatorDown` with the pod running and Ready is
+the scrape: Prometheus's Targets page (http://prometheus.localhost:8090/targets),
+`cloudnative-pg`. A database is watched only while Prometheus scrapes its instances
+(`<ns>/<release>-db` on the same page): that needs `monitoring.enabled` in the app's values,
+and an app whose database isn't scraped gets no backup alert.

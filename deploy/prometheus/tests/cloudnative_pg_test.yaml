@@ -1,0 +1,91 @@
+# promtool unit tests for the alerts on CloudNativePG: synthetic series in, expected alerts
+# out, with the labels the scrape gives them (the plugin's metric has none of its own:
+# namespace and pod are the database instance's). Run by tests/test_alerting.py with the
+# others.
+rule_files:
+  - ../../argocd/platform/files/cloudnative-pg-rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # The Barman Cloud plugin runs beside the operator, in a Deployment of its own, and isn't
+  # scraped: nothing stands in for the operator.
+  - name: no operator scraped for 10 minutes warns, a restart doesn't
+    interval: 1m
+    input_series:
+      - series: 'up{job="cloudnative-pg",namespace="cnpg-system",pod="cloudnative-pg-5d7cf7cfc-n4blp"}'
+        values: '1 1 0 0 1 1 1 1 1 1 0x15'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: CloudNativePGOperatorDown
+        exp_alerts: []
+      - eval_time: 18m
+        alertname: CloudNativePGOperatorDown
+        exp_alerts: []
+      - eval_time: 21m
+        alertname: CloudNativePGOperatorDown
+        exp_alerts:
+          - exp_labels: {namespace: cnpg-system, severity: warning}
+            exp_annotations:
+              summary: The CloudNativePG operator isn't running (or isn't scraped)
+              description: The CloudNativePG operator hasn't been scraped for 10 minutes. The databases keep serving, but nothing fails over, no scheduled backup starts and no change to a Cluster is applied while it is down.
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#cloudnativepg-alerts
+
+  # Prod's database, two instances, took its last base backup an hour before the test
+  # starts and none since (the test's clock starts at 0, so that is -3600). Staging's is
+  # backed up every hour. A 5-minute interval: the test runs for more than a day.
+  - name: a database whose backups stopped warns after a day, one backed up hourly never does
+    interval: 5m
+    input_series:
+      - series: 'barman_cloud_cloudnative_pg_io_last_available_backup_timestamp{namespace="aipostit-prod",pod="aipostit-db-1",job="aipostit-prod/aipostit-db"}'
+        values: '-3600x300'
+      - series: 'barman_cloud_cloudnative_pg_io_last_available_backup_timestamp{namespace="aipostit-prod",pod="aipostit-db-2",job="aipostit-prod/aipostit-db"}'
+        values: '-3600x300'
+      - series: 'barman_cloud_cloudnative_pg_io_last_available_backup_timestamp{namespace="aipostit-staging",pod="aipostit-db-1",job="aipostit-staging/aipostit-db"}'
+        values: '0x11 3600x11 7200x11 10800x11 14400x11 18000x11 21600x11 25200x11 28800x11 32400x11 36000x11 39600x11 43200x11 46800x11 50400x11 54000x11 57600x11 61200x11 64800x11 68400x11 72000x11 75600x11 79200x11 82800x11 86400x11'
+      - series: 'up{job="cloudnative-pg",namespace="cnpg-system"}'
+        values: '1x300'
+    alert_rule_test:
+      # 23 hours 30 minutes old.
+      - eval_time: 22h30m
+        alertname: DatabaseBackupTooOld
+        exp_alerts: []
+      # Over 24 hours for 30 minutes: not yet an hour.
+      - eval_time: 23h30m
+        alertname: DatabaseBackupTooOld
+        exp_alerts: []
+      # One alert for the database, not one per instance.
+      - eval_time: 24h10m
+        alertname: DatabaseBackupTooOld
+        exp_alerts:
+          - exp_labels: {namespace: cnpg-system, exported_namespace: aipostit-prod, cluster: aipostit-db, severity: warning}
+            exp_annotations:
+              summary: Database aipostit-prod/aipostit-db has no base backup from the last 24 hours
+              description: "Database aipostit-prod/aipostit-db has no successful base backup from the last 24 hours (or none at all). A restore would have to replay every WAL file since the last one, and can't reach any moment once that backup passes its retention."
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#cloudnativepg-alerts
+      - eval_time: 24h10m
+        alertname: CloudNativePGOperatorDown
+        exp_alerts: []
+
+  # A new database reports 0 until its first base backup (the ScheduledBackup takes one at
+  # once): quiet when that arrives within the hour, a warning when it never does.
+  - name: a database that never gets its first backup warns after an hour, a new one doesn't
+    interval: 1m
+    input_series:
+      # The test's clock starts at 0: one day in, so that 0 reads as a day old.
+      - series: 'barman_cloud_cloudnative_pg_io_last_available_backup_timestamp{namespace="shortly-prod",pod="shortly-db-1"}'
+        values: '_x1440 0x70'
+      - series: 'barman_cloud_cloudnative_pg_io_last_available_backup_timestamp{namespace="shortly-staging",pod="shortly-db-1"}'
+        values: '_x1440 0x9 86940x60'
+    alert_rule_test:
+      - eval_time: 24h50m
+        alertname: DatabaseBackupTooOld
+        exp_alerts: []
+      - eval_time: 25h5m
+        alertname: DatabaseBackupTooOld
+        exp_alerts:
+          - exp_labels: {namespace: cnpg-system, exported_namespace: shortly-prod, cluster: shortly-db, severity: warning}
+            exp_annotations:
+              summary: Database shortly-prod/shortly-db has no base backup from the last 24 hours
+              description: "Database shortly-prod/shortly-db has no successful base backup from the last 24 hours (or none at all). A restore would have to replay every WAL file since the last one, and can't reach any moment once that backup passes its retention."
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#cloudnativepg-alerts

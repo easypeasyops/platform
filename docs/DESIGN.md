@@ -233,7 +233,9 @@ What the children are for:
   day they are needed. And External Secrets (warnings): a sync that fails leaves a stale
   Secret and no error. And cert-manager (warnings): a renewal that fails leaves a
   certificate that works until the day it expires. And Kyverno (warnings): with its one
-  admission pod down, no Pod can be created in an app's namespace. And a route with no
+  admission pod down, no Pod can be created in an app's namespace. And CloudNativePG
+  (warnings): its operator down, or a database whose last base backup is over a day old,
+  for every app's database from one rule rather than one per app. And a route with no
   backend, read from the HTTPRoute's status through kube-state-metrics (custom resource
   state) rather than from Envoy: the proxy counts its own 5xx per listener only, and only
   when someone asks, while the status names the route and kube-state-metrics already runs.

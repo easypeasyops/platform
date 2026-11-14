@@ -6,6 +6,8 @@
 resources:
   requests: { cpu: 10m, memory: 64Mi }
   limits: { memory: 256Mi }
-# Off until kube-prometheus-stack's CRDs are guaranteed before this chart (same wave).
+# Off for good: the chart renders its PodMonitor whether or not the CRD exists, and a
+# cluster without monitoring could then never sync the operator. The platform chart has
+# its own (deploy/argocd/platform/templates/monitoring.yaml).
 monitoring:
   podMonitorEnabled: false
