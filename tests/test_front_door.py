@@ -2,12 +2,18 @@
 
 The users' listener and the dev tools' listener must stay apart, and the laptop ports in
 scripts/cluster.sh must forward to the node ports the Gateway's Service actually pins.
+Its metrics (the platform chart's templates/monitoring.yaml): Prometheus must find the
+proxies and the controller where Envoy Gateway runs them.
 """
 
+import os
 import re
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -16,6 +22,7 @@ ROOT = Path(__file__).resolve().parent.parent
 APP_NAMESPACES = {"key": "easypeasyops.github.io/app", "operator": "Exists"}
 TOOL_NAMESPACES = {"argocd", "monitoring"}
 LISTENER_NAMESPACES = {"http": APP_NAMESPACES, "tools": TOOL_NAMESPACES}
+CHART = ROOT / "deploy/argocd/platform"
 
 
 def _docs(path: Path) -> list[dict[str, Any]]:
@@ -73,3 +80,91 @@ def test_front_door_ports_match_the_pinned_node_ports() -> None:
     # The docs and the Argo CD / Grafana settings use 8080 for users, 8090 for the tools.
     by_listener = {listeners[pinned[node]]: host for host, node in forwarded.items()}
     assert by_listener == {"http": 8080, "tools": 8090}
+
+
+def _platform(*sets: str) -> list[dict[str, Any]]:
+    """What the platform chart renders: the child Applications and the root's own resources."""
+    if shutil.which("helm") is None:
+        if os.environ.get("CI"):
+            pytest.fail("helm is required in CI")
+        pytest.skip("helm not installed")
+    args = [arg for s in ("arch=amd64", *sets) for arg in ("--set", s)]
+    out = subprocess.run(
+        ["helm", "template", "platform", str(CHART), *args],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    return [d for d in yaml.safe_load_all(out) if d]
+
+
+def _monitors(*sets: str) -> dict[str, dict[str, Any]]:
+    return {
+        d["kind"]: d
+        for d in _platform(*sets)
+        if d["kind"] in {"PodMonitor", "ServiceMonitor"} and "envoy" in d["metadata"]["name"]
+    }
+
+
+def test_the_front_door_is_scraped_where_envoy_gateway_runs() -> None:
+    """The monitors live in the root's namespace, which always exists, and select across to
+    the namespace the envoy-gateway Application deploys into; without monitoring (no
+    Prometheus Operator CRDs) they aren't rendered."""
+    apps = {d["metadata"]["name"]: d for d in _platform() if d["kind"] == "Application"}
+    runs_in = apps["envoy-gateway"]["spec"]["destination"]["namespace"]
+    root = yaml.safe_load((ROOT / "deploy/argocd/platform-root.yaml").read_text())
+    monitors = _monitors()
+    assert set(monitors) == {"PodMonitor", "ServiceMonitor"}
+    for monitor in monitors.values():
+        assert monitor["metadata"]["namespace"] == root["spec"]["destination"]["namespace"]
+        assert monitor["spec"]["namespaceSelector"] == {"matchNames": [runs_in]}
+    # The proxy: Envoy's own Prometheus endpoint (EnvoyProxy's default, not switched off).
+    (endpoint,) = monitors["PodMonitor"]["spec"]["podMetricsEndpoints"]
+    assert (endpoint["port"], endpoint["path"]) == ("metrics", "/stats/prometheus")
+    proxy = _gateway_docs()["EnvoyProxy"]["spec"]
+    assert "telemetry" not in proxy, "check metrics.prometheus is still on, then update this"
+    assert not _monitors("components.monitoring=false")
+
+
+def test_a_routes_series_say_which_route() -> None:
+    """Envoy's name for a route's backends becomes route_namespace and route; its own
+    clusters (xds_cluster, prometheus_stats) get neither. Prometheus anchors the regex."""
+    (endpoint,) = _monitors()["PodMonitor"]["spec"]["podMetricsEndpoints"]
+    relabelings = {r["targetLabel"]: r for r in endpoint["metricRelabelings"]}
+    assert set(relabelings) == {"route_namespace", "route"}
+    for label, want in (("route_namespace", "aipostit-prod"), ("route", "aipostit")):
+        rule = relabelings[label]
+        assert rule["sourceLabels"] == ["envoy_cluster_name"]
+        match = re.fullmatch(rule["regex"], "httproute/aipostit-prod/aipostit/rule/0")
+        assert match
+        assert match.expand(rule["replacement"].replace("$", "\\")) == want
+        assert not re.fullmatch(rule["regex"], "xds_cluster")
+
+
+@pytest.mark.integration
+def test_the_controllers_service_has_the_port_the_monitor_scrapes() -> None:
+    """The ServiceMonitor names a label and a port of the Service Envoy Gateway's chart
+    renders: a chart bump that renames either must fail here, not as a missing target.
+    (The proxy's pods are made by the controller, not rendered: the cluster shows those.)"""
+    monitor = _monitors()["ServiceMonitor"]["spec"]
+    values = yaml.safe_load((CHART / "values.yaml").read_text())["charts"]["envoyGateway"]
+    out = subprocess.run(
+        [
+            *("helm", "template", "eg", f"{values['repo']}@{values['digest']}"),
+            *("--namespace", "envoy-gateway-system"),
+            *("--values", str(ROOT / "deploy/kind/envoy-gateway-values.yaml")),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    selected = [
+        d
+        for d in yaml.safe_load_all(out)
+        if d
+        and d["kind"] == "Service"
+        and monitor["selector"]["matchLabels"].items() <= d["metadata"]["labels"].items()
+    ]
+    (service,) = selected
+    (endpoint,) = monitor["endpoints"]
+    assert endpoint["port"] in {port["name"] for port in service["spec"]["ports"]}
