@@ -238,7 +238,7 @@ def _route_status_series() -> str:
     ]
     assert {
         "apiGroups": [resource["groupVersionKind"]["group"]],
-        "resources": ["httproutes"],
+        "resources": ["httproutes", "gateways"],
         "verbs": ["list", "watch"],
     } in ksm["rbac"]["extraRules"]
     assert resource["labelsFromPath"] == {
@@ -250,6 +250,27 @@ def _route_status_series() -> str:
     assert gauge["labelsFromPath"] == {"type": ["type"], "reason": ["reason"]}
     assert gauge["valueFrom"] == ["status"]  # "True" is 1, "False" 0
     return f"{resource['metricNamePrefix']}_{metric['name']}"
+
+
+def _gateway_series() -> dict[str, str]:
+    """The series kube-state-metrics makes of the Gateways' conditions and their listeners'
+    Accepted condition, labelled with the Gateway's namespace and name."""
+    values = yaml.safe_load((ROOT / "deploy/kind/monitoring-values.yaml").read_text())
+    (resource,) = [
+        r
+        for r in values["kube-state-metrics"]["customResourceState"]["config"]["spec"]["resources"]
+        if r["groupVersionKind"]["kind"] == "Gateway"
+    ]
+    assert resource["labelsFromPath"] == {
+        "gateway_namespace": ["metadata", "namespace"],
+        "gateway": ["metadata", "name"],
+    }
+    metrics = {m["name"]: m["each"]["gauge"] for m in resource["metrics"]}
+    assert metrics["status_condition"]["labelsFromPath"] == {"type": ["type"], "reason": ["reason"]}
+    listener = metrics["listener_accepted"]
+    assert listener["labelsFromPath"]["listener"] == ["name"]
+    assert listener["valueFrom"] == ["conditions", "[type=Accepted]", "status"]
+    return {name: f"{resource['metricNamePrefix']}_{name}" for name in metrics}
 
 
 @pytest.mark.integration
@@ -276,18 +297,15 @@ def test_the_stack_hands_kube_state_metrics_the_route_config() -> None:
     (container,) = deployment["spec"]["template"]["spec"]["containers"]
     (flag,) = [a for a in container["args"] if a.startswith("--custom-resource-state-config-file=")]
     (config_map,) = [d for d in docs if d["kind"] == "ConfigMap"]
-    (resource,) = [
-        r
-        for r in yaml.safe_load(config_map["data"][Path(flag.split("=")[1]).name])["spec"][
-            "resources"
-        ]
-        if r["groupVersionKind"]["kind"] == "HTTPRoute"
+    resources = yaml.safe_load(config_map["data"][Path(flag.split("=")[1]).name])["spec"][
+        "resources"
     ]
-    assert f"{resource['metricNamePrefix']}_{resource['metrics'][0]['name']}" == series
+    names = {f"{r['metricNamePrefix']}_{m['name']}" for r in resources for m in r["metrics"]}
+    assert {series, *_gateway_series().values()} <= names
     (role,) = [d for d in docs if d["kind"] == "ClusterRole"]
     assert {
         "apiGroups": ["gateway.networking.k8s.io"],
-        "resources": ["httproutes"],
+        "resources": ["httproutes", "gateways"],
         "verbs": ["list", "watch"],
     } in role["rules"]
 
@@ -307,6 +325,18 @@ def test_the_front_door_alerts_ship_as_the_rules_file_says() -> None:
     assert alerts.pop("FrontDoorDown")["expr"] == f'absent(up{{job="{job}"}} == 1)'
     controller = alerts.pop("FrontDoorControllerDown")
     assert controller["expr"] == 'absent(up{job="envoy-gateway"} == 1)'
+    # The Gateway's: its status, and its listeners', naming the Gateway.
+    gateway = _gateway_series()
+    for name, series in (
+        ("FrontDoorGatewayNotProgrammed", gateway["status_condition"]),
+        ("FrontDoorListenerNotAccepted", gateway["listener_accepted"]),
+    ):
+        alert = alerts.pop(name)
+        assert series + '{job="kube-state-metrics"' in alert["expr"]
+        assert (
+            "{{ $labels.gateway_namespace }}/{{ $labels.gateway }}"
+            in (alert["annotations"]["summary"])
+        )
     # The rest read the routes' status, and name the route: no backend, with or without
     # traffic.
     assert alerts
