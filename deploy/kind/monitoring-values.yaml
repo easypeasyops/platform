@@ -37,6 +37,11 @@ defaultRules:
   # is 0 for good: the VM takes its time from the laptop, not from NTP), so this one would
   # fire for ever.
     NodeClockNotSynchronising: true
+  # Every node alert (the node-exporter group) links to Node Exporter / Nodes in Slack
+  # (alertmanager.templateFiles, links-slack.tmpl): a path under Grafana's root_url.
+  additionalRuleGroupAnnotations:
+    nodeExporterAlerting:
+      dashboard_url: /d/7d57716318ee0dddbac5a7f451fb7753
 
 kube-state-metrics:
   fullnameOverride: kube-state-metrics
@@ -233,7 +238,29 @@ alertmanager:
       {{ range .Alerts -}}
       • {{ if eq .Status "resolved" }}resolved: {{ end }}{{ .Annotations.summary }}
       {{ end -}}
-      {{ with (index .Alerts 0).Annotations.runbook_url }}<{{ . }}|Runbook>{{ end }}
+      {{ with (index .Alerts 0).Annotations.runbook_url }}<{{ . }}|Runbook>{{ end }}{{ template "slack.links" . }}
+      {{- end }}
+    # The links after the runbook, for both channels' messages, from the first firing alert;
+    # none on a resolved message. Query: its expression in Prometheus, at the moment it
+    # fired. Logs: Explore on VictoriaLogs, its namespace (exported_namespace or
+    # route_namespace where it has one) from an hour before it fired to half an hour after;
+    # an Argo CD alert with only an Application's name, Argo CD's lines naming it. Dashboard:
+    # its dashboard_url annotation (a path), same times. Silence: a new silence, filled in
+    # with the labels the group shares. Grafana's address is grafana.ini's root_url, below
+    # (tests/test_alerting.py checks they agree).
+    links-slack.tmpl: |-
+      {{ define "slack.grafana" }}http://grafana.localhost:8090{{ end }}
+      {{ define "slack.links" -}}
+      {{ if eq .Status "firing" }}{{ with index .Alerts.Firing 0 -}}
+      {{ $at := .StartsAt.UTC.Format "2006-01-02 15:04:05" -}}
+      {{ $from := (.StartsAt.Add -3600000000000).UnixMilli }}{{ $to := (.StartsAt.Add 1800000000000).UnixMilli -}}
+      {{ $ns := or .Labels.exported_namespace .Labels.route_namespace .Labels.namespace -}}
+      {{ $logs := "" }}{{ if $ns }}{{ $logs = printf `{kubernetes.pod_namespace=\"%s\"}` $ns }}{{ else if .Labels.name }}{{ $logs = printf `{kubernetes.pod_namespace=\"argocd\"} \"%s\"` .Labels.name }}{{ end -}}
+      {{ with .GeneratorURL }} · <{{ . }}&g0.moment_input={{ urlquery $at }}|Query>{{ end -}}
+      {{ with $logs }} · <{{ template "slack.grafana" }}/explore?schemaVersion=1&orgId=1&panes={{ urlquery (printf `{"a":{"datasource":"victorialogs","queries":[{"refId":"A","datasource":{"type":"victoriametrics-logs-datasource","uid":"victorialogs"},"expr":"%s"}],"range":{"from":"%d","to":"%d"}}}` . $from $to) }}|Logs>{{ end -}}
+      {{ with .Annotations.dashboard_url }} · <{{ template "slack.grafana" }}{{ . }}?from={{ $from }}&to={{ $to }}|Dashboard>{{ end -}}
+      {{ "" }} · <{{ $.ExternalURL }}/#/silences/new?filter={{ urlquery "{" }}{{ range $i, $p := $.CommonLabels.SortedPairs }}{{ if $i }}%2C{{ end }}{{ urlquery $p.Name "=\"" $p.Value "\"" }}{{ end }}{{ urlquery "}" }}|Silence>
+      {{- end }}{{ end }}
       {{- end }}
     # The platform's Slack messages. Title: red for a critical alert, the alert and, when it
     # is about one, the Argo CD Application, or else its namespace. Text: each alert's summary
@@ -247,7 +274,7 @@ alertmanager:
       {{ range .Alerts -}}
       • {{ if eq .Status "resolved" }}resolved: {{ end }}{{ if eq .Labels.severity "ticket" }}{{ .Annotations.summary }}{{ else }}{{ or .Annotations.description .Annotations.summary }}{{ end }}
       {{ end -}}
-      {{ with (index .Alerts 0).Annotations.runbook_url }}<{{ . }}|Runbook>{{ end }}
+      {{ with (index .Alerts 0).Annotations.runbook_url }}<{{ . }}|Runbook>{{ end }}{{ template "slack.links" . }}
       {{- end }}
 
 grafana:
