@@ -218,6 +218,16 @@ def test_alertmanager_config_is_valid(alertmanager_config: Path) -> None:
             ],
             "platform",
         ),
+        # The front door's probes: by name, whichever app's hostname.
+        (
+            [
+                "alertname=FrontDoorProbeFailing",
+                "hostname=aipostit.localhost",
+                "listener=http",
+                "severity=ticket",
+            ],
+            "platform",
+        ),
         # The platform's own: Argo CD down (no project) and on the platform's Applications.
         (["alertname=ArgoCDDown", "severity=ticket"], "platform"),
         (["alertname=ArgoCDCantReachGit", "severity=ticket"], "platform"),
@@ -368,6 +378,9 @@ def test_other_messages_never_notify_the_channel(
         # The front door's: the route is in the summary (front_door_test.yaml), below.
         ({"alertname": "FrontDoorRouteWithoutBackend", "route_namespace": "aipostit-staging",
           "route": "aipostit"}, "🟡 FrontDoorRouteWithoutBackend"),
+        # The probes': the hostname is in the summary (front_door_probes_test.yaml).
+        ({"alertname": "FrontDoorProbeFailing", "hostname": "aipostit.localhost",
+          "listener": "http"}, "🟡 FrontDoorProbeFailing"),
     ],
 )  # fmt: skip
 def test_a_platform_message_names_the_alert_and_its_application(

@@ -385,3 +385,20 @@ def test_every_hostname_on_the_front_door_is_probed_every_minute() -> None:
     # Prometheus picks up Probes from any release, as it does the monitors.
     values = yaml.safe_load((ROOT / "deploy/kind/monitoring-values.yaml").read_text())
     assert values["prometheus"]["prometheusSpec"]["probeSelectorNilUsesHelmValues"] is False
+
+
+def test_the_probe_alert_ships_as_the_rules_file_says() -> None:
+    """It reads the Probes' job and names the hostname, aggregated to the Probes' own labels
+    (no namespace: Alertmanager routes it to the platform by its name)."""
+    (rule,) = [
+        d
+        for d in _platform()
+        if d["kind"] == "PrometheusRule" and d["metadata"]["name"] == "front-door-probes"
+    ]
+    rules = yaml.safe_load((CHART / "files/front-door-probes-rules.yaml").read_text())
+    assert rule["spec"] == rules
+    ((alert,),) = [group["rules"] for group in rules["groups"]]
+    assert alert["alert"].startswith("FrontDoor")
+    assert 'max by (hostname, listener) (probe_success{job="front-door"})' in alert["expr"]
+    assert "{{ $labels.hostname }}" in alert["annotations"]["summary"]
+    assert {p["jobName"] for p in _probes().values()} == {"front-door"}

@@ -252,7 +252,11 @@ What the children are for:
   when someone asks, while the status names the route and kube-state-metrics already runs.
   The dashboards' deploy marks are read the same way, from each Argo CD Application's last
   sync: Argo CD's own metrics name no revision, and this needs no Grafana API token, which
-  Argo CD's notifications into Grafana would. Details: RUNBOOK.
+  Argo CD's notifications into Grafana would. And each hostname, asked for through the
+  proxies every minute by a blackbox exporter, as a user would: everything else that watches
+  an app goes around the Gateway, and a quiet app's broken route burns no SLO budget. The
+  hostnames are a list in git (Prometheus can't discover an HTTPRoute), which CI checks
+  against the apps' rendered routes. Details: RUNBOOK.
 - **Databases and backups.** CloudNativePG runs each app's Postgres from the `Cluster` its
   chart renders: failover, base backups and point-in-time recovery from an operator
   instead of a hand-rolled StatefulSet and dumps. Backups go through the Barman Cloud

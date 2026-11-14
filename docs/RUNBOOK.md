@@ -216,8 +216,10 @@ The `tools` listener has no login of its own: the forwarders listen on 127.0.0.1
 The Gateway is the user path; probes and Prometheus go around it. So a broken front door
 looks like **traffic dropping**, not errors: no alert fires on the pods. The proxies' own
 metrics show it (the dashboard below); alerts watch the proxies and the controller
-([the front door is down](#the-front-door-is-down)) and the routes' status
-([a route with no backend](#a-route-with-no-backend)).
+([the front door is down](#the-front-door-is-down)), the routes' status
+([a route with no backend](#a-route-with-no-backend)), and each hostname, asked for
+through the proxies every minute as a user would
+([a hostname the front door doesn't serve](#a-hostname-the-front-door-doesnt-serve)).
 
 ```sh
 docker ps --filter name=shortly-front-door                     # two, Up
@@ -243,7 +245,8 @@ backends, for the requests that reached a backend. Per listener (`http-10080` is
 the users' port 8080; `http-8081` is `tools`): every answer, and the ones the proxy gave
 itself, which no app's metrics show: 5xx for a route with no backend, 404 for a hostname
 no route matches. A route with no backend has no Envoy series of its own: it drops off
-"Healthy backends", and is listed under "Routes with no backend", from its status.
+"Healthy backends", and is listed under "Routes with no backend", from its status The row "Probes"
+has each hostname as a user would have it, every minute, whether or not anyone asks.
 
 **Deploy marks:** a blue mark (annotation "Deploys") at the minute an Argo CD Application's
 sync deployed a new revision; hover for the Application and the revision: a commit's short
@@ -315,6 +318,43 @@ when. Then it is the app's incident (its runbook): the pods have to come back. F
 Argo CD or monitoring route (`tools`), it is the platform's own pod. The alert resolves
 once the route's status says it has a backend again. No alert and no series at all:
 kube-state-metrics isn't exporting them (`kubectl -n monitoring logs deploy/kube-state-metrics`).
+
+### A hostname the front door doesn't serve
+
+`FrontDoorProbeFailing` (a ticket, to #platform-alerts): for 5 minutes, every request for a
+hostname through the Gateway got no 2xx. The blackbox exporter (`monitoring`,
+`deploy/kind/blackbox-exporter-values.yaml`) asks every minute for each hostname in
+`frontDoorProbes` (`deploy/argocd/platform/values.yaml`): an app's `/healthz` on the `http`
+listener, each tool's health page on `tools`. It sends the request to the proxies' Service
+as an HTTP proxy request, so it takes the listener, the route and the app's NetworkPolicy
+that a user's request takes, and it needs no traffic: a quiet app with a broken route burns
+no SLO budget, and its pods' probes and scrapes go around the Gateway.
+
+The message names the hostname and the listener. The dashboard's "Probes failing now" has
+the status it got. To see one probe in full (the request, the answer, the timings):
+
+```sh
+kubectl -n monitoring port-forward svc/blackbox-exporter 9115 &
+curl -s 'http://localhost:9115/probe?module=front_door_http&target=http://aipostit.localhost/healthz&debug=true'
+# a tool: module=front_door_tools, e.g. target=http://grafana.localhost/api/health
+```
+
+| Status it got | Cause | Fix |
+| --- | --- | --- |
+| 0 (no answer within 5 s) or 503, with the app's pods Ready and no `FrontDoorRouteWithoutBackend` | The proxy can't reach the pods: the app's NetworkPolicy doesn't admit `envoy-gateway-system` (the last row of the table above) | The app's `networkPolicy.httpFrom` |
+| 404, and "404 for no route" rises | No route on that listener has the hostname: the route isn't `Accepted`, or names another hostname or listener | The table above, from `kubectl get httproute -A` |
+| 503 or 500, and `FrontDoorRouteWithoutBackend` fires too | The route has no backend: that alert names the route | [A route with no backend](#a-route-with-no-backend) |
+| Every hostname at once | The proxies: with none running, `FrontDoorDown` fires and holds these back (an inhibit rule); with them running, the exporter's way to them | [The front door is down](#the-front-door-is-down); `kubectl -n envoy-gateway-system get pods,svc` |
+| Another 4xx or 5xx | The app answered: its `/healthz` fails through the Gateway as well as for the kubelet | The app's runbook |
+
+No series at all for a hostname: the exporter is down or Prometheus doesn't scrape it (the
+stack's `TargetDown` fires for job `front-door`; http://prometheus.localhost:8090/targets).
+A hostname an app adds or drops must be added to or dropped from `frontDoorProbes` in the
+same change: `scripts/check-apps.py` fails CI until they agree.
+
+What it can't see: the two forwarder containers on the laptop (`shortly-front-door-8080`
+and `-8090`, outside the cluster), which a user's request passes first. A probe that passes
+while the browser gets nothing on 8080 or 8090 is the first row of the table above.
 
 ## Network policies
 
