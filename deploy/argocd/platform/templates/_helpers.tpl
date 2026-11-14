@@ -61,7 +61,8 @@ syncPolicy:
 {{- end }}
 
 {{/* A chart from an OCI registry, pinned by digest, with its values file from git;
-`extra`: one more file from git synced with it (the ExternalSecret it reads). */}}
+`extra`: one more file from git synced with it (the ExternalSecret it reads), or a
+`{a.yaml,b.yaml}` set of them in one directory. */}}
 {{- define "platform.chartSources" -}}
 sources:
   - repoURL: {{ .chart.repo }}
@@ -82,6 +83,6 @@ sources:
   - repoURL: {{ $.root.Values.repoURL }}
     targetRevision: {{ $.root.Values.revision }}
     path: {{ dir . }}
-    directory: { include: {{ base . }} }
+    directory: { include: {{ base . | quote }} }
   {{- end }}
 {{- end }}

@@ -101,7 +101,11 @@ def test_consumers_read_keys_the_store_has() -> None:
     made = _generated() | LOADED
     store = _docs()["ClusterSecretStore"]
     allowed = set(store["spec"]["conditions"][0]["namespaces"])
-    consumers = [d for f in ("monitoring", "backups") for d in _all(f"deploy/secrets/{f}.yaml")]
+    consumers = [
+        d
+        for f in ("monitoring", "alertmanager-slack", "backups")
+        for d in _all(f"deploy/secrets/{f}.yaml")
+    ]
     assert {c["metadata"]["namespace"] for c in consumers} == allowed
     for es in consumers:
         name = es["metadata"]["name"]

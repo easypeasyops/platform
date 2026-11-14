@@ -162,6 +162,34 @@ def test_logs_ship_with_monitoring_and_leave_its_namespace_labels_alone() -> Non
     assert not {"logs", "monitoring"} & without
 
 
+def test_slack_is_wired_only_where_the_store_has_the_webhooks() -> None:
+    """The webhooks are loaded by hand, so a fresh cluster has none: with their
+    ExternalSecret the monitoring Application would wait on it for good and take the root
+    with it (links #157's e2e). Without `components.slack` neither the ExternalSecret nor
+    Alertmanager's mount of its Secret is there; cluster.sh sets it from the store."""
+
+    def monitoring(*sets: str) -> tuple[str, dict[str, Any]]:
+        (app,) = [a for a in _render(*sets) if a["metadata"]["name"] == "monitoring"]
+        chart, _, extra = app["spec"]["sources"]
+        assert extra["path"] == "deploy/secrets"
+        return extra["directory"]["include"], chart["helm"].get("valuesObject", {})
+
+    assert monitoring() == ("{monitoring.yaml,alertmanager-slack.yaml}", {})
+    assert monitoring("components.slack=false") == (
+        "monitoring.yaml",
+        {"alertmanager": {"alertmanagerSpec": {"secrets": []}}},
+    )
+    # What the switch removes is all there is: the mount in the values file, one
+    # ExternalSecret in the file, and the store Secret cluster.sh looks for by that name.
+    values = yaml.safe_load((ROOT / "deploy/kind/monitoring-values.yaml").read_text())
+    assert values["alertmanager"]["alertmanagerSpec"]["secrets"] == ["alertmanager-slack"]
+    (es,) = yaml.safe_load_all((ROOT / "deploy/secrets/alertmanager-slack.yaml").read_text())
+    assert {ref["remoteRef"]["key"] for ref in es["spec"]["data"]} == {"alertmanager-slack"}
+    script = (ROOT / "scripts/cluster.sh").read_text()
+    assert "-n secret-store get secret alertmanager-slack --ignore-not-found" in script
+    assert '{"name":"components.slack","value":"%s"}' in script
+
+
 def test_privileged_namespaces_hold_one_application_each() -> None:
     """Reading the node's files takes a hostPath volume, which Pod Security allows only at
     "privileged": the log collector and node-exporter each have a namespace at that level

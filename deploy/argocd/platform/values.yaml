@@ -13,6 +13,9 @@ arch: amd64
 # skips the last two).
 components:
   monitoring: true
+  # Alertmanager posts to Slack: needs the webhooks in the store, which only a person can
+  # load (RUNBOOK, Slack alerts). cluster.sh sets it from whether they are there.
+  slack: true
   policies: true
   backups: true
 
