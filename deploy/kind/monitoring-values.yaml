@@ -62,7 +62,8 @@ alertmanager:
     secrets: [alertmanager-slack]
     resources:
       requests: { cpu: 10m, memory: 32Mi }
-  # Routing. aipostit's alerts go to its two Slack channels and the platform's own (Argo CD's)
+  # Routing. aipostit's alerts go to its two Slack channels and the platform's own (Argo CD's,
+  # and the stack's warning and critical alerts on the platform's namespaces)
   # to #platform-alerts (docs/RUNBOOK.md, Slack alerts). Any other app's go to named placeholders with no integration, so nothing of its leaves
   # the cluster; in a real setup `pager` gets pagerduty_configs and `tickets` slack_configs.
   # tests/test_alerting.py checks these routes and the Slack messages with amtool.
@@ -111,6 +112,16 @@ alertmanager:
         - receiver: platform
           matchers: ['alertname =~ "ArgoCD.+"', 'project =~ "|platform|apps"']
           group_by: [alertname, name]
+        # The stack's own alerts (a crash loop, a volume filling up, a target down, a failed
+        # rule evaluation) on the platform's namespaces, or on none (KubeAPIDown). The
+        # namespaces are listed, so an app's never match: its own rules cover its pods.
+        # tests/test_alerting.py checks the list has every namespace the platform chart
+        # names. By severity too: some of these alerts exist as warning and as critical.
+        - receiver: platform
+          matchers:
+            - 'severity =~ "warning|critical"'
+            - 'namespace =~ "|argo-rollouts|argocd|backups|cert-manager|cnpg-system|envoy-gateway-system|external-secrets|gateway|kube-system|kyverno|local-path-storage|log-collector|monitoring|secret-store"'
+          group_by: [alertname, namespace, severity]
         - receiver: staging # staging never pages anyone, whatever its severity
           # Any app's staging namespace, <app>-staging (platform plan, Phase 2).
           matchers: ['namespace =~ ".+-staging"']
@@ -118,7 +129,8 @@ alertmanager:
           matchers: ['severity = "page"']
         - receiver: tickets
           matchers: ['severity = "ticket"']
-        # Everything else (the stack's own warning/critical/info alerts) goes to "null".
+        # Everything else (the stack's info alerts, and its warning/critical alerts on an
+        # app's namespace) goes to "null".
     inhibit_rules:
       # A page already covers the ticket for the same SLO and namespace.
       - source_matchers: ['severity = "page"']
@@ -171,15 +183,17 @@ alertmanager:
       {{ end -}}
       {{ with (index .Alerts 0).Annotations.runbook_url }}<{{ . }}|Runbook>{{ end }}
       {{- end }}
-    # The platform's Slack messages. Title: the alert and, when it is about one, the Argo CD
-    # Application. Text: each alert's summary and its runbook link. Never @channel.
+    # The platform's Slack messages. Title: red for a critical alert, the alert and, when it
+    # is about one, the Argo CD Application, or else its namespace. Text: each alert's summary
+    # (Argo CD's, severity ticket) or, for the stack's, its description, which names the pod
+    # or the volume; and the runbook link. Never @channel.
     platform-slack.tmpl: |-
       {{ define "platform.slack.title" -}}
-      {{ if eq .CommonLabels.severity "page" }}🔴{{ else }}🟡{{ end }} {{ if eq .Status "resolved" }}RESOLVED {{ end }}{{ .CommonLabels.alertname }}{{ with .CommonLabels.name }} on {{ . }}{{ end }}
+      {{ if or (eq .CommonLabels.severity "page") (eq .CommonLabels.severity "critical") }}🔴{{ else }}🟡{{ end }} {{ if eq .Status "resolved" }}RESOLVED {{ end }}{{ .CommonLabels.alertname }}{{ if .CommonLabels.name }} on {{ .CommonLabels.name }}{{ else if .CommonLabels.namespace }} in {{ .CommonLabels.namespace }}{{ end }}
       {{- end }}
       {{ define "platform.slack.text" -}}
       {{ range .Alerts -}}
-      • {{ if eq .Status "resolved" }}resolved: {{ end }}{{ .Annotations.summary }}
+      • {{ if eq .Status "resolved" }}resolved: {{ end }}{{ if eq .Labels.severity "ticket" }}{{ .Annotations.summary }}{{ else }}{{ or .Annotations.description .Annotations.summary }}{{ end }}
       {{ end -}}
       {{ with (index .Alerts 0).Annotations.runbook_url }}<{{ . }}|Runbook>{{ end }}
       {{- end }}
