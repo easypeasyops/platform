@@ -213,3 +213,18 @@ def test_the_dashboard_reads_the_series_the_monitors_make() -> None:
     ):
         assert metric in queries[title], title
         assert "by (route_namespace, route" in queries[title], title
+
+
+def test_the_front_door_alerts_ship_as_the_rules_file_says() -> None:
+    (rule,) = [
+        d
+        for d in _platform()
+        if d["kind"] == "PrometheusRule" and d["metadata"]["name"] == "front-door"
+    ]
+    assert rule["spec"] == yaml.safe_load((CHART / "files/front-door-rules.yaml").read_text())
+    # They read the proxies' series: the job the PodMonitor's jobLabel gives them.
+    proxies = _monitors()["PodMonitor"]["spec"]
+    assert proxies["selector"]["matchLabels"][proxies["jobLabel"]] == "envoy"
+    for group in rule["spec"]["groups"]:
+        for alert in group["rules"]:
+            assert 'job="envoy"' in alert["expr"], alert["alert"]
