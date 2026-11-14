@@ -660,6 +660,36 @@ def test_the_operators_monitor_is_the_platforms_not_the_charts() -> None:
     assert monitor["spec"]["namespaceSelector"] == {"matchNames": ["cnpg-system"]}
 
 
+def test_the_rollouts_controllers_monitor_is_the_platforms_not_the_charts() -> None:
+    """Argo Rollouts' chart renders its ServiceMonitor whether or not the CRD exists, and the
+    controller is installed on every cluster: the chart gives the metrics Service only, and
+    the platform's monitor, which goes with the monitoring switch, scrapes it."""
+    values = yaml.safe_load((ROOT / "deploy/kind/argo-rollouts-values.yaml").read_text())
+    metrics = values["controller"]["metrics"]
+    assert metrics == {"enabled": True, "serviceMonitor": {"enabled": False}}
+
+    def monitors(*sets: str) -> list[dict[str, Any]]:
+        args = [a for x in ("arch=amd64", *sets) for a in ("--set", x)]
+        out = subprocess.run(
+            ["helm", "template", "platform", str(CHART), *args],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        return [
+            d
+            for d in yaml.safe_load_all(out)
+            if d and d["kind"] == "ServiceMonitor" and d["metadata"]["name"] == "argo-rollouts"
+        ]
+
+    _render()  # skips without helm
+    (monitor,) = monitors()
+    assert monitor["metadata"]["namespace"] == "argocd"
+    assert monitor["spec"]["namespaceSelector"] == {"matchNames": ["argo-rollouts"]}
+    assert monitor["spec"]["jobLabel"] == "app.kubernetes.io/name"  # job="argo-rollouts"
+    assert monitors("components.monitoring=false") == []
+
+
 def test_vendored_metrics_server_is_the_pinned_release() -> None:
     folder = ROOT / "deploy/platform/metrics-server"
     want, name = (folder / "SHA256SUMS").read_text().split()
