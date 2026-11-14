@@ -19,7 +19,13 @@ ROOT = Path(__file__).resolve().parent.parent
 STORE_NS = "secret-store"
 # Store values no generator can make (a Slack webhook), loaded by hand: store secret -> the
 # keys docs/RUNBOOK.md tells the operator to load.
-LOADED = {"alertmanager-slack": ["aipostit-prod-webhook-url", "aipostit-staging-webhook-url"]}
+LOADED = {
+    "alertmanager-slack": [
+        "aipostit-prod-webhook-url",
+        "aipostit-staging-webhook-url",
+        "platform-webhook-url",
+    ]
+}
 
 
 def _docs() -> dict[str, dict[str, Any]]:
