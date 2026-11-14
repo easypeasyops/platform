@@ -346,6 +346,26 @@ Settings: `deploy/kind/monitoring-values.yaml`.
   load; past 12 GB the oldest blocks go first, whatever their age.
 - Deleting the PVC (or the kind cluster) loses the history; Prometheus starts empty.
 
+## Prometheus misses rule evaluations
+
+`PrometheusMissingRuleEvaluations` (warning, #platform-alerts) is the platform's own rule
+(`deploy/argocd/platform/files/prometheus-rules.yaml`), not the stack's, which is turned off
+in `deploy/kind/monitoring-values.yaml`. The stack's fires when the laptop sleeps (PT-15):
+the cluster's VM is frozen, the clock jumps on wake, and every rule group counts the sleep
+as missed evaluations. Ours fires only when a group misses evaluations for 15 minutes while
+Prometheus is scraped without a hole, so it means a real one: alerts, the SLO ones included,
+are evaluated late.
+
+- Which group, and how long it takes against its interval:
+  `prometheus_rule_group_last_duration_seconds / prometheus_rule_group_interval_seconds`
+  (near or above 1 is the group to look at). Shorten its queries or give it a longer interval.
+- Every group at once, none of them slow: Prometheus is short of CPU. See what the node is
+  busy with (`kubectl top pods -A --sort-by=cpu`); its request is under `prometheus` in the
+  values file.
+- Was it a sleep after all? `count_over_time(up{job="kps-prometheus"}[5m])` under 20 around
+  that time is a hole in the scrapes; `pmset -g log | grep -E "Sleep|Wake"` on the Mac shows
+  the sleeps.
+
 ## Logs
 
 Every pod's log lines are kept in VictoriaLogs (single node, `victoria-logs-0` in

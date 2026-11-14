@@ -25,6 +25,12 @@ defaultRules:
     nodeExporterAlerting: false
     nodeExporterRecording: false
     windows: false
+  # Off because a sleeping laptop sets it off (PT-15): the cluster's VM is frozen, the clock
+  # jumps on wake, and every rule group counts the sleep as missed evaluations. The platform
+  # ships its own, which leaves sleeps out (deploy/argocd/platform/files/prometheus-rules.yaml;
+  # docs/RUNBOOK.md, Prometheus misses rule evaluations).
+  disabled:
+    PrometheusMissingRuleEvaluations: true
 
 kube-state-metrics:
   fullnameOverride: kube-state-metrics

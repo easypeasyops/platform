@@ -1,0 +1,48 @@
+# promtool unit tests for the platform's alerts on Prometheus itself
+# (deploy/argocd/platform/files/prometheus-rules.yaml). Run by tests/test_alerting.py.
+rule_files:
+  - ../../argocd/platform/files/prometheus-rules.yaml
+
+evaluation_interval: 15s
+
+tests:
+  # What the laptop did on 2026-11-12 (PT-15): asleep for 30 seconds every two and a half
+  # minutes. Each sleep loses two scrapes and adds two missed evaluations on wake. The
+  # stack's rule fired on this; ours stays quiet.
+  - name: a sleeping laptop is not a slow rule group
+    interval: 15s
+    input_series:
+      - series: 'prometheus_rule_group_iterations_missed_total{job="kps-prometheus",namespace="monitoring",pod="prometheus-kps-prometheus-0",rule_group="general.rules"}'
+        values: '0x7 _ _ 2x7 _ _ 4x7 _ _ 6x7 _ _ 8x7 _ _ 10x7 _ _ 12x7 _ _ 14x7 _ _ 16x7 _ _ 18x7 _ _ 20x7 _ _ 22x7 _ _'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PrometheusMissingRuleEvaluations
+        exp_alerts: []
+      - eval_time: 29m
+        alertname: PrometheusMissingRuleEvaluations
+        exp_alerts: []
+
+  # A group slower than its interval: every scrape arrives, and each one shows another
+  # evaluation skipped. Warns after 15 minutes.
+  - name: a rule group that keeps missing evaluations while Prometheus runs warns
+    interval: 15s
+    input_series:
+      - series: 'prometheus_rule_group_iterations_missed_total{job="kps-prometheus",namespace="monitoring",pod="prometheus-kps-prometheus-0",rule_group="general.rules"}'
+        values: '0+1x120'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: PrometheusMissingRuleEvaluations
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: PrometheusMissingRuleEvaluations
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: kps-prometheus
+              namespace: monitoring
+              pod: prometheus-kps-prometheus-0
+              rule_group: general.rules
+            exp_annotations:
+              summary: Prometheus is skipping evaluations of a rule group
+              description: "Prometheus prometheus-kps-prometheus-0 skipped 20 evaluations of general.rules in the last 5 minutes while it was running. Its alerts, the SLO ones included, may be late."
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#prometheus-misses-rule-evaluations
