@@ -280,4 +280,31 @@ metadata:
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true # as above
 spec:
   {{- .Files.Get "files/cloudnative-pg-rules.yaml" | fromYaml | toYaml | nindent 2 }}
+---
+# The Argo Rollouts controller scraped: its Rollouts' and AnalysisRuns' phases, for the
+# alerts on prod's canaries. The ServiceMonitor is the platform's, not the chart's
+# (controller.metrics.serviceMonitor, deploy/kind/argo-rollouts-values.yaml): the chart
+# renders its own whether or not the CRD exists, and Argo Rollouts is in wave 0 on every
+# cluster. It selects the chart's metrics Service (controller.metrics.enabled):
+# job="argo-rollouts". In the root's own namespace, selecting across (as the PodMonitor
+# above). The metrics' own `namespace` (the Rollout's) becomes `exported_namespace`.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: argo-rollouts
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true # as above
+spec:
+  namespaceSelector:
+    matchNames: [argo-rollouts]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: argo-rollouts
+      app.kubernetes.io/component: rollouts-controller
+  jobLabel: app.kubernetes.io/name # job="argo-rollouts", not "argo-rollouts-metrics"
+  endpoints:
+    - port: metrics
+      interval: 30s
 {{- end }}
