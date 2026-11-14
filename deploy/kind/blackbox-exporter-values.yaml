@@ -1,0 +1,58 @@
+# The blackbox exporter (the prometheus-blackbox-exporter chart) for the local kind cluster,
+# deployed by Argo CD (deploy/argocd/platform/, the `blackbox-exporter` Application): asks
+# for a page the way a user does, through the front door, so a broken route, listener or
+# NetworkPolicy shows even when nobody is using the app (docs/RUNBOOK.md, The front door).
+# Prometheus tells it what to probe (one Probe per hostname); it answers with probe_success.
+
+# The Service the Probes name: blackbox-exporter.monitoring.svc:9115.
+fullnameOverride: blackbox-exporter
+
+# Every request goes to the Gateway's proxies, as an HTTP proxy request
+# ("GET http://<hostname>/<path>"): Envoy takes the Host from the URL, so the request takes
+# the listener, the route and the app's NetworkPolicy a user's request takes, and the
+# hostname is never looked up (`.localhost` names mean 127.0.0.1, the exporter's own pod).
+# One module per listener: the proxies' Service, shortly-gateway (deploy/kind/gateway.yaml),
+# serves `http` (the users') on 80 and `tools` on 8081. Only a 2xx passes, without
+# following redirects: a redirect is not the page.
+config:
+  modules:
+    front_door_http:
+      prober: http
+      timeout: 5s
+      http:
+        proxy_url: http://shortly-gateway.envoy-gateway-system.svc:80
+        skip_resolve_phase_with_proxy: true
+        follow_redirects: false
+        preferred_ip_protocol: ip4
+    front_door_tools:
+      prober: http
+      timeout: 5s
+      http:
+        proxy_url: http://shortly-gateway.envoy-gateway-system.svc:8081
+        skip_resolve_phase_with_proxy: true
+        follow_redirects: false
+        preferred_ip_protocol: ip4
+
+# It has no login, and fetches whatever URL it is asked for: only Prometheus's namespace may
+# ask (the chart's policy admits that namespace, on the exporter's port only).
+networkPolicy:
+  enabled: true
+  allowMonitoringNamespace: true
+  monitoringNamespaceName: monitoring
+
+# The namespace enforces Pod Security "restricted", and the chart's defaults miss one thing
+# it asks for, the seccomp profile (tests/test_platform.py checks the render). The rest is
+# the chart's defaults, repeated so a bump can't drop them unnoticed.
+podSecurityContext:
+  seccompProfile: { type: RuntimeDefault }
+securityContext:
+  runAsUser: 1000
+  runAsGroup: 1000
+  runAsNonRoot: true
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities: { drop: [ALL] }
+
+resources:
+  requests: { cpu: 10m, memory: 32Mi }
+  limits: { memory: 64Mi }
