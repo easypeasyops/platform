@@ -440,11 +440,17 @@ namespace (`namespace` is the controller's). Rules:
 | The Certificate says | Cause | Fix |
 | --- | --- | --- |
 | Its Issuer isn't found or isn't Ready | The plugin's Issuer was refused while cert-manager's webhook wasn't serving, or was deleted | The `barman-cloud` Application makes it: `kubectl -n argocd annotate application barman-cloud argocd.argoproj.io/refresh=normal --overwrite` if its retries gave up |
-| A CertificateRequest failed | `kubectl -n <ns> describe certificaterequest <name>` says why; cert-manager waits before it tries again (an hour, doubling) | Fix the cause, then wait for the next try, or `cmctl renew <name> -n <ns>` (cert-manager's CLI) to issue now |
+| A CertificateRequest failed | `kubectl -n <ns> describe certificaterequest <name>` says why; cert-manager waits before it tries again (an hour, doubling) | Fix the cause, then wait for the next try, or `cmctl renew <name> -n <ns>` (cert-manager's CLI: `brew install cmctl`) to issue now |
 | Ready again after it had expired, and backups still fail | The plugin or the operator still holds the old certificate | `kubectl -n cnpg-system rollout restart deploy/plugin-barman-cloud deploy/cloudnative-pg` |
 
 `CertManagerDown` with the pod running is the scrape: Prometheus's Targets page
 (http://prometheus.localhost:8090/targets), `cert-manager`.
+
+The controller's restart count climbs with every sleep of the laptop, by design: its
+`/livez` fails when the clock has jumped more than 5 minutes (`clockHealth` in
+`kubectl -n cert-manager logs deploy/cert-manager --previous`), so the kubelet restarts it
+and its renewal timers start again from the real time. A restart takes seconds, far less
+than `CertManagerDown` waits.
 
 ## Prometheus data
 
