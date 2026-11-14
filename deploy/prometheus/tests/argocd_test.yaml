@@ -136,3 +136,53 @@ tests:
       - eval_time: 120m
         alertname: ArgoCDCantReachGit
         exp_alerts: []
+
+  # The repo server or the ApplicationSet controller gone for 10 minutes (scaled to 0, or
+  # crash-looping): a ticket each. A short restart stays quiet.
+  - name: no repo server or ApplicationSet controller scraped for 10 minutes opens a ticket
+    interval: 1m
+    input_series:
+      - series: 'up{job="argocd-repo-server-metrics"}'
+        values: '1 1 0x15'
+      - series: 'up{job="argocd-applicationset-controller-metrics"}'
+        values: '1 1 0x15'
+      - series: 'up{job="argocd-application-controller-metrics"}'
+        values: '1x16'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: ArgoCDRepoServerDown
+        exp_alerts: []
+      - eval_time: 14m
+        alertname: ArgoCDRepoServerDown
+        exp_alerts:
+          - exp_labels: {severity: ticket}
+            exp_annotations:
+              summary: Argo CD's repo server isn't running (or isn't scraped)
+              description: Argo CD can't read git or render manifests while it is down, so nothing merged lands. Running workloads are unaffected.
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#argo-cd-alerts
+      - eval_time: 14m
+        alertname: ArgoCDApplicationSetDown
+        exp_alerts:
+          - exp_labels: {severity: ticket}
+            exp_annotations:
+              summary: Argo CD's ApplicationSet controller isn't running (or isn't scraped)
+              description: A new app or environment in apps/ gets no Application. Existing Applications keep syncing.
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#argo-cd-alerts
+      - eval_time: 14m
+        alertname: ArgoCDDown
+        exp_alerts: []
+
+  - name: a restart of the repo server and the ApplicationSet controller stays quiet
+    interval: 1m
+    input_series:
+      - series: 'up{job="argocd-repo-server-metrics"}'
+        values: '1 1 0 0 0 1x15'
+      - series: 'up{job="argocd-applicationset-controller-metrics"}'
+        values: '1 1 0 0 0 1x15'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: ArgoCDRepoServerDown
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: ArgoCDApplicationSetDown
+        exp_alerts: []
