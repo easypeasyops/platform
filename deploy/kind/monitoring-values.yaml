@@ -62,8 +62,8 @@ alertmanager:
     secrets: [alertmanager-slack]
     resources:
       requests: { cpu: 10m, memory: 32Mi }
-  # Routing. aipostit's alerts go to its two Slack channels (docs/RUNBOOK.md, Slack alerts).
-  # Any other app's go to named placeholders with no integration, so nothing of its leaves
+  # Routing. aipostit's alerts go to its two Slack channels and the platform's own (Argo CD's)
+  # to #platform-alerts (docs/RUNBOOK.md, Slack alerts). Any other app's go to named placeholders with no integration, so nothing of its leaves
   # the cluster; in a real setup `pager` gets pagerduty_configs and `tickets` slack_configs.
   # tests/test_alerting.py checks these routes and the Slack messages with amtool.
   config:
@@ -104,6 +104,13 @@ alertmanager:
         - receiver: aipostit-prod
           matchers: ['project = "deploybot"']
           group_by: [alertname, name]
+        # The platform's own alerts (deploy/argocd/platform/files/argocd-rules.yaml), after
+        # the apps' routes above: ArgoCDDown, which has no project (the empty alternative),
+        # and Argo CD's alerts on the platform's Applications (projects platform and apps).
+        # Another app's (shortly) still fall through to `tickets`.
+        - receiver: platform
+          matchers: ['alertname =~ "ArgoCD.+"', 'project =~ "|platform|apps"']
+          group_by: [alertname, name]
         - receiver: staging # staging never pages anyone, whatever its severity
           # Any app's staging namespace, <app>-staging (platform plan, Phase 2).
           matchers: ['namespace =~ ".+-staging"']
@@ -141,6 +148,12 @@ alertmanager:
             send_resolved: true
             title: '{{ template "aipostit.slack.title" . }}'
             text: '{{ template "aipostit.slack.text" . }}'
+      - name: platform
+        slack_configs:
+          - api_url_file: /etc/alertmanager/secrets/alertmanager-slack/platform-webhook-url
+            send_resolved: true
+            title: '{{ template "platform.slack.title" . }}'
+            text: '{{ template "platform.slack.text" . }}'
   # aipostit's Slack messages. Title: red for a page, yellow for a ticket, the alert and its
   # environment. Text: @channel on a firing page in prod only, each alert's summary, and its
   # runbook link. Resolved alerts say so (send_resolved).
@@ -153,6 +166,18 @@ alertmanager:
       {{ define "aipostit.slack.text" -}}
       {{ if and (eq .Status "firing") (eq .CommonLabels.severity "page") (eq .Receiver "aipostit-prod") }}<!channel> {{ end -}}
       severity *{{ .CommonLabels.severity }}*, env *{{ template "aipostit.slack.env" . }}*
+      {{ range .Alerts -}}
+      • {{ if eq .Status "resolved" }}resolved: {{ end }}{{ .Annotations.summary }}
+      {{ end -}}
+      {{ with (index .Alerts 0).Annotations.runbook_url }}<{{ . }}|Runbook>{{ end }}
+      {{- end }}
+    # The platform's Slack messages. Title: the alert and, when it is about one, the Argo CD
+    # Application. Text: each alert's summary and its runbook link. Never @channel.
+    platform-slack.tmpl: |-
+      {{ define "platform.slack.title" -}}
+      {{ if eq .CommonLabels.severity "page" }}🔴{{ else }}🟡{{ end }} {{ if eq .Status "resolved" }}RESOLVED {{ end }}{{ .CommonLabels.alertname }}{{ with .CommonLabels.name }} on {{ . }}{{ end }}
+      {{- end }}
+      {{ define "platform.slack.text" -}}
       {{ range .Alerts -}}
       • {{ if eq .Status "resolved" }}resolved: {{ end }}{{ .Annotations.summary }}
       {{ end -}}

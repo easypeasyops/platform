@@ -230,6 +230,7 @@ Alertmanager mounts it. Keys, one per channel:
 | --- | --- |
 | `aipostit-prod-webhook-url` | #aipostit-alerts-prod |
 | `aipostit-staging-webhook-url` | #aipostit-alerts-staging |
+| `platform-webhook-url` | #platform-alerts |
 
 **Load or replace the webhooks** (before the ExternalSecret first syncs, or Alertmanager
 can't start). Make each webhook in Slack (api.slack.com/apps: the app, **Incoming
@@ -237,9 +238,10 @@ Webhooks**, **Add New Webhook**, pick the channel), then:
 
 ```sh
 umask 077
-cat > /tmp/alertmanager-slack.env   # paste these two lines with the real URLs, then Ctrl-D
+cat > /tmp/alertmanager-slack.env   # paste these three lines with the real URLs, then Ctrl-D
 # aipostit-prod-webhook-url=https://hooks.slack.com/services/...
 # aipostit-staging-webhook-url=https://hooks.slack.com/services/...
+# platform-webhook-url=https://hooks.slack.com/services/...
 kubectl -n secret-store create secret generic alertmanager-slack \
   --from-env-file=/tmp/alertmanager-slack.env --dry-run=client -o yaml \
   | kubectl apply --server-side --field-manager=alertmanager-slack -f -
@@ -265,6 +267,10 @@ every 4 hours while firing, and a message when it resolves. A page is red and, i
 notifies the channel (`@channel`); a ticket is yellow and doesn't. While a page fires in an
 environment, its tickets there are held back (inhibited). The stack's own warning and
 critical alerts on the same pods stay on `null`: aipostit's rules cover them.
+
+The platform's own alerts go to #platform-alerts: `ArgoCDDown`, and Argo CD's alerts on the
+platform's Applications (projects `platform` and `apps`), titled "on <Application>". All
+tickets: yellow, never `@channel`. The stack's warning and critical alerts stay on `null`.
 
 **Test the route end to end** (posts to the real channels: say so there first). An alert sent
 by hand, which resolves itself after its end time:

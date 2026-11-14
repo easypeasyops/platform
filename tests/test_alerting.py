@@ -151,6 +151,30 @@ def test_alertmanager_config_is_valid(alertmanager_config: Path) -> None:
         (["project=aipostit", "name=aipostit-prod", "severity=ticket"], "aipostit-prod"),
         (["project=aipostit", "name=aipostit-preview", "severity=ticket"], "aipostit-prod"),
         (["project=shortly", "name=shortly-prod", "severity=ticket"], "tickets"),
+        # The platform's own: Argo CD down (no project) and on the platform's Applications.
+        (["alertname=ArgoCDDown", "severity=ticket"], "platform"),
+        (
+            [
+                "alertname=ArgoCDAppUnhealthy",
+                "project=platform",
+                "name=monitoring",
+                "severity=ticket",
+            ],
+            "platform",
+        ),
+        (
+            ["alertname=ArgoCDSyncFailed", "project=apps", "name=apps", "severity=ticket"],
+            "platform",
+        ),
+        (
+            [
+                "alertname=ArgoCDSyncFailed",
+                "project=shortly",
+                "name=shortly-prod",
+                "severity=ticket",
+            ],
+            "tickets",
+        ),
         # deploybot: Argo CD on its Application to aipostit's prod channel; the stack's
         # alerts on its pod stay on "null", as aipostit's.
         (["project=deploybot", "name=deploybot-ops", "severity=ticket"], "aipostit-prod"),
@@ -168,11 +192,11 @@ def test_alerts_route_to_the_right_receiver(
     assert result.returncode == 0, f"{labels} -> {result.stdout.strip()}, want {receiver}"
 
 
-def _slack(config: Path, data: dict[str, Any]) -> str:
-    """aipostit's Slack title and text for this notification (template.Data)."""
+def _slack(config: Path, data: dict[str, Any], who: str = "aipostit") -> str:
+    """aipostit's (or the platform's) Slack title and text for this notification."""
     (config.parent / "data.json").write_text(json.dumps(data))
     (config.parent / "data.json").chmod(0o644)
-    text = '{{ template "aipostit.slack.title" . }}\n{{ template "aipostit.slack.text" . }}'
+    text = f'{{{{ template "{who}.slack.title" . }}}}\n{{{{ template "{who}.slack.text" . }}}}'
     result = _amtool(
         config,
         "template", "render", "--template.glob=/c/*.tmpl", f"--template.text={text}",
@@ -230,3 +254,22 @@ def test_other_messages_never_notify_the_channel(
     message = _slack(alertmanager_config, _notification(receiver, status, labels))
     assert message.startswith(title + "\n"), message
     assert "<!channel>" not in message
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("labels", "title"),
+    [
+        ({"alertname": "ArgoCDAppUnhealthy", "name": "monitoring", "project": "platform"},
+         "🟡 ArgoCDAppUnhealthy on monitoring"),
+        ({"alertname": "ArgoCDDown"}, "🟡 ArgoCDDown"),
+    ],
+)  # fmt: skip
+def test_a_platform_message_names_the_alert_and_its_application(
+    alertmanager_config: Path, labels: dict[str, str], title: str
+) -> None:
+    data = _notification("platform", "firing", {**labels, "severity": "ticket"})
+    message = _slack(alertmanager_config, data, "platform")
+    assert message.startswith(title + "\n"), message
+    assert "<!channel>" not in message
+    assert "<https://example.test#x|Runbook>" in message
