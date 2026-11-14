@@ -14,6 +14,10 @@ tests:
     input_series:
       - series: 'prometheus_rule_group_iterations_missed_total{job="kps-prometheus",namespace="monitoring",pod="prometheus-kps-prometheus-0",rule_group="general.rules"}'
         values: '0x7 _ _ 2x7 _ _ 4x7 _ _ 6x7 _ _ 8x7 _ _ 10x7 _ _ 12x7 _ _ 14x7 _ _ 16x7 _ _ 18x7 _ _ 20x7 _ _ 22x7 _ _'
+      - series: 'prometheus_rule_group_iterations_total{job="kps-prometheus",namespace="monitoring",pod="prometheus-kps-prometheus-0",rule_group="general.rules"}'
+        values: '0+1x7 _ _ 10+1x7 _ _ 20+1x7 _ _ 30+1x7 _ _ 40+1x7 _ _ 50+1x7 _ _ 60+1x7 _ _ 70+1x7 _ _ 80+1x7 _ _ 90+1x7 _ _ 100+1x7 _ _ 110+1x7 _ _'
+      - series: 'prometheus_rule_group_interval_seconds{job="kps-prometheus",namespace="monitoring",pod="prometheus-kps-prometheus-0",rule_group="general.rules"}'
+        values: '15x7 _ _ 15x7 _ _ 15x7 _ _ 15x7 _ _ 15x7 _ _ 15x7 _ _ 15x7 _ _ 15x7 _ _ 15x7 _ _ 15x7 _ _ 15x7 _ _ 15x7 _ _'
     alert_rule_test:
       - eval_time: 20m
         alertname: PrometheusMissingRuleEvaluations
@@ -22,13 +26,17 @@ tests:
         alertname: PrometheusMissingRuleEvaluations
         exp_alerts: []
 
-  # A group slower than its interval: every scrape arrives, and each one shows another
-  # evaluation skipped. Warns after 15 minutes.
+  # A group twice as slow as its interval: every scrape arrives, and every other
+  # evaluation is skipped. Warns after 15 minutes.
   - name: a rule group that keeps missing evaluations while Prometheus runs warns
     interval: 15s
     input_series:
       - series: 'prometheus_rule_group_iterations_missed_total{job="kps-prometheus",namespace="monitoring",pod="prometheus-kps-prometheus-0",rule_group="general.rules"}'
-        values: '0+1x120'
+        values: '0+0.5x120'
+      - series: 'prometheus_rule_group_iterations_total{job="kps-prometheus",namespace="monitoring",pod="prometheus-kps-prometheus-0",rule_group="general.rules"}'
+        values: '0+1x120' # what ran plus what was missed
+      - series: 'prometheus_rule_group_interval_seconds{job="kps-prometheus",namespace="monitoring",pod="prometheus-kps-prometheus-0",rule_group="general.rules"}'
+        values: '15x120'
     alert_rule_test:
       - eval_time: 10m
         alertname: PrometheusMissingRuleEvaluations
@@ -44,5 +52,24 @@ tests:
               rule_group: general.rules
             exp_annotations:
               summary: Prometheus is skipping evaluations of a rule group
-              description: "Prometheus prometheus-kps-prometheus-0 skipped 20 evaluations of general.rules in the last 5 minutes while it was running. Its alerts, the SLO ones included, may be late."
+              description: "Prometheus prometheus-kps-prometheus-0 skipped 10 evaluations of general.rules in the last 5 minutes while it was running. Its alerts, the SLO ones included, may be late."
               runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#prometheus-misses-rule-evaluations
+
+  # What three groups loaded after a wake did on 2026-11-13: a miss counted every two
+  # minutes while every evaluation ran on time (the total moves by the miss as well).
+  - name: a miss counted while every evaluation ran is not a slow rule group
+    interval: 15s
+    input_series:
+      - series: 'prometheus_rule_group_iterations_missed_total{job="kps-prometheus",namespace="monitoring",pod="prometheus-kps-prometheus-0",rule_group="general.rules"}'
+        values: '0x7 1x7 2x7 3x7 4x7 5x7 6x7 7x7 8x7 9x7 10x7 11x7 12x7 13x7 14x7'
+      - series: 'prometheus_rule_group_iterations_total{job="kps-prometheus",namespace="monitoring",pod="prometheus-kps-prometheus-0",rule_group="general.rules"}'
+        values: '0+1x7 9+1x7 18+1x7 27+1x7 36+1x7 45+1x7 54+1x7 63+1x7 72+1x7 81+1x7 90+1x7 99+1x7 108+1x7 117+1x7 126+1x7'
+      - series: 'prometheus_rule_group_interval_seconds{job="kps-prometheus",namespace="monitoring",pod="prometheus-kps-prometheus-0",rule_group="general.rules"}'
+        values: '15x120'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PrometheusMissingRuleEvaluations
+        exp_alerts: []
+      - eval_time: 29m
+        alertname: PrometheusMissingRuleEvaluations
+        exp_alerts: []

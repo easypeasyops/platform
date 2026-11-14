@@ -438,8 +438,9 @@ Settings: `deploy/kind/monitoring-values.yaml`.
 in `deploy/kind/monitoring-values.yaml`. The stack's fires when the laptop sleeps (PT-15):
 the cluster's VM is frozen, the clock jumps on wake, and every rule group counts the sleep
 as missed evaluations. Ours fires only when a group misses evaluations for 15 minutes while
-Prometheus is scraped without a hole, so it means a real one: alerts, the SLO ones included,
-are evaluated late.
+Prometheus is scraped without a hole, and fewer evaluations ran than its interval asks for
+(a group loaded since the last wake counts a miss now and then with none skipped). So it
+means a real one: alerts, the SLO ones included, are evaluated late.
 
 - Which group, and how long it takes against its interval:
   `prometheus_rule_group_last_duration_seconds / prometheus_rule_group_interval_seconds`
