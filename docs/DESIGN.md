@@ -248,7 +248,9 @@ What the children are for:
   backend, read from the HTTPRoute's status through kube-state-metrics (custom resource
   state) rather than from Envoy: the proxy counts its own 5xx per listener only, and only
   when someone asks, while the status names the route and kube-state-metrics already runs.
-  Details: RUNBOOK.
+  The dashboards' deploy marks are read the same way, from each Argo CD Application's last
+  sync: Argo CD's own metrics name no revision, and this needs no Grafana API token, which
+  Argo CD's notifications into Grafana would. Details: RUNBOOK.
 - **Databases and backups.** CloudNativePG runs each app's Postgres from the `Cluster` its
   chart renders: failover, base backups and point-in-time recovery from an operator
   instead of a hand-rolled StatefulSet and dumps. Backups go through the Barman Cloud

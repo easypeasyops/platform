@@ -57,6 +57,9 @@ kube-state-metrics:
       - apiGroups: [gateway.networking.k8s.io]
         resources: [httproutes]
         verbs: [list, watch]
+      - apiGroups: [argoproj.io]
+        resources: [applications]
+        verbs: [list, watch]
   customResourceState:
     enabled: true
     config:
@@ -77,6 +80,32 @@ kube-state-metrics:
                     path: [status, parents, "0", conditions]
                     labelsFromPath: { type: [type], reason: [reason] }
                     valueFrom: [status]
+          # What each Argo CD Application's last sync deployed: the dashboards' deploy marks
+          # (docs/RUNBOOK.md, The front door). Argo CD's own metrics carry no revision.
+          # argocd_application_synced_revision_info{name, project, revision} for an
+          # Application with one source; ..._revisions_info, one series per source (an
+          # app's chart digest, its values repo's commit, the platform's), for several.
+          # A new revision is a new series: the dashboards mark the minute one appears.
+          - groupVersionKind: { group: argoproj.io, version: v1alpha1, kind: Application }
+            metricNamePrefix: argocd_application
+            labelsFromPath:
+              name: [metadata, name]
+              project: [spec, project]
+            metrics:
+              - name: synced_revision_info
+                help: The revision an Application's last sync deployed (one source)
+                each:
+                  type: Info
+                  info:
+                    path: [status, operationState, syncResult, revision]
+                    labelsFromPath: { revision: [] }
+              - name: synced_revisions_info
+                help: The revisions an Application's last sync deployed, one per source
+                each:
+                  type: Info
+                  info:
+                    path: [status, operationState, syncResult, revisions]
+                    labelsFromPath: { revision: [] }
 
 prometheus:
   prometheusSpec:
