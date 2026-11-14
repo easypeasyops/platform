@@ -201,6 +201,11 @@ kubectl -n envoy-gateway-system logs deploy/envoy-gateway --tail=50
 | `ResolvedRefs: False` | The route points at a Service or port that doesn't exist | `kubectl -n <ns> get svc`; the route's `backendRefs` |
 | The Service answers in-cluster, through the Gateway it doesn't | The proxy can't reach the pods: the app's NetworkPolicy doesn't admit `envoy-gateway-system` | The app's `networkPolicy` values |
 
+Prometheus scrapes the proxies (job `envoy`) and the controller (job `envoy-gateway`):
+http://prometheus.localhost:8090/targets. The proxies count every request they answer,
+the ones that never reached an app included; a route's series (`envoy_cluster_*`) carry
+`route_namespace` and `route`, the HTTPRoute's namespace and name.
+
 ## Network policies
 
 Every app namespace starts with `default-deny-ingress` (`deploy/app-namespace/`, a source
