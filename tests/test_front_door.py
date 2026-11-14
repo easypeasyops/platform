@@ -127,8 +127,8 @@ def test_the_front_door_is_scraped_where_envoy_gateway_runs() -> None:
     assert not _monitors("components.monitoring=false")
 
 
-# The access log's fields (RUNBOOK, The access log): what the queries search by, and nothing that can
-# hold a secret. A header the proxy reads beyond these, or a path with its query string, fails.
+# The access log's fields (RUNBOOK, The access log): what the queries search by, and
+# nothing that can hold a secret. A header beyond these, or a path with its query, fails.
 ACCESS_LOG_FIELDS = {"time", "msg", "request_id", "authority", "path", "response_code"}
 ACCESS_LOG_HEADERS = {":METHOD", ":AUTHORITY", "X-REQUEST-ID"}
 

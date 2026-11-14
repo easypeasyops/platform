@@ -50,7 +50,7 @@ spec:
             requests: { cpu: 50m, memory: 64Mi }
             limits: { memory: 256Mi }
   # The access log: one JSON line per request to stdout, which the log collector sends to
-  # VictoriaLogs like any pod's (RUNBOOK, Logs and The front door). The keys are the fields
+  # VictoriaLogs like any pod's (RUNBOOK, The access log). The keys are the fields
   # to search by: `msg` and `time` become `_msg` and `_time`, `request_id` is the
   # X-Request-ID the proxy gave the request (Envoy Gateway generates one at the edge) and the
   # app logs too. No query string (REQ_WITHOUT_QUERY) and no other header: they can carry
