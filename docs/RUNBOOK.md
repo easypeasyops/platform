@@ -204,7 +204,8 @@ The `tools` listener has no login of its own: the forwarders listen on 127.0.0.1
 
 The Gateway is the user path; probes and Prometheus go around it. So a broken front door
 looks like **traffic dropping**, not errors: no alert fires on the pods. The proxies' own
-metrics show it (the dashboard below), and one alert watches the routes' status
+metrics show it (the dashboard below); alerts watch the proxies and the controller
+([the front door is down](#the-front-door-is-down)) and the routes' status
 ([a route with no backend](#a-route-with-no-backend)).
 
 ```sh
@@ -237,6 +238,25 @@ Prometheus scrapes the proxies (job `envoy`) and the controller (job `envoy-gate
 http://prometheus.localhost:8090/targets. The proxies count every request they answer,
 the ones that never reached an app included; a route's series (`envoy_cluster_*`) carry
 `route_namespace` and `route`, the HTTPRoute's namespace and name.
+
+### The front door is down
+
+To #platform-alerts. Rules: `deploy/argocd/platform/files/front-door-rules.yaml`. With
+the pod gone the stack's `TargetDown` has no target left to be down, so these read
+`absent(up{job=...} == 1)`.
+
+| Alert | Means | First look |
+| --- | --- | --- |
+| `FrontDoorDown` (critical) | No proxy (job `envoy`) scraped for 3 minutes: every app and tool is unreachable from outside | `kubectl -n envoy-gateway-system get deploy,pods -l app.kubernetes.io/component=proxy`; `kubectl -n envoy-gateway-system describe pod -l app.kubernetes.io/component=proxy` (OOMKilled? its limit is the EnvoyProxy's, `deploy/kind/gateway.yaml`); `kubectl -n gateway get gateway shortly` |
+| `FrontDoorControllerDown` (warning) | No controller (job `envoy-gateway`) scraped for 10 minutes: what runs keeps serving, but no Gateway or route change reaches the proxies, and a proxy that goes is not replaced | `kubectl -n envoy-gateway-system get pods`; `kubectl -n envoy-gateway-system logs deploy/envoy-gateway --tail=50` (add `--previous` after a crash) |
+
+The controller makes the proxy's Deployment: a proxy Deployment that is gone with the
+controller up comes back within seconds, so `FrontDoorDown` with no proxy Deployment
+means the controller is down too (fix that first) or the Gateway isn't `Programmed` (the
+table above). No controller pod at all: the `envoy-gateway` Application
+(`kubectl -n argocd get application envoy-gateway`; An Application that won't sync,
+above). Either alert with its pod running and Ready is the scrape: Prometheus's Targets
+page (http://prometheus.localhost:8090/targets), `envoy` and `envoy-gateway`.
 
 ### A route with no backend
 

@@ -288,12 +288,20 @@ def test_the_front_door_alerts_ship_as_the_rules_file_says() -> None:
         if d["kind"] == "PrometheusRule" and d["metadata"]["name"] == "front-door"
     ]
     assert rule["spec"] == yaml.safe_load((CHART / "files/front-door-rules.yaml").read_text())
-    # They read the routes' status, and name the route: no backend, with or without traffic.
-    for group in rule["spec"]["groups"]:
-        for alert in group["rules"]:
-            assert _route_status_series() + '{job="kube-state-metrics"' in alert["expr"]
-            assert "by (route_namespace, route, type, reason)" in alert["expr"]
-            assert (
-                "{{ $labels.route_namespace }}/{{ $labels.route }}"
-                in (alert["annotations"]["summary"])
-            )
+    alerts = {a["alert"]: a for group in rule["spec"]["groups"] for a in group["rules"]}
+    # The proxies and the controller: absent from the jobs their monitors give them, so a
+    # pod that is gone (no target left to be down) counts as down.
+    proxies = _monitors()["PodMonitor"]["spec"]
+    job = proxies["selector"]["matchLabels"][proxies["jobLabel"]]
+    assert alerts.pop("FrontDoorDown")["expr"] == f'absent(up{{job="{job}"}} == 1)'
+    controller = alerts.pop("FrontDoorControllerDown")
+    assert controller["expr"] == 'absent(up{job="envoy-gateway"} == 1)'
+    # The rest read the routes' status, and name the route: no backend, with or without
+    # traffic.
+    assert alerts
+    for alert in alerts.values():
+        assert _route_status_series() + '{job="kube-state-metrics"' in alert["expr"]
+        assert "by (route_namespace, route, type, reason)" in alert["expr"]
+        assert (
+            "{{ $labels.route_namespace }}/{{ $labels.route }}" in (alert["annotations"]["summary"])
+        )

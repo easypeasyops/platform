@@ -66,3 +66,63 @@ tests:
       - eval_time: 25m
         alertname: FrontDoorRouteWithoutBackend
         exp_alerts: []
+
+  # The proxy's pod is gone and the controller is down too, so nothing replaces it: no
+  # series at all for the job. The controller's own alert waits longer.
+  - name: no proxy scraped for three minutes says the front door is down
+    interval: 1m
+    input_series:
+      - series: 'up{job="envoy",namespace="envoy-gateway-system",pod="envoy-gateway-shortly-abc"}'
+        values: '1x5 stale'
+      - series: 'up{job="envoy-gateway",namespace="envoy-gateway-system"}'
+        values: '1x5 stale'
+    alert_rule_test:
+      - eval_time: 8m # gone since 6m: still pending
+        alertname: FrontDoorDown
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: FrontDoorDown
+        exp_alerts:
+          - exp_labels: {namespace: envoy-gateway-system, severity: critical}
+            exp_annotations:
+              summary: "The front door is down: no Envoy proxy is running (or scraped)"
+              description: No Envoy proxy has been scraped for 3 minutes. Every request to every app and tool goes through it, so nothing is reachable from outside; the apps' own alerts stay quiet, as their pods are fine.
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#the-front-door-is-down
+      - eval_time: 10m
+        alertname: FrontDoorControllerDown
+        exp_alerts: []
+      - eval_time: 17m
+        alertname: FrontDoorControllerDown
+        exp_alerts:
+          - exp_labels: {namespace: envoy-gateway-system, severity: warning}
+            exp_annotations:
+              summary: Envoy Gateway's controller isn't running (or isn't scraped)
+              description: Envoy Gateway's controller hasn't been scraped for 10 minutes. The proxies keep serving the routes they have, but no route or Gateway change reaches them, and a proxy that goes away is not replaced.
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#the-front-door-is-down
+
+  # A proxy that is there and failing its scrape (up 0) is down too; a proxy replaced
+  # within a minute (a rollout, or the controller recreating a deleted Deployment) is not.
+  - name: a failing scrape is down, a replaced proxy is not
+    interval: 1m
+    input_series:
+      - series: 'up{job="envoy",namespace="envoy-gateway-system",pod="envoy-gateway-shortly-old"}'
+        values: '1x5 0 stale'
+      - series: 'up{job="envoy",namespace="envoy-gateway-system",pod="envoy-gateway-shortly-new"}'
+        values: '_x7 1x5 0x10'
+      - series: 'up{job="envoy-gateway",namespace="envoy-gateway-system"}'
+        values: '1x25'
+    alert_rule_test:
+      - eval_time: 11m # no proxy up at 6m only: the new one is up from 7m
+        alertname: FrontDoorDown
+        exp_alerts: []
+      - eval_time: 17m # the new one's scrape fails since 13m
+        alertname: FrontDoorDown
+        exp_alerts:
+          - exp_labels: {namespace: envoy-gateway-system, severity: critical}
+            exp_annotations:
+              summary: "The front door is down: no Envoy proxy is running (or scraped)"
+              description: No Envoy proxy has been scraped for 3 minutes. Every request to every app and tool goes through it, so nothing is reachable from outside; the apps' own alerts stay quiet, as their pods are fine.
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#the-front-door-is-down
+      - eval_time: 25m
+        alertname: FrontDoorControllerDown
+        exp_alerts: []

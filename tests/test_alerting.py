@@ -191,6 +191,19 @@ def test_alertmanager_config_is_valid(alertmanager_config: Path) -> None:
             ],
             "platform",
         ),
+        # The front door down: the proxies (critical) and the controller, no route_namespace.
+        (
+            ["alertname=FrontDoorDown", "namespace=envoy-gateway-system", "severity=critical"],
+            "platform",
+        ),
+        (
+            [
+                "alertname=FrontDoorControllerDown",
+                "namespace=envoy-gateway-system",
+                "severity=warning",
+            ],
+            "platform",
+        ),
         # The platform's own: Argo CD down (no project) and on the platform's Applications.
         (["alertname=ArgoCDDown", "severity=ticket"], "platform"),
         (
