@@ -6,58 +6,61 @@ rule_files:
 evaluation_interval: 1m
 
 tests:
-  # A route on the users' listener lost its backend and people keep asking for it: the
-  # proxy answers 503 itself. The tools' listener, serving normally, stays quiet.
-  - name: 5xx from the proxy itself for ten minutes opens a ticket for that listener
+  # Staging's pods are gone and nobody asks for the route: its status says so all the same.
+  # Prod's route, with a backend, stays quiet. The series as kube-state-metrics gives them
+  # (deploy/kind/monitoring-values.yaml), with its own pod's namespace.
+  - name: a route with no ready pod for ten minutes opens a ticket that names it
     interval: 1m
     input_series:
-      - series: 'envoy_http_rq_direct_response{job="envoy",envoy_http_conn_manager_prefix="http-10080"}'
-        values: '0x5 1+3x20'
-      - series: 'envoy_http_downstream_rq_xx{job="envoy",envoy_response_code_class="5",envoy_http_conn_manager_prefix="http-10080"}'
-        values: '0x5 1+3x20'
-      - series: 'envoy_http_downstream_rq_xx{job="envoy",envoy_response_code_class="2",envoy_http_conn_manager_prefix="http-10080"}'
-        values: '0+50x25'
-      - series: 'envoy_http_rq_direct_response{job="envoy",envoy_http_conn_manager_prefix="http-8081"}'
-        values: '0x25'
-      - series: 'envoy_http_downstream_rq_xx{job="envoy",envoy_response_code_class="2",envoy_http_conn_manager_prefix="http-8081"}'
-        values: '0+10x25'
+      - series: 'gateway_httproute_status_condition{job="kube-state-metrics",namespace="monitoring",route_namespace="aipostit-staging",route="aipostit",type="Accepted",reason="Accepted"}'
+        values: '1x25'
+      - series: 'gateway_httproute_status_condition{job="kube-state-metrics",namespace="monitoring",route_namespace="aipostit-staging",route="aipostit",type="ResolvedRefs",reason="ResolvedRefs"}'
+        values: '1x25'
+      - series: 'gateway_httproute_status_condition{job="kube-state-metrics",namespace="monitoring",route_namespace="aipostit-staging",route="aipostit",type="BackendsAvailable",reason="EndpointsNotFound"}'
+        values: '_x5 0x20'
+      - series: 'gateway_httproute_status_condition{job="kube-state-metrics",namespace="monitoring",route_namespace="aipostit-prod",route="aipostit",type="ResolvedRefs",reason="ResolvedRefs"}'
+        values: '1x25'
     alert_rule_test:
-      - eval_time: 8m # 5xx for three minutes: still pending
+      - eval_time: 8m # no backend for three minutes: still pending
         alertname: FrontDoorRouteWithoutBackend
         exp_alerts: []
       - eval_time: 15m
         alertname: FrontDoorRouteWithoutBackend
         exp_alerts:
-          - exp_labels: {envoy_http_conn_manager_prefix: http-10080, severity: ticket}
+          - exp_labels: {route_namespace: aipostit-staging, route: aipostit, type: BackendsAvailable, reason: EndpointsNotFound, severity: ticket}
             exp_annotations:
-              summary: "The front door answers 5xx itself on listener http-10080: a route there has no backend"
+              summary: "Route aipostit-staging/aipostit has no backend to send to (EndpointsNotFound): the front door answers 5xx itself"
               description: Requests to a route whose Service has no ready pod, or doesn't exist, get a 503 or 500 from the proxy. They never reach the app, so its own metrics and alerts don't show them.
               runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#a-route-with-no-backend
 
-  # What must not open one: an app answering 5xx itself (its own alerts' business), a
-  # burst of 503s while a single pod restarts, and 404s for a hostname no route matches.
-  - name: an app's own 5xx, a restart's burst and unknown hostnames stay quiet
+  - name: a route to a Service that doesn't exist opens one too
     interval: 1m
     input_series:
-      # users' listener: the app answers 500 for the whole time; the proxy never does.
-      - series: 'envoy_http_rq_direct_response{job="envoy",envoy_http_conn_manager_prefix="http-10080"}'
-        values: '0x30'
-      - series: 'envoy_http_downstream_rq_xx{job="envoy",envoy_response_code_class="5",envoy_http_conn_manager_prefix="http-10080"}'
-        values: '0+5x30'
-      - series: 'envoy_http_no_route{job="envoy",envoy_http_conn_manager_prefix="http-10080"}'
-        values: '0+2x30'
-      - series: 'envoy_http_downstream_rq_xx{job="envoy",envoy_response_code_class="4",envoy_http_conn_manager_prefix="http-10080"}'
-        values: '0+2x30'
-      # tools' listener: four 503s from the proxy within one minute, then served again.
-      - series: 'envoy_http_rq_direct_response{job="envoy",envoy_http_conn_manager_prefix="http-8081"}'
-        values: '0x5 4x25'
-      - series: 'envoy_http_downstream_rq_xx{job="envoy",envoy_response_code_class="5",envoy_http_conn_manager_prefix="http-8081"}'
-        values: '0x5 4x25'
+      - series: 'gateway_httproute_status_condition{job="kube-state-metrics",namespace="monitoring",route_namespace="monitoring",route="grafana",type="ResolvedRefs",reason="BackendNotFound"}'
+        values: '0x15'
     alert_rule_test:
       - eval_time: 10m
         alertname: FrontDoorRouteWithoutBackend
-        exp_alerts: []
-      - eval_time: 12m
+        exp_alerts:
+          - exp_labels: {route_namespace: monitoring, route: grafana, type: ResolvedRefs, reason: BackendNotFound, severity: ticket}
+            exp_annotations:
+              summary: "Route monitoring/grafana has no backend to send to (BackendNotFound): the front door answers 5xx itself"
+              description: Requests to a route whose Service has no ready pod, or doesn't exist, get a 503 or 500 from the proxy. They never reach the app, so its own metrics and alerts don't show them.
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#a-route-with-no-backend
+
+  # What must not open one: a route no listener accepts (a 404, another row of the
+  # runbook's table), and a few minutes without a ready pod while a single one restarts.
+  - name: a route not accepted and a restart's gap stay quiet
+    interval: 1m
+    input_series:
+      - series: 'gateway_httproute_status_condition{job="kube-state-metrics",namespace="monitoring",route_namespace="links-staging",route="links",type="Accepted",reason="NotAllowedByListeners"}'
+        values: '0x30'
+      - series: 'gateway_httproute_status_condition{job="kube-state-metrics",namespace="monitoring",route_namespace="links-staging",route="links",type="ResolvedRefs",reason="ResolvedRefs"}'
+        values: '1x30'
+      - series: 'gateway_httproute_status_condition{job="kube-state-metrics",namespace="monitoring",route_namespace="aipostit-prod",route="aipostit",type="BackendsAvailable",reason="EndpointsNotFound"}'
+        values: '_x5 0x3 stale'
+    alert_rule_test:
+      - eval_time: 10m
         alertname: FrontDoorRouteWithoutBackend
         exp_alerts: []
       - eval_time: 25m

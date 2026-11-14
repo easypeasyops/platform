@@ -183,7 +183,7 @@ The `tools` listener has no login of its own: the forwarders listen on 127.0.0.1
 
 The Gateway is the user path; probes and Prometheus go around it. So a broken front door
 looks like **traffic dropping**, not errors: no alert fires on the pods. The proxies' own
-metrics show it (the dashboard below), and one alert watches them
+metrics show it (the dashboard below), and one alert watches the routes' status
 ([a route with no backend](#a-route-with-no-backend)).
 
 ```sh
@@ -209,8 +209,8 @@ HTTPRoute, so an app and its environment): request rate, 5xx share, latency and 
 backends, for the requests that reached a backend. Per listener (`http-10080` is `http`,
 the users' port 8080; `http-8081` is `tools`): every answer, and the ones the proxy gave
 itself, which no app's metrics show: 5xx for a route with no backend, 404 for a hostname
-no route matches. A route with no backend has no series of its own: it drops off "Healthy
-backends".
+no route matches. A route with no backend has no Envoy series of its own: it drops off
+"Healthy backends", and is listed under "Routes with no backend", from its status.
 
 Prometheus scrapes the proxies (job `envoy`) and the controller (job `envoy-gateway`):
 http://prometheus.localhost:8090/targets. The proxies count every request they answer,
@@ -219,15 +219,19 @@ the ones that never reached an app included; a route's series (`envoy_cluster_*`
 
 ### A route with no backend
 
-`FrontDoorRouteWithoutBackend` (a ticket, to #platform-alerts): for 5 minutes the proxy has
-answered 5xx **itself** on a listener (`http-10080`: `http`, the users' port 8080;
-`http-8081`: `tools`). Envoy Gateway programs a route whose Service has no ready pod to
-answer 503, and one whose Service doesn't exist 500, without a backend to send to. The
-requests never reach the app: its own metrics and alerts stay quiet, which is why this one
-is the platform's. It needs traffic: a broken route nobody asks for doesn't fire.
+`FrontDoorRouteWithoutBackend` (a ticket, to #platform-alerts): for 5 minutes an HTTPRoute
+has had no backend to send to. Envoy Gateway programs a route whose Service has no ready
+pod to answer 503, and one whose Service doesn't exist 500: the proxy answers **itself**.
+The requests never reach the app: its own metrics and alerts stay quiet, which is why this
+one is the platform's, an app's route included (the app's channel doesn't get it: its own
+alerts on its pods say why they are gone).
 
-The alert names the listener, not the route: Envoy counts these answers per listener only.
-The routes' status says which one:
+The message names the route, `<namespace>/<name>`, and the reason: `EndpointsNotFound` (no
+ready pod) or `BackendNotFound` (no Service). It needs no traffic: Envoy counts these
+answers per listener only, so the alert reads the route's status instead, which
+kube-state-metrics exports as `gateway_httproute_status_condition{route_namespace, route,
+type, reason}` (1 for True, 0 for False; `deploy/kind/monitoring-values.yaml`). The same
+from the cluster:
 
 ```sh
 # Routes with no backend to send to (EndpointsNotFound: no ready pod; BackendNotFound: no Service)
@@ -239,10 +243,12 @@ kubectl -n <ns> get deploy,rollout,pods        # none Ready: why? (crash loop, s
 kubectl -n <ns> get endpointslices             # the Service's ready addresses
 ```
 
-On the dashboard the route has dropped off "Healthy backends", and "Answered by the proxy
-itself" shows since when. Then it is the app's incident (its runbook): the pods have to
-come back. For an Argo CD or monitoring route (`tools`), it is the platform's own pod. The
-alert resolves a few minutes after the last such answer.
+On the dashboard the route is under "Routes with no backend" and has dropped off "Healthy
+backends"; "Answered by the proxy itself" shows whether anyone asked for it, and since
+when. Then it is the app's incident (its runbook): the pods have to come back. For an
+Argo CD or monitoring route (`tools`), it is the platform's own pod. The alert resolves
+once the route's status says it has a backend again. No alert and no series at all:
+kube-state-metrics isn't exporting them (`kubectl -n monitoring logs deploy/kube-state-metrics`).
 
 ## Network policies
 
@@ -314,7 +320,7 @@ critical alerts on the same pods stay on `null`: aipostit's rules cover them.
 The platform's own alerts go to #platform-alerts: `ArgoCDDown`, and Argo CD's alerts on the
 platform's Applications (projects `platform` and `apps`), titled "on <Application>". All
 tickets: yellow, never `@channel`. So does the front door's `FrontDoorRouteWithoutBackend`
-(The front door, above), whichever app's route it is about. So do the stack's own `warning` and `critical` alerts (a
+(The front door, above), whichever app's route it is about: its message names the route. So do the stack's own `warning` and `critical` alerts (a
 crash loop, a volume filling up, a target down, a failed rule evaluation) on the platform's
 namespaces, or on none (`KubeAPIDown`): titled "in <namespace>", red when critical, with the
 alert's description and the upstream runbook. The namespaces are listed in the route; a new
