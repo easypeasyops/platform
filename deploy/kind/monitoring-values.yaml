@@ -129,6 +129,7 @@ prometheus:
     # not only those labelled for this Helm release: shortly's chart ships its own.
     serviceMonitorSelectorNilUsesHelmValues: false
     podMonitorSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false # and Probes: the front door's (the platform chart)
     ruleSelectorNilUsesHelmValues: false
     resources:
       requests: { cpu: 100m, memory: 400Mi }
