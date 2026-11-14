@@ -74,3 +74,92 @@ tests:
       - eval_time: 30m
         alertname: KyvernoAdmissionControllerDown
         exp_alerts: []
+
+  # Kyverno is up. In aipostit-staging it refuses unreleased images (result="fail"): the
+  # policy working. In aipostit-prod one check errors (the registry unreachable): the
+  # counter appears with its first error, at 10m, and errs again at 35m.
+  - name: a provenance check that errors warns, an image correctly refused doesn't
+    interval: 1m
+    input_series:
+      - series: 'kyverno_image_validating_policy_results_total{job="kyverno-svc-metrics",namespace="kyverno",policy_name="require-release-provenance",resource_kind="Pod",resource_namespace="aipostit-staging",resource_request_operation="create",result="fail"}'
+        values: '_x2 1x10 2x40'
+      - series: 'kyverno_image_validating_policy_results_total{job="kyverno-svc-metrics",namespace="kyverno",policy_name="require-release-provenance",resource_kind="Pod",resource_namespace="aipostit-prod",resource_request_operation="create",result="pass"}'
+        values: '1x50'
+      - series: 'kyverno_image_validating_policy_results_total{job="kyverno-svc-metrics",namespace="kyverno",policy_name="require-release-provenance",resource_kind="Pod",resource_namespace="aipostit-prod",resource_request_operation="create",result="error"}'
+        values: '_x10 1x24 2x15'
+      - series: 'up{job="kyverno-svc-metrics",namespace="kyverno"}'
+        values: '1x50'
+    alert_rule_test:
+      # Two refusals so far, no error.
+      - eval_time: 8m
+        alertname: KyvernoProvenanceCheckErrors
+        exp_alerts: []
+      # The first error: the series is a minute old, increase() has nothing yet.
+      - eval_time: 11m
+        alertname: KyvernoProvenanceCheckErrors
+        exp_alerts:
+          - exp_labels: {resource_namespace: aipostit-prod, namespace: kyverno, severity: warning}
+            exp_annotations:
+              summary: Kyverno couldn't check an image's provenance in aipostit-prod
+              description: In the last 15 minutes the provenance policy failed to run (not refused an image) for a request in aipostit-prod, so that Pod or rollout was refused. If the registry is unreachable, every new Pod in the apps' namespaces is.
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#kyverno-alerts
+      - eval_time: 24m
+        alertname: KyvernoProvenanceCheckErrors
+        exp_alerts:
+          - exp_labels: {resource_namespace: aipostit-prod, namespace: kyverno, severity: warning}
+            exp_annotations:
+              summary: Kyverno couldn't check an image's provenance in aipostit-prod
+              description: In the last 15 minutes the provenance policy failed to run (not refused an image) for a request in aipostit-prod, so that Pod or rollout was refused. If the registry is unreachable, every new Pod in the apps' namespaces is.
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#kyverno-alerts
+      # More than 15 minutes after it, with refusals still coming: quiet.
+      - eval_time: 30m
+        alertname: KyvernoProvenanceCheckErrors
+        exp_alerts: []
+      # The next error, on the series that already exists.
+      - eval_time: 36m
+        alertname: KyvernoProvenanceCheckErrors
+        exp_alerts:
+          - exp_labels: {resource_namespace: aipostit-prod, namespace: kyverno, severity: warning}
+            exp_annotations:
+              summary: Kyverno couldn't check an image's provenance in aipostit-prod
+              description: In the last 15 minutes the provenance policy failed to run (not refused an image) for a request in aipostit-prod, so that Pod or rollout was refused. If the registry is unreachable, every new Pod in the apps' namespaces is.
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#kyverno-alerts
+      - eval_time: 36m
+        alertname: KyvernoAdmissionControllerDown
+        exp_alerts: []
+
+  # The API server's view. Kyverno answering "no" is error_type="no_error" (from 1m): the
+  # policy working. From 5m its calls fail (a timeout): refused without an answer.
+  - name: a webhook call that fails warns, a refusal Kyverno answered doesn't
+    interval: 1m
+    input_series:
+      - series: 'apiserver_admission_webhook_rejection_count{job="apiserver",name="ivpol.validate.kyverno.svc-fail-finegrained-require-release-provenance",type="validating",operation="CREATE",error_type="no_error",rejection_code="400"}'
+        values: '_ 1x5 2x40'
+      - series: 'apiserver_admission_webhook_rejection_count{job="apiserver",name="ivpol.validate.kyverno.svc-fail-finegrained-require-release-provenance",type="validating",operation="CREATE",error_type="calling_webhook_error",rejection_code="0"}'
+        values: '_x5 1x10 3x30'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: KyvernoWebhookCallsFailing
+        exp_alerts: []
+      # The first failed call: a new series.
+      - eval_time: 6m
+        alertname: KyvernoWebhookCallsFailing
+        exp_alerts:
+          - exp_labels: {namespace: kyverno, severity: warning}
+            exp_annotations:
+              summary: The API server couldn't call Kyverno's provenance webhook
+              description: In the last 15 minutes the API server refused a request in an app's namespace because Kyverno's provenance webhook didn't answer (a timeout, or Kyverno unreachable). While that lasts no Pod can be created there.
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#kyverno-alerts
+      # Two more at 16m: the series is older than 15 minutes, increase() sees them.
+      - eval_time: 22m
+        alertname: KyvernoWebhookCallsFailing
+        exp_alerts:
+          - exp_labels: {namespace: kyverno, severity: warning}
+            exp_annotations:
+              summary: The API server couldn't call Kyverno's provenance webhook
+              description: In the last 15 minutes the API server refused a request in an app's namespace because Kyverno's provenance webhook didn't answer (a timeout, or Kyverno unreachable). While that lasts no Pod can be created there.
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#kyverno-alerts
+      # None since 16m, while Kyverno still refuses: quiet.
+      - eval_time: 40m
+        alertname: KyvernoWebhookCallsFailing
+        exp_alerts: []
