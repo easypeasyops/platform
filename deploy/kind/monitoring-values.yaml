@@ -135,6 +135,11 @@ alertmanager:
             - 'severity =~ "warning|critical"'
             - 'namespace =~ "|argo-rollouts|argocd|backups|cert-manager|cnpg-system|envoy-gateway-system|external-secrets|gateway|kube-system|kyverno|local-path-storage|log-collector|monitoring|node-exporter|secret-store"'
           group_by: [alertname, namespace, severity]
+        # The front door's alerts (deploy/argocd/platform/files/front-door-rules.yaml): about
+        # the proxies every app shares, so the platform's, whichever app's route it is.
+        - receiver: platform
+          matchers: ['alertname =~ "FrontDoor.+"']
+          group_by: [alertname]
         - receiver: staging # staging never pages anyone, whatever its severity
           # Any app's staging namespace, <app>-staging (platform plan, Phase 2).
           matchers: ['namespace =~ ".+-staging"']
