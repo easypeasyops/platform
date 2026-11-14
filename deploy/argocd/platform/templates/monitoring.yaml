@@ -126,4 +126,19 @@ metadata:
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
   {{- .Files.Get "files/prometheus-rules.yaml" | fromYaml | toYaml | nindent 2 }}
+---
+# Alerts on the log pipeline (files/logs-rules.yaml): the collector and VictoriaLogs, which
+# the `log-collector` and `logs` Applications install and their charts have scraped. In
+# the root's own namespace, for the fresh cluster's dry run (as the PodMonitor above).
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: log-pipeline
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    # As above: the CRD comes with kube-prometheus-stack in wave 0.
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  {{- .Files.Get "files/logs-rules.yaml" | fromYaml | toYaml | nindent 2 }}
 {{- end }}

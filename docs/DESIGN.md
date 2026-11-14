@@ -199,7 +199,7 @@ flowchart TB
   Root --> WP["wave -2<br/>platform-project"]
   WP --> WB["wave -1<br/>external-secrets, cert-manager"]
   WB --> W0["wave 0<br/>secret-store · cloudnative-pg, barman-cloud · metrics-server<br/>envoy-gateway, gateway, tool-routes · argo-rollouts<br/>monitoring, node-exporter, logs, log-collector · kyverno · backups"]
-  W0 --> W1["wave 1<br/>kyverno-policies · Argo CD's alerts"]
+  W0 --> W1["wave 1<br/>kyverno-policies · Argo CD's and the logs' alerts"]
 ```
 
 | Choice | Why |
@@ -229,7 +229,8 @@ What the children are for:
   node's CPU, memory and disk. Both read the node's files, so each runs alone in a
   namespace of its own, the only two at Pod Security `privileged`. Argo CD is scraped and alerted on too (tickets,
   not pages): with GitOps, a sync that silently stops is a deploy that silently never
-  happens. Details: RUNBOOK.
+  happens. So is the log pipeline: logs that stop arriving fail nothing either, until the
+  day they are needed. Details: RUNBOOK.
 - **Databases and backups.** CloudNativePG runs each app's Postgres from the `Cluster` its
   chart renders: failover, base backups and point-in-time recovery from an operator
   instead of a hand-rolled StatefulSet and dumps. Backups go through the Barman Cloud

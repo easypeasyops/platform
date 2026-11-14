@@ -1,0 +1,73 @@
+# Alerts on the log pipeline: the collector (vlagent, deploy/kind/log-collector-values.yaml)
+# and the store (VictoriaLogs, deploy/kind/victoria-logs-values.yaml). When logs stop
+# arriving nothing fails: Explore is just empty the day it is needed. These make that loud.
+# Shipped as a PrometheusRule by the platform chart (templates/monitoring.yaml); tested by
+# deploy/prometheus/tests/logs_test.yaml (promtool). Severities warning and critical, and a
+# namespace on every alert: what Alertmanager's route for the platform's namespaces matches
+# (deploy/kind/monitoring-values.yaml).
+groups:
+  - name: logs
+    rules:
+      - alert: LogsNotArriving
+        # What the store took in, not what the collector read. Something logs every few
+        # seconds on any cluster (Argo CD alone), so 15 minutes of nothing is the pipeline.
+        # `or vector(0)`: a store that is down has no series, and that counts as nothing too.
+        expr: (sum(rate(vl_rows_ingested_total{job="victoria-logs"}[5m])) or vector(0)) == 0
+        for: 15m
+        labels:
+          severity: warning
+          namespace: monitoring
+        annotations:
+          summary: VictoriaLogs has taken in no log lines for 15 minutes
+          description: VictoriaLogs has taken in no log lines for 15 minutes (or isn't scraped). The collector buffers up to 1 GiB per node, then drops the oldest lines.
+          runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#log-alerts
+      - alert: LogCollectorNotSending
+        # Every failed or refused send is retried and counted. A restart of the store is a
+        # few minutes of these (seen: 5); 10 minutes is the store away or refusing.
+        expr: sum by (namespace, pod) (increase(vlagent_remotewrite_retries_count_total[5m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.pod }} has failed to send log lines for 10 minutes"
+          description: "The log collector {{ $labels.namespace }}/{{ $labels.pod }} has failed to send lines to VictoriaLogs for 10 minutes. They wait in its buffer on the node, up to 1 GiB."
+          runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#log-alerts
+      - alert: LogCollectorBufferNearlyFull
+        # 80% of remoteWrite.maxDiskUsagePerURL, 1GiB (tests/test_alerting.py checks the two
+        # agree). Past the cap the oldest lines are dropped for good: critical, and at once.
+        expr: max by (namespace, pod) (vlagent_remotewrite_pending_data_bytes) > 0.8 * 1073741824
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.pod }}'s buffer of unsent log lines is over 80% full"
+          description: "The log collector {{ $labels.namespace }}/{{ $labels.pod }} holds {{ $value | humanize1024 }}B of unsent lines; at 1 GiB it drops the oldest."
+          runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#log-alerts
+      - alert: LogCollectorPodMissing
+        # One collector per node: a node without a ready one has its pods' logs read late, or
+        # (a pod deleted meanwhile) never. A rollout replaces a pod within a minute.
+        expr: |
+          max by (namespace, daemonset) (
+              kube_daemonset_status_desired_number_scheduled{namespace="log-collector"}
+            - kube_daemonset_status_number_ready{namespace="log-collector"}
+          ) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value }} node(s) have had no ready log collector for 15 minutes"
+          description: "The DaemonSet {{ $labels.namespace }}/{{ $labels.daemonset }} has had {{ $value }} node(s) without a ready pod for 15 minutes. Logs of pods on them aren't collected, and are lost for a pod deleted meanwhile."
+          runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#log-alerts
+      - alert: LogStoreNearItsSizeCap
+        # vl_max_disk_space_usage_bytes is retentionDiskSpaceUsage. The volume doesn't fill:
+        # at the cap the store deletes its oldest day, so the logs go back less than 30 days.
+        expr: |
+          sum by (namespace, pod) (vl_data_size_bytes{job="victoria-logs"})
+            / max by (namespace, pod) (vl_max_disk_space_usage_bytes{job="victoria-logs"})
+            > 0.8
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: VictoriaLogs holds over 80% of its size cap
+          description: "VictoriaLogs ({{ $labels.namespace }}/{{ $labels.pod }}) holds {{ $value | humanizePercentage }} of retentionDiskSpaceUsage. At the cap it deletes the oldest day's logs, whatever their age."
+          runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#log-alerts

@@ -1,4 +1,5 @@
-"""The platform's alerting: its own alert rules (Argo CD, Prometheus) and Alertmanager's routing.
+"""The platform's alerting: its own alert rules (Argo CD, Prometheus, the logs) and
+Alertmanager's routing.
 
 An alert that never fires looks exactly like a healthy system, so:
 - every platform alert has a promtool scenario, and the scenarios pass;
@@ -82,6 +83,21 @@ def test_every_runbook_link_names_a_heading() -> None:
         assert link.split("#", 1)[1] in anchors, f"{link}: no such heading"
 
 
+def test_the_buffer_alert_knows_the_collectors_cap() -> None:
+    """The collector has no metric for its buffer's cap, so the rule spells it out."""
+    values = yaml.safe_load((ROOT / "deploy/kind/log-collector-values.yaml").read_text())
+    assert [url["maxDiskUsagePerURL"] for url in values["remoteWrite"]] == ["1GiB"]
+    rules = yaml.safe_load((ROOT / "deploy/argocd/platform/files/logs-rules.yaml").read_text())
+    (rule,) = [
+        rule
+        for group in rules["groups"]
+        for rule in group["rules"]
+        if rule["alert"] == "LogCollectorBufferNearlyFull"
+    ]
+    assert rule["expr"].endswith(f"> 0.8 * {2**30}")
+    assert "at 1 GiB" in rule["annotations"]["description"]
+
+
 @pytest.mark.integration
 def test_promtool_scenarios_pass() -> None:
     _docker()
@@ -145,6 +161,9 @@ def test_alertmanager_config_is_valid(alertmanager_config: Path) -> None:
         (["namespace=monitoring", "severity=warning"], "platform"),
         (["namespace=kube-system", "severity=critical"], "platform"),
         (["alertname=KubeAPIDown", "severity=critical"], "platform"),
+        # The log pipeline's (files/logs-rules.yaml), by the namespace each carries.
+        (["alertname=LogsNotArriving", "namespace=monitoring", "severity=warning"], "platform"),
+        (["namespace=log-collector", "severity=critical"], "platform"),
         (["namespace=monitoring", "severity=info"], "null"),
         (["alertname=InfoInhibitor", "severity=none"], "null"),
         (["namespace=aipostit-prod", "severity=critical"], "null"),
