@@ -1,0 +1,146 @@
+# promtool unit tests for the alerts on the log pipeline: synthetic series in, expected
+# alerts out. Run by tests/test_alerting.py, with the other files here. Each scenario proves
+# an alert fires when it should AND stays quiet when it shouldn't.
+rule_files:
+  - ../../argocd/platform/files/logs-rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # The store is up and scraped, the counter stops moving.
+  - name: a store that takes in nothing for 15 minutes is a warning
+    interval: 1m
+    input_series:
+      - series: 'vl_rows_ingested_total{job="victoria-logs",namespace="monitoring",pod="victoria-logs-0",type="nativeinsert"}'
+        values: '0+60x10 600x30'
+      # What the collector read is not what arrived: its counter must not hide the gap.
+      - series: 'vl_rows_ingested_total{job="log-collector/log-collector",namespace="log-collector",pod="log-collector-abcde",type="kubernetes_logs"}'
+        values: '0+60x40'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: LogsNotArriving
+        exp_alerts: []
+      - eval_time: 25m # nothing since minute 10, but not yet for 15 minutes
+        alertname: LogsNotArriving
+        exp_alerts: []
+      - eval_time: 32m
+        alertname: LogsNotArriving
+        exp_alerts:
+          - exp_labels: {severity: warning, namespace: monitoring}
+            exp_annotations:
+              summary: VictoriaLogs has taken in no log lines for 15 minutes
+              description: VictoriaLogs has taken in no log lines for 15 minutes (or isn't scraped). The collector buffers up to 1 GiB per node, then drops the oldest lines.
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#log-alerts
+
+  # No series at all (the store down, or its ServiceMonitor gone) is nothing arriving too. A
+  # restart, a few minutes without samples, is not.
+  - name: a store that isn't scraped counts as nothing arriving, a restart doesn't
+    interval: 1m
+    input_series:
+      - series: 'vl_rows_ingested_total{job="victoria-logs",namespace="monitoring",pod="victoria-logs-0",type="nativeinsert"}'
+        values: '0+60x10 _x5 0+60x9 _x30'
+    alert_rule_test:
+      - eval_time: 24m
+        alertname: LogsNotArriving
+        exp_alerts: []
+      - eval_time: 50m
+        alertname: LogsNotArriving
+        exp_alerts:
+          - exp_labels: {severity: warning, namespace: monitoring}
+            exp_annotations:
+              summary: VictoriaLogs has taken in no log lines for 15 minutes
+              description: VictoriaLogs has taken in no log lines for 15 minutes (or isn't scraped). The collector buffers up to 1 GiB per node, then drops the oldest lines.
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#log-alerts
+
+  # One collector retries for 5 minutes while the store restarts and recovers; another
+  # keeps failing.
+  - name: a collector that keeps failing to send is a warning, a store restart isn't
+    interval: 1m
+    input_series:
+      - series: 'vlagent_remotewrite_retries_count_total{namespace="log-collector",pod="log-collector-aaaaa",url="1:secret-url"}'
+        values: '0 0 12+12x4 60x25'
+      - series: 'vlagent_remotewrite_retries_count_total{namespace="log-collector",pod="log-collector-bbbbb",url="1:secret-url"}'
+        values: '0 0 12+12x28'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: LogCollectorNotSending
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: LogCollectorNotSending
+        exp_alerts:
+          - exp_labels: {severity: warning, namespace: log-collector, pod: log-collector-bbbbb}
+            exp_annotations:
+              summary: log-collector-bbbbb has failed to send log lines for 10 minutes
+              description: The log collector log-collector/log-collector-bbbbb has failed to send lines to VictoriaLogs for 10 minutes. They wait in its buffer on the node, up to 1 GiB.
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#log-alerts
+
+  # 900 MiB of 1 GiB waiting on one node, 100 MiB on another.
+  - name: a buffer over 80% of its cap is critical at once
+    interval: 1m
+    input_series:
+      - series: 'vlagent_remotewrite_pending_data_bytes{namespace="log-collector",pod="log-collector-aaaaa",path="/var/lib/vl-collector/q",url="1:secret-url"}'
+        values: '104857600x5'
+      - series: 'vlagent_remotewrite_pending_data_bytes{namespace="log-collector",pod="log-collector-bbbbb",path="/var/lib/vl-collector/q",url="1:secret-url"}'
+        values: '104857600 943718400x4'
+    alert_rule_test:
+      - eval_time: 0m
+        alertname: LogCollectorBufferNearlyFull
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: LogCollectorBufferNearlyFull
+        exp_alerts:
+          - exp_labels: {severity: critical, namespace: log-collector, pod: log-collector-bbbbb}
+            exp_annotations:
+              summary: log-collector-bbbbb's buffer of unsent log lines is over 80% full
+              description: The log collector log-collector/log-collector-bbbbb holds 900MiB of unsent lines; at 1 GiB it drops the oldest.
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#log-alerts
+
+  # Three nodes, two ready collectors. A rollout (one pod away for 2 minutes) stays quiet.
+  - name: a node without a ready collector for 15 minutes is a warning, a rollout isn't
+    interval: 1m
+    input_series:
+      - series: 'kube_daemonset_status_desired_number_scheduled{namespace="log-collector",daemonset="log-collector",pod="kube-state-metrics-0"}'
+        values: '3x40'
+      - series: 'kube_daemonset_status_number_ready{namespace="log-collector",daemonset="log-collector",pod="kube-state-metrics-0"}'
+        values: '3 2 2 3x7 2x30'
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: LogCollectorPodMissing
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: LogCollectorPodMissing
+        exp_alerts: []
+      - eval_time: 26m
+        alertname: LogCollectorPodMissing
+        exp_alerts:
+          - exp_labels: {severity: warning, namespace: log-collector, daemonset: log-collector}
+            exp_annotations:
+              summary: 1 node(s) have had no ready log collector for 15 minutes
+              description: The DaemonSet log-collector/log-collector has had 1 node(s) without a ready pod for 15 minutes. Logs of pods on them aren't collected, and are lost for a pod deleted meanwhile.
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#log-alerts
+
+  # A 4 GiB cap: 2 GiB of data is quiet, 3.6 GiB (storage and index together) is not.
+  - name: a store over 80% of its size cap for 30 minutes is a warning
+    interval: 1m
+    input_series:
+      - series: 'vl_max_disk_space_usage_bytes{job="victoria-logs",namespace="monitoring",pod="victoria-logs-0",path="/storage"}'
+        values: '4294967296x80'
+      - series: 'vl_data_size_bytes{job="victoria-logs",namespace="monitoring",pod="victoria-logs-0",type="storage"}'
+        values: '2147483648x20 3758096384x60'
+      - series: 'vl_data_size_bytes{job="victoria-logs",namespace="monitoring",pod="victoria-logs-0",type="indexdb"}'
+        values: '107374182x80'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: LogStoreNearItsSizeCap
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: LogStoreNearItsSizeCap
+        exp_alerts: []
+      - eval_time: 55m
+        alertname: LogStoreNearItsSizeCap
+        exp_alerts:
+          - exp_labels: {severity: warning, namespace: monitoring, pod: victoria-logs-0}
+            exp_annotations:
+              summary: VictoriaLogs holds over 80% of its size cap
+              description: VictoriaLogs (monitoring/victoria-logs-0) holds 90% of retentionDiskSpaceUsage. At the cap it deletes the oldest day's logs, whatever their age.
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#log-alerts

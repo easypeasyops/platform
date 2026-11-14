@@ -48,7 +48,7 @@ Argo CD installs the platform from `deploy/argocd/platform/` in sync waves:
 - **Wave 0:** the secret store, CloudNativePG and its Barman Cloud plugin, metrics-server,
   Envoy Gateway, the Gateway and the tool routes, Argo Rollouts, kube-prometheus-stack,
   node-exporter, VictoriaLogs and the log collector, Kyverno, the backup bucket.
-- **Wave 1:** the Kyverno policies, and the alerts on Argo CD.
+- **Wave 1:** the Kyverno policies, and the alerts on Argo CD and on the log pipeline.
 
 On a fresh cluster the waves overlap: a child that has never synced doesn't hold its wave,
 and what orders them is each child's sync retry (every 5 s, doubling to 30 s).
@@ -449,6 +449,22 @@ re-sends lines. Settings: `deploy/kind/log-collector-values.yaml`.
   context).
 - A pod deleted before its lines were read loses them: the kubelet removes its files with it.
   Recreating the kind node loses the reading positions with the rest of its disk.
+
+### Log alerts
+
+Nothing fails when logs stop arriving, so rules watch the pipeline's own metrics
+(`deploy/argocd/platform/files/logs-rules.yaml`, the PrometheusRule `log-pipeline` in
+`argocd`, beside Argo CD's). Warnings, except the buffer: what it drops is gone. They carry
+the namespace of the part they are about, `log-collector` or `monitoring`, which is what
+routes them to #platform-alerts (Slack alerts, above).
+
+| Alert | Means | First look |
+| --- | --- | --- |
+| `LogsNotArriving` | VictoriaLogs took in no line for 15 minutes, or isn't scraped. Nothing is lost yet: the collector buffers | `kubectl -n monitoring get pods victoria-logs-0`; `up{job="victoria-logs"}` in Prometheus; then the collector, as below |
+| `LogCollectorNotSending` | A collector's sends have failed for 10 minutes (a restart of the store is a few minutes of this) | `kubectl -n log-collector logs <pod> --tail=50`: a refused connection is the store down or its NetworkPolicy |
+| `LogCollectorBufferNearlyFull` (critical) | Over 80% of the 1 GiB buffer (`maxDiskUsagePerURL`) is unsent lines: at the cap the oldest are dropped | Why it isn't sending (the two above); how full: `vlagent_remotewrite_pending_data_bytes`; dropped already: `vlagent_remotewrite_packets_dropped_total` |
+| `LogCollectorPodMissing` | A node has had no ready collector pod for 15 minutes: its pods' logs aren't read, and a pod deleted meanwhile takes its lines with it | `kubectl -n log-collector get pods -o wide`; `kubectl -n log-collector describe ds log-collector` ("permission denied" in the pod's logs is the security context) |
+| `LogStoreNearItsSizeCap` | The store holds over 80% of `retentionDiskSpaceUsage` (4 GiB) for 30 minutes. The volume won't fill: at the cap the oldest day goes, so the logs go back less than 30 days | Who writes the most: `_time:1d \| stats by (kubernetes.pod_namespace) sum_len(_msg) bytes \| sort by (bytes desc)`. Then quieten that app, or raise the cap and the volume together (`deploy/kind/victoria-logs-values.yaml`) |
 
 ## Node metrics
 
