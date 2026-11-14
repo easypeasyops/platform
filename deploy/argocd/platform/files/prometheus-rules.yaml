@@ -10,11 +10,19 @@ groups:
         # longer than its interval, or Prometheus is short of CPU. The stack's rule is the
         # first line alone, and a sleeping laptop sets it off (PT-15): the cluster's VM is
         # frozen, the clock jumps on wake, and every group counts the sleep as missed
-        # evaluations. A sleep also leaves a hole in the scrapes, so the second line asks
+        # evaluations. A sleep also leaves a hole in the scrapes, so the last line asks
         # for a window without one: 20 scrapes in 5 minutes at the 15s scrapeInterval, one
         # allowed late. The shortest sleep seen, 30 seconds, loses two.
+        # The middle line is for a group loaded since the last wake: its counter goes up by
+        # one now and then although every evaluation ran on time (seen 2026-11-13, the VM's
+        # clock drifting against the group's ticker). The total counts a miss too, so the
+        # total less the misses is what really ran: it must fall short of 5 minutes' worth.
         expr: |
           increase(prometheus_rule_group_iterations_missed_total{job="kps-prometheus"}[5m]) > 0
+          and
+            increase(prometheus_rule_group_iterations_total{job="kps-prometheus"}[5m])
+            - increase(prometheus_rule_group_iterations_missed_total{job="kps-prometheus"}[5m])
+            < 0.9 * 300 / prometheus_rule_group_interval_seconds{job="kps-prometheus"}
           and
           count_over_time(prometheus_rule_group_iterations_missed_total{job="kps-prometheus"}[5m]) >= 19
         for: 15m

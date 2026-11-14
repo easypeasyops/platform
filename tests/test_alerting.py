@@ -1,5 +1,5 @@
 """The platform's alerting: its own alert rules (Argo CD, Prometheus, the logs, the front
-door, External Secrets, cert-manager) and Alertmanager's routing.
+door, External Secrets, cert-manager, Kyverno, CloudNativePG) and Alertmanager's routing.
 
 An alert that never fires looks exactly like a healthy system, so:
 - every platform alert has a promtool scenario, and the scenarios pass;
@@ -180,11 +180,13 @@ def test_alertmanager_config_is_valid(alertmanager_config: Path) -> None:
         (["project=aipostit", "name=aipostit-prod", "severity=ticket"], "aipostit-prod"),
         (["project=aipostit", "name=aipostit-preview", "severity=ticket"], "aipostit-prod"),
         (["project=shortly", "name=shortly-prod", "severity=ticket"], "tickets"),
-        # The front door's, whichever listener: the platform's.
+        # The front door's, whichever app's route: the platform's. The route's namespace is
+        # in route_namespace, not namespace, so aipostit's routes above don't take it.
         (
             [
                 "alertname=FrontDoorRouteWithoutBackend",
-                "envoy_http_conn_manager_prefix=http-10080",
+                "route_namespace=aipostit-staging",
+                "route=aipostit",
                 "severity=ticket",
             ],
             "platform",
@@ -325,6 +327,9 @@ def test_other_messages_never_notify_the_channel(
         ({"alertname": "ArgoCDAppUnhealthy", "name": "monitoring", "project": "platform"},
          "🟡 ArgoCDAppUnhealthy on monitoring"),
         ({"alertname": "ArgoCDDown"}, "🟡 ArgoCDDown"),
+        # The front door's: the route is in the summary (front_door_test.yaml), below.
+        ({"alertname": "FrontDoorRouteWithoutBackend", "route_namespace": "aipostit-staging",
+          "route": "aipostit"}, "🟡 FrontDoorRouteWithoutBackend"),
     ],
 )  # fmt: skip
 def test_a_platform_message_names_the_alert_and_its_application(
@@ -333,6 +338,7 @@ def test_a_platform_message_names_the_alert_and_its_application(
     data = _notification("platform", "firing", {**labels, "severity": "ticket"})
     message = _slack(alertmanager_config, data, "platform")
     assert message.startswith(title + "\n"), message
+    assert "• The API is down" in message  # a ticket's summary, which names what it is about
     assert "<!channel>" not in message
     assert "<https://example.test#x|Runbook>" in message
 

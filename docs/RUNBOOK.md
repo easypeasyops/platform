@@ -171,6 +171,27 @@ image outside the allowlist, or another app's image, runs and is reported.
 kubectl get policyreport -A -o wide                  # FAIL > 0: an image outside the allowlist ran
 ```
 
+## Kyverno alerts
+
+Warnings, to the platform's channel. Kyverno runs one admission pod and the provenance
+policy fails closed, so Kyverno down blocks every new Pod in the apps' namespaces: a deploy,
+a scale-up, the replacement for a pod that crashed. What already runs keeps running. Rules:
+`deploy/argocd/platform/files/kyverno-rules.yaml`.
+
+| Alert | Means | First look |
+| --- | --- | --- |
+| `KyvernoAdmissionControllerDown` | The admission controller hasn't been scraped for 5 minutes: no Pod can be created in an app's namespace | `kubectl -n kyverno get pods`; `kubectl -n kyverno describe pod -l app.kubernetes.io/component=admission-controller` (OOMKilled? its limit is in `deploy/kind/kyverno-values.yaml`); `kubectl -n kyverno logs deploy/kyverno-admission-controller --tail=50` (add `--previous` after a crash) |
+| `KyvernoReportsControllerDown` | The reports controller hasn't been scraped for 15 minutes: PolicyReports go stale (the allowlist's Audit results), admission still works | `kubectl -n kyverno get pods`; `kubectl -n kyverno logs deploy/kyverno-reports-controller --tail=50` |
+
+A pod that is there and not Ready, or in a crash loop: propose
+`kubectl -n kyverno rollout restart deploy/kyverno-admission-controller` (or
+`deploy/kyverno-reports-controller`). No pod at all: the `kyverno` Application
+(`kubectl -n argocd get application kyverno`; An Application that won't sync, above). If
+pods must start before Kyverno is back, the break glass is in Admission policy refuses
+pods, above. Either alert with its pod running and Ready is the scrape: Prometheus's Targets
+page (http://prometheus.localhost:8090/targets), `kyverno-svc-metrics` and
+`kyverno-reports-controller-metrics`.
+
 ## The front door
 
 One Gateway, `shortly` in namespace `gateway` (Envoy Gateway, `deploy/kind/gateway.yaml`),
@@ -183,7 +204,7 @@ The `tools` listener has no login of its own: the forwarders listen on 127.0.0.1
 
 The Gateway is the user path; probes and Prometheus go around it. So a broken front door
 looks like **traffic dropping**, not errors: no alert fires on the pods. The proxies' own
-metrics show it (the dashboard below), and one alert watches them
+metrics show it (the dashboard below), and one alert watches the routes' status
 ([a route with no backend](#a-route-with-no-backend)).
 
 ```sh
@@ -209,8 +230,8 @@ HTTPRoute, so an app and its environment): request rate, 5xx share, latency and 
 backends, for the requests that reached a backend. Per listener (`http-10080` is `http`,
 the users' port 8080; `http-8081` is `tools`): every answer, and the ones the proxy gave
 itself, which no app's metrics show: 5xx for a route with no backend, 404 for a hostname
-no route matches. A route with no backend has no series of its own: it drops off "Healthy
-backends".
+no route matches. A route with no backend has no Envoy series of its own: it drops off
+"Healthy backends", and is listed under "Routes with no backend", from its status.
 
 Prometheus scrapes the proxies (job `envoy`) and the controller (job `envoy-gateway`):
 http://prometheus.localhost:8090/targets. The proxies count every request they answer,
@@ -219,15 +240,19 @@ the ones that never reached an app included; a route's series (`envoy_cluster_*`
 
 ### A route with no backend
 
-`FrontDoorRouteWithoutBackend` (a ticket, to #platform-alerts): for 5 minutes the proxy has
-answered 5xx **itself** on a listener (`http-10080`: `http`, the users' port 8080;
-`http-8081`: `tools`). Envoy Gateway programs a route whose Service has no ready pod to
-answer 503, and one whose Service doesn't exist 500, without a backend to send to. The
-requests never reach the app: its own metrics and alerts stay quiet, which is why this one
-is the platform's. It needs traffic: a broken route nobody asks for doesn't fire.
+`FrontDoorRouteWithoutBackend` (a ticket, to #platform-alerts): for 5 minutes an HTTPRoute
+has had no backend to send to. Envoy Gateway programs a route whose Service has no ready
+pod to answer 503, and one whose Service doesn't exist 500: the proxy answers **itself**.
+The requests never reach the app: its own metrics and alerts stay quiet, which is why this
+one is the platform's, an app's route included (the app's channel doesn't get it: its own
+alerts on its pods say why they are gone).
 
-The alert names the listener, not the route: Envoy counts these answers per listener only.
-The routes' status says which one:
+The message names the route, `<namespace>/<name>`, and the reason: `EndpointsNotFound` (no
+ready pod) or `BackendNotFound` (no Service). It needs no traffic: Envoy counts these
+answers per listener only, so the alert reads the route's status instead, which
+kube-state-metrics exports as `gateway_httproute_status_condition{route_namespace, route,
+type, reason}` (1 for True, 0 for False; `deploy/kind/monitoring-values.yaml`). The same
+from the cluster:
 
 ```sh
 # Routes with no backend to send to (EndpointsNotFound: no ready pod; BackendNotFound: no Service)
@@ -239,10 +264,12 @@ kubectl -n <ns> get deploy,rollout,pods        # none Ready: why? (crash loop, s
 kubectl -n <ns> get endpointslices             # the Service's ready addresses
 ```
 
-On the dashboard the route has dropped off "Healthy backends", and "Answered by the proxy
-itself" shows since when. Then it is the app's incident (its runbook): the pods have to
-come back. For an Argo CD or monitoring route (`tools`), it is the platform's own pod. The
-alert resolves a few minutes after the last such answer.
+On the dashboard the route is under "Routes with no backend" and has dropped off "Healthy
+backends"; "Answered by the proxy itself" shows whether anyone asked for it, and since
+when. Then it is the app's incident (its runbook): the pods have to come back. For an
+Argo CD or monitoring route (`tools`), it is the platform's own pod. The alert resolves
+once the route's status says it has a backend again. No alert and no series at all:
+kube-state-metrics isn't exporting them (`kubectl -n monitoring logs deploy/kube-state-metrics`).
 
 ## Network policies
 
@@ -314,7 +341,7 @@ critical alerts on the same pods stay on `null`: aipostit's rules cover them.
 The platform's own alerts go to #platform-alerts: `ArgoCDDown`, and Argo CD's alerts on the
 platform's Applications (projects `platform` and `apps`), titled "on <Application>". All
 tickets: yellow, never `@channel`. So does the front door's `FrontDoorRouteWithoutBackend`
-(The front door, above), whichever app's route it is about. So do the stack's own `warning` and `critical` alerts (a
+(The front door, above), whichever app's route it is about: its message names the route. So do the stack's own `warning` and `critical` alerts (a
 crash loop, a volume filling up, a target down, a failed rule evaluation) on the platform's
 namespaces, or on none (`KubeAPIDown`): titled "in <namespace>", red when critical, with the
 alert's description and the upstream runbook. The namespaces are listed in the route; a new
@@ -444,8 +471,9 @@ Settings: `deploy/kind/monitoring-values.yaml`.
 in `deploy/kind/monitoring-values.yaml`. The stack's fires when the laptop sleeps (PT-15):
 the cluster's VM is frozen, the clock jumps on wake, and every rule group counts the sleep
 as missed evaluations. Ours fires only when a group misses evaluations for 15 minutes while
-Prometheus is scraped without a hole, so it means a real one: alerts, the SLO ones included,
-are evaluated late.
+Prometheus is scraped without a hole, and fewer evaluations ran than its interval asks for
+(a group loaded since the last wake counts a miss now and then with none skipped). So it
+means a real one: alerts, the SLO ones included, are evaluated late.
 
 - Which group, and how long it takes against its interval:
   `prometheus_rule_group_last_duration_seconds / prometheus_rule_group_interval_seconds`
@@ -636,3 +664,32 @@ kubectl -n cnpg-system get pods                               # the operator and
 
 Deleting the PVC (or the kind cluster) loses every backup; on a real cluster this is a
 bucket in another account, with versioning and object lock.
+
+## CloudNativePG alerts
+
+Warnings, to the platform's channel whichever app the database belongs to. Neither breaks
+what runs: the databases serve queries without the operator, and a missing backup is missed
+on the day of a restore. In `DatabaseBackupTooOld`, label `exported_namespace` is the
+database's namespace and `cluster` its Cluster (`<release>-db`). Rules:
+`deploy/argocd/platform/files/cloudnative-pg-rules.yaml`.
+
+| Alert | Means | First look |
+| --- | --- | --- |
+| `CloudNativePGOperatorDown` | The operator hasn't been scraped for 10 minutes: no failover, no scheduled backup, no change to a Cluster | `kubectl -n cnpg-system get pods`; `kubectl -n cnpg-system logs deploy/cloudnative-pg --tail=50` (add `--previous` after a crash) |
+| `DatabaseBackupTooOld` | A database's last successful base backup is more than 24 hours old, or it never had one | `kubectl -n <ns> get backups.postgresql.cnpg.io --sort-by=.metadata.creationTimestamp \| tail -5` (the last ones' phase); `kubectl -n <ns> describe backups.postgresql.cnpg.io <name>` (why it failed); `kubectl -n <ns> get scheduledbackup,objectstore` |
+
+| What you find | Cause | Fix |
+| --- | --- | --- |
+| The operator's pod is there, not Ready or in a crash loop | Its logs say; OOMKilled shows in `kubectl -n cnpg-system describe pod` (its limit is in `deploy/kind/cloudnative-pg-values.yaml`) | Propose `kubectl -n cnpg-system rollout restart deploy/cloudnative-pg` |
+| No operator pod at all | The `cloudnative-pg` Application | `kubectl -n argocd get application cloudnative-pg`; An Application that won't sync, above |
+| No Backup objects since a certain time | The operator was down, or the laptop slept | The ScheduledBackup catches up at its next run; the alert clears with the next backup |
+| Backups there, phase `failed` | The bucket, its keys, or the plugin: the Backup's description names it | The backup bucket, above; `kubectl -n cnpg-system logs deploy/plugin-barman-cloud --tail=50`; an expired certificate between the two is cert-manager alerts, above |
+| Backups `completed`, and the alert stays | The ObjectStore's status isn't updated, which is what the metric reads | `kubectl -n <ns> get objectstore <release>-db -o jsonpath='{.status}'`; the plugin's sidecar in the instance: `kubectl -n <ns> logs <release>-db-1 -c plugin-barman-cloud --tail=50` |
+
+To take a backup now rather than wait for the schedule, propose
+`kubectl cnpg backup <release>-db -n <ns> --method plugin --plugin-name barman-cloud.cloudnative-pg.io`
+(the `cnpg` kubectl plugin). `CloudNativePGOperatorDown` with the pod running and Ready is
+the scrape: Prometheus's Targets page (http://prometheus.localhost:8090/targets),
+`cloudnative-pg`. A database is watched only while Prometheus scrapes its instances
+(`<ns>/<release>-db` on the same page): that needs `monitoring.enabled` in the app's values,
+and an app whose database isn't scraped gets no backup alert.

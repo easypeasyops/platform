@@ -202,4 +202,82 @@ metadata:
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true # as above
 spec:
   {{- .Files.Get "files/cert-manager-rules.yaml" | fromYaml | toYaml | nindent 2 }}
+{{- if .Values.components.policies }}
+---
+# Kyverno's controllers scraped, and the alerts on them (files/kyverno-rules.yaml). The
+# ServiceMonitor is the platform's, not the chart's: the chart renders its own whether or
+# not the CRD exists, so a cluster with policies and without monitoring could never sync
+# Kyverno. It selects the two metrics Services the chart always renders:
+# job="kyverno-svc-metrics" (the admission controller) and
+# job="kyverno-reports-controller-metrics". Both in the root's own namespace, selecting
+# across: Kyverno's namespace doesn't exist when the root is first dry-run (as the
+# PodMonitor above). Only with the policies: without Kyverno the alerts would always fire.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kyverno
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true # as above
+spec:
+  namespaceSelector:
+    matchNames: [kyverno]
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: kyverno
+      app.kubernetes.io/part-of: kyverno
+  endpoints:
+    - port: metrics-port # the admission webhook's own Service (kyverno-svc) has no such port
+      interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: kyverno
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true # as above
+spec:
+  {{- .Files.Get "files/kyverno-rules.yaml" | fromYaml | toYaml | nindent 2 }}
+{{- end }}
+---
+# The CloudNativePG operator scraped, and the alerts on it and on the databases' backups
+# (files/cloudnative-pg-rules.yaml). The PodMonitor is the platform's, not the chart's
+# (monitoring.podMonitorEnabled, deploy/kind/cloudnative-pg-values.yaml): the chart renders
+# its own whether or not the CRD exists, and the operator is in wave 0 on every cluster, so
+# one without monitoring could never sync it. A PodMonitor: the operator has no Service for
+# its metrics port. In the root's own namespace, selecting across (as the PodMonitor above).
+# The databases themselves are scraped by the PodMonitor the service chart renders beside
+# each Cluster, in the app's namespace.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: cloudnative-pg
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true # as above
+spec:
+  namespaceSelector:
+    matchNames: [cnpg-system]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cloudnative-pg
+  jobLabel: app.kubernetes.io/name # job="cloudnative-pg", not "argocd/cloudnative-pg"
+  podMetricsEndpoints:
+    - port: metrics
+      interval: 60s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: cloudnative-pg
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true # as above
+spec:
+  {{- .Files.Get "files/cloudnative-pg-rules.yaml" | fromYaml | toYaml | nindent 2 }}
 {{- end }}

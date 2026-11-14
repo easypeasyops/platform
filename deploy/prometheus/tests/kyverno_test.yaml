@@ -1,0 +1,76 @@
+# promtool unit tests for the alerts on Kyverno: synthetic series in, expected alerts out,
+# with the labels the scrape gives them. Run by tests/test_alerting.py with the others.
+rule_files:
+  - ../../argocd/platform/files/kyverno-rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # The admission pod crash-loops: its target stays, reporting 0. The reports controller,
+  # which has a Service of its own, doesn't stand in for it.
+  - name: the admission controller down for 5 minutes warns, a restart doesn't
+    interval: 1m
+    input_series:
+      - series: 'up{job="kyverno-svc-metrics",namespace="kyverno"}'
+        values: '1 1 0 0 1 1 1 1 1 1 0x10'
+      - series: 'up{job="kyverno-reports-controller-metrics",namespace="kyverno"}'
+        values: '1x20'
+    alert_rule_test:
+      # Down for 2 minutes at 2m, back at 4m.
+      - eval_time: 8m
+        alertname: KyvernoAdmissionControllerDown
+        exp_alerts: []
+      # Down since 10m: not yet 5 minutes.
+      - eval_time: 14m
+        alertname: KyvernoAdmissionControllerDown
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: KyvernoAdmissionControllerDown
+        exp_alerts:
+          - exp_labels: {namespace: kyverno, severity: warning}
+            exp_annotations:
+              summary: Kyverno's admission controller isn't running (or isn't scraped)
+              description: Kyverno's admission controller hasn't been scraped for 5 minutes. While it is down no Pod can be created in an app's namespace (deploys, scale-ups, a replacement for a crashed pod); pods that already run are not affected.
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#kyverno-alerts
+      - eval_time: 20m
+        alertname: KyvernoReportsControllerDown
+        exp_alerts: []
+
+  # The Deployment scaled to nothing, or its ServiceMonitor gone: no series at all.
+  - name: an admission controller that isn't scraped at all warns too
+    interval: 1m
+    input_series:
+      - series: 'up{job="kyverno-reports-controller-metrics",namespace="kyverno"}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: KyvernoAdmissionControllerDown
+        exp_alerts:
+          - exp_labels: {namespace: kyverno, severity: warning}
+            exp_annotations:
+              summary: Kyverno's admission controller isn't running (or isn't scraped)
+              description: Kyverno's admission controller hasn't been scraped for 5 minutes. While it is down no Pod can be created in an app's namespace (deploys, scale-ups, a replacement for a crashed pod); pods that already run are not affected.
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#kyverno-alerts
+
+  - name: the reports controller down for 15 minutes warns, and admission stays quiet
+    interval: 1m
+    input_series:
+      - series: 'up{job="kyverno-svc-metrics",namespace="kyverno"}'
+        values: '1x30'
+      - series: 'up{job="kyverno-reports-controller-metrics",namespace="kyverno"}'
+        values: '1 1 0x28'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: KyvernoReportsControllerDown
+        exp_alerts: []
+      - eval_time: 18m
+        alertname: KyvernoReportsControllerDown
+        exp_alerts:
+          - exp_labels: {namespace: kyverno, severity: warning}
+            exp_annotations:
+              summary: Kyverno's reports controller isn't running (or isn't scraped)
+              description: Kyverno's reports controller hasn't been scraped for 15 minutes. PolicyReports are no longer updated, so an image outside an app's allowlist (an Audit policy) runs without being reported; admission is not affected.
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#kyverno-alerts
+      - eval_time: 30m
+        alertname: KyvernoAdmissionControllerDown
+        exp_alerts: []

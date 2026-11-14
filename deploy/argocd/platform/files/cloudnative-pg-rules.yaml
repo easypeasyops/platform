@@ -1,0 +1,50 @@
+# Alerts on CloudNativePG: the operator, and every app database's base backups. Neither
+# failure breaks anything that runs: the databases serve queries without the operator, and
+# a backup that stops is missed only on the day a restore is needed.
+# Shipped as a PrometheusRule by the platform chart (templates/monitoring.yaml); tested by
+# deploy/prometheus/tests/cloudnative_pg_test.yaml (promtool). Metrics: `up` for the
+# operator (the PodMonitor beside the rule), and the Barman Cloud plugin's, which each
+# database instance reports through the PodMonitor the service chart renders with its
+# Cluster (in the app's namespace, when the app has monitoring on).
+# Severity warning, namespace cnpg-system: what Alertmanager sends to the platform's channel
+# (deploy/kind/monitoring-values.yaml), whichever app the database belongs to; a warning in
+# an app's namespace would go nowhere. The channel's message is the description, so it
+# names the database.
+groups:
+  - name: cloudnative-pg
+    rules:
+      - alert: CloudNativePGOperatorDown
+        # 10 minutes: nothing is urgent while the primaries are up, and a restart of the
+        # operator takes seconds.
+        expr: absent(up{job="cloudnative-pg"} == 1)
+        for: 10m
+        labels:
+          severity: warning
+          namespace: cnpg-system # absent() has none to give: named for the route
+        annotations:
+          summary: The CloudNativePG operator isn't running (or isn't scraped)
+          description: The CloudNativePG operator hasn't been scraped for 10 minutes. The databases keep serving, but nothing fails over, no scheduled backup starts and no change to a Cluster is applied while it is down.
+          runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#cloudnativepg-alerts
+      - alert: DatabaseBackupTooOld
+        # The plugin's metric has no labels of its own: the database is its pod's namespace
+        # (kept as exported_namespace, since `namespace` is set for the route) and the pod's
+        # name without the instance number. Every instance reports the same value; 0 means
+        # no backup yet, which is as old as it gets.
+        # 24 hours: the service chart's default schedule is hourly, an app may choose up to
+        # daily, and a laptop that slept catches up at the next run. WAL is archived
+        # continuously, so until then a restore is slower, not impossible.
+        expr: |-
+          time() - max by (exported_namespace, cluster) (
+            label_replace(
+              label_replace(barman_cloud_cloudnative_pg_io_last_available_backup_timestamp, "exported_namespace", "$1", "namespace", "(.+)"),
+              "cluster", "$1", "pod", "(.+)-[0-9]+"
+            )
+          ) > 24 * 3600
+        for: 1h
+        labels:
+          severity: warning
+          namespace: cnpg-system
+        annotations:
+          summary: "Database {{ $labels.exported_namespace }}/{{ $labels.cluster }} has no base backup from the last 24 hours"
+          description: "Database {{ $labels.exported_namespace }}/{{ $labels.cluster }} has no successful base backup from the last 24 hours (or none at all). A restore would have to replay every WAL file since the last one, and can't reach any moment once that backup passes its retention."
+          runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#cloudnativepg-alerts

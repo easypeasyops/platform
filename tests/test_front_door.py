@@ -190,10 +190,14 @@ def test_the_dashboard_ships_with_monitoring_and_the_runbook_links_it() -> None:
 
 
 def test_the_dashboard_reads_the_series_the_monitors_make() -> None:
-    """Every query selects the proxies' or the controller's job, and breaks a route's series
-    down by the labels the PodMonitor adds: a renamed label must fail here, not as an
-    empty panel. The three things the ticket asks for are there, per route."""
+    """Every query selects the proxies' or the controller's job, or kube-state-metrics' for
+    the routes' status, and breaks a route's series down by the labels the PodMonitor adds:
+    a renamed label must fail here, not as an empty panel. The three things the ticket asks
+    for are there, per route, and the routes with no backend."""
     monitors = _monitors()
+    # The proxies' job: the one the PodMonitor's jobLabel gives them.
+    proxies = monitors["PodMonitor"]["spec"]
+    assert proxies["selector"]["matchLabels"][proxies["jobLabel"]] == "envoy"
     (endpoint,) = monitors["PodMonitor"]["spec"]["podMetricsEndpoints"]
     route_labels = {r["targetLabel"] for r in endpoint["metricRelabelings"]}
     dashboard = json.loads((CHART / "files/front-door-dashboard.json").read_text())
@@ -203,16 +207,78 @@ def test_the_dashboard_reads_the_series_the_monitors_make() -> None:
         for target in panel.get("targets", [])
     }
     for title, expr in queries.items():
-        assert re.search(r'job="envoy(-gateway)?"', expr), title
+        assert re.search(r'job="(envoy(-gateway)?|kube-state-metrics)"', expr), title
         for label in re.findall(r"\broute\w*", expr):
             assert label in route_labels, f"{title}: {label}"
     for title, metric in (
         ("Request rate", "envoy_cluster_upstream_rq_total"),
         ("Error rate (5xx share)", 'envoy_cluster_upstream_rq_xx{job="envoy",route_namespace'),
         ("Latency, p95", "envoy_cluster_upstream_rq_time_bucket"),
+        ("Routes with no backend", _route_status_series() + '{job="kube-state-metrics"'),
     ):
         assert metric in queries[title], title
         assert "by (route_namespace, route" in queries[title], title
+
+
+def _route_status_series() -> str:
+    """The series kube-state-metrics makes of every HTTPRoute's conditions (custom resource
+    state, deploy/kind/monitoring-values.yaml): it may read the routes, and labels each
+    series as the PodMonitor labels a route's Envoy series, plus the condition's own."""
+    values = yaml.safe_load((ROOT / "deploy/kind/monitoring-values.yaml").read_text())
+    ksm = values["kube-state-metrics"]
+    assert ksm["customResourceState"]["enabled"] is True
+    (resource,) = ksm["customResourceState"]["config"]["spec"]["resources"]
+    assert resource["groupVersionKind"]["kind"] == "HTTPRoute"
+    assert {
+        "apiGroups": [resource["groupVersionKind"]["group"]],
+        "resources": ["httproutes"],
+        "verbs": ["list", "watch"],
+    } in ksm["rbac"]["extraRules"]
+    assert resource["labelsFromPath"] == {
+        "route_namespace": ["metadata", "namespace"],
+        "route": ["metadata", "name"],
+    }
+    (metric,) = resource["metrics"]
+    gauge = metric["each"]["gauge"]
+    assert gauge["labelsFromPath"] == {"type": ["type"], "reason": ["reason"]}
+    assert gauge["valueFrom"] == ["status"]  # "True" is 1, "False" 0
+    return f"{resource['metricNamePrefix']}_{metric['name']}"
+
+
+@pytest.mark.integration
+def test_the_stack_hands_kube_state_metrics_the_route_config() -> None:
+    """The values are the kube-state-metrics subchart's: a stack bump that renames one must
+    fail here, not as an alert that can never fire. Rendered, kube-state-metrics is started
+    with the config and may list and watch HTTPRoutes."""
+    series = _route_status_series()
+    chart = yaml.safe_load((CHART / "values.yaml").read_text())["charts"]["kubePrometheusStack"]
+    out = subprocess.run(
+        [
+            *("helm", "template", "monitoring", f"{chart['repo']}@{chart['digest']}"),
+            *("--namespace", "monitoring"),
+            *("--values", str(ROOT / "deploy/kind/monitoring-values.yaml")),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    docs = [
+        d for d in yaml.safe_load_all(out) if d and "kube-state-metrics" in d["metadata"]["name"]
+    ]
+    (deployment,) = [d for d in docs if d["kind"] == "Deployment"]
+    (container,) = deployment["spec"]["template"]["spec"]["containers"]
+    (flag,) = [a for a in container["args"] if a.startswith("--custom-resource-state-config-file=")]
+    (config_map,) = [d for d in docs if d["kind"] == "ConfigMap"]
+    (resource,) = yaml.safe_load(config_map["data"][Path(flag.split("=")[1]).name])["spec"][
+        "resources"
+    ]
+    assert f"{resource['metricNamePrefix']}_{resource['metrics'][0]['name']}" == series
+    (role,) = [d for d in docs if d["kind"] == "ClusterRole"]
+    assert {
+        "apiGroups": ["gateway.networking.k8s.io"],
+        "resources": ["httproutes"],
+        "verbs": ["list", "watch"],
+    } in role["rules"]
 
 
 def test_the_front_door_alerts_ship_as_the_rules_file_says() -> None:
@@ -222,9 +288,12 @@ def test_the_front_door_alerts_ship_as_the_rules_file_says() -> None:
         if d["kind"] == "PrometheusRule" and d["metadata"]["name"] == "front-door"
     ]
     assert rule["spec"] == yaml.safe_load((CHART / "files/front-door-rules.yaml").read_text())
-    # They read the proxies' series: the job the PodMonitor's jobLabel gives them.
-    proxies = _monitors()["PodMonitor"]["spec"]
-    assert proxies["selector"]["matchLabels"][proxies["jobLabel"]] == "envoy"
+    # They read the routes' status, and name the route: no backend, with or without traffic.
     for group in rule["spec"]["groups"]:
         for alert in group["rules"]:
-            assert 'job="envoy"' in alert["expr"], alert["alert"]
+            assert _route_status_series() + '{job="kube-state-metrics"' in alert["expr"]
+            assert "by (route_namespace, route, type, reason)" in alert["expr"]
+            assert (
+                "{{ $labels.route_namespace }}/{{ $labels.route }}"
+                in (alert["annotations"]["summary"])
+            )

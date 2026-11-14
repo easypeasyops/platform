@@ -486,6 +486,52 @@ def test_argo_cd_alerts_ship_only_with_monitoring() -> None:
     assert not {"ServiceMonitor", "PrometheusRule"} & set(kinds("components.monitoring=false"))
 
 
+def test_kyverno_alerts_ship_only_with_kyverno() -> None:
+    """They fire when Kyverno isn't scraped: without the policies they would fire for good.
+    And in the root's own namespace: Kyverno's doesn't exist when the root is first synced."""
+
+    def monitors(*sets: str) -> list[tuple[str, str]]:
+        args = [a for x in ("arch=amd64", *sets) for a in ("--set", x)]
+        out = subprocess.run(
+            ["helm", "template", "platform", str(CHART), *args],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        return [
+            (d["kind"], d["metadata"]["namespace"])
+            for d in yaml.safe_load_all(out)
+            if d and d["kind"] != "Application" and d["metadata"]["name"] == "kyverno"
+        ]
+
+    _render()  # skips without helm
+    assert sorted(monitors()) == [("PrometheusRule", "argocd"), ("ServiceMonitor", "argocd")]
+    assert monitors("components.policies=false") == []
+    assert monitors("components.monitoring=false") == []
+
+
+def test_the_operators_monitor_is_the_platforms_not_the_charts() -> None:
+    """The CloudNativePG chart renders its PodMonitor whether or not the CRD exists, and the
+    operator is installed on every cluster: with the chart's flag on, a cluster without
+    monitoring could never sync it. The platform's own goes with the monitoring switch."""
+    values = yaml.safe_load((ROOT / "deploy/kind/cloudnative-pg-values.yaml").read_text())
+    assert values["monitoring"]["podMonitorEnabled"] is False
+    _render()  # skips without helm
+    out = subprocess.run(
+        ["helm", "template", "platform", str(CHART), "--set", "arch=amd64"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    (monitor,) = [
+        d
+        for d in yaml.safe_load_all(out)
+        if d and d["kind"] == "PodMonitor" and d["metadata"]["name"] == "cloudnative-pg"
+    ]
+    assert monitor["metadata"]["namespace"] == "argocd"
+    assert monitor["spec"]["namespaceSelector"] == {"matchNames": ["cnpg-system"]}
+
+
 def test_vendored_metrics_server_is_the_pinned_release() -> None:
     folder = ROOT / "deploy/platform/metrics-server"
     want, name = (folder / "SHA256SUMS").read_text().split()

@@ -232,7 +232,14 @@ What the children are for:
   happens. So is the log pipeline: logs that stop arriving fail nothing either, until the
   day they are needed. And External Secrets (warnings): a sync that fails leaves a stale
   Secret and no error. And cert-manager (warnings): a renewal that fails leaves a
-  certificate that works until the day it expires. Details: RUNBOOK.
+  certificate that works until the day it expires. And Kyverno (warnings): with its one
+  admission pod down, no Pod can be created in an app's namespace. And CloudNativePG
+  (warnings): its operator down, or a database whose last base backup is over a day old,
+  for every app's database from one rule rather than one per app. And a route with no
+  backend, read from the HTTPRoute's status through kube-state-metrics (custom resource
+  state) rather than from Envoy: the proxy counts its own 5xx per listener only, and only
+  when someone asks, while the status names the route and kube-state-metrics already runs.
+  Details: RUNBOOK.
 - **Databases and backups.** CloudNativePG runs each app's Postgres from the `Cluster` its
   chart renders: failover, base backups and point-in-time recovery from an operator
   instead of a hand-rolled StatefulSet and dumps. Backups go through the Barman Cloud
