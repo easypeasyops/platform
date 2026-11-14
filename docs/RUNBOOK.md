@@ -488,6 +488,43 @@ the node's. Settings: `deploy/kind/node-exporter-values.yaml`.
   Prometheus's pods (Network policies, above). `kubectl -n node-exporter get pods` shows a
   pod refused at admission as a DaemonSet with none (`describe ds/node-exporter`).
 
+The stack's node rules and dashboards read these (`defaultRules.rules.node*` and
+`nodeExporter.forceDeployDashboards`, `deploy/kind/monitoring-values.yaml`): in Grafana,
+**Node Exporter / Nodes** and the two **USE Method** dashboards. Their warning and critical
+alerts (`Node...`) go to #platform-alerts.
+
+### The node's disk is filling up
+
+`NodeFilesystemSpaceFillingUp` (under 15% free and, at the last 6 hours' pace, none left
+within a day: warning; under 10% and 4 hours: critical) and `NodeFilesystemAlmostOutOfSpace`
+(under 5% free: warning; under 3%: critical). On `mountpoint="/var"` it is the disk
+everything shares; the same disk is listed again as `/etc/hostname`, `/etc/hosts` and
+`/etc/resolv.conf`, so the alert comes four at a time for one problem. Act on the warning: the kubelet starts evicting pods, prod's too, when
+the disk it keeps images and pods on is nearly full, and Postgres stops when it can't
+write.
+
+```sh
+# Free space on the node's disk, as a share of it
+#   node_filesystem_avail_bytes{mountpoint="/var"} / node_filesystem_size_bytes{mountpoint="/var"}
+# What the volumes hold, biggest first (Prometheus, the logs, the bucket, the databases)
+#   sort_desc(kubelet_volume_stats_used_bytes)
+# The rest, on the node: images and containers, the pods' log files, the volumes' directories
+docker exec shortly-control-plane du -xsh /var/lib/containerd /var/log /var/local-path-provisioner
+# The same disk holds everything else Docker has on the laptop
+docker system df
+```
+
+- **A volume grew.** Prometheus and VictoriaLogs cap themselves (`retentionSize`,
+  `retentionDiskSpaceUsage`: Prometheus data and Logs, above): lower the cap in a PR. The
+  bucket and the databases don't: The backup bucket, below, and the app's runbook.
+- **Images.** Every release leaves its image on the node. Propose
+  `docker exec shortly-control-plane crictl rmi --prune` (removes the images no container
+  uses; a rollback to one pulls it again).
+- **Something else of Docker's** (`docker system df`: other images, build cache, volumes):
+  that is Emrah's to prune, or the VM's disk to grow (Docker Desktop, Settings, Resources).
+- A `tmpfs` mount point (`/run`, `/tmp`) is the node's memory, not its disk: look at what
+  writes there instead.
+
 ## The backup bucket
 
 Where the apps' databases keep their backups: SeaweedFS serving S3, the StatefulSet

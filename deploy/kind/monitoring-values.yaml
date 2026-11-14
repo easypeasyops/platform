@@ -12,7 +12,12 @@ kubeScheduler: { enabled: false }
 kubeProxy: { enabled: false }
 # The bundled node-exporter needs host access the namespace's Pod Security level forbids:
 # it runs from its own chart in a namespace of its own (deploy/kind/node-exporter-values.yaml).
-nodeExporter: { enabled: false }
+# Its dashboards and rules (defaultRules.rules.node*, the chart's default: on) are this
+# chart's all the same; without the other operating systems' dashboards.
+nodeExporter:
+  enabled: false
+  forceDeployDashboards: true
+  operatingSystems: { aix: { enabled: false }, darwin: { enabled: false } }
 windowsMonitoring: { enabled: false }
 defaultRules:
   rules:
@@ -21,9 +26,6 @@ defaultRules:
     kubeProxy: false
     kubeSchedulerAlerting: false
     kubeSchedulerRecording: false
-    node: false
-    nodeExporterAlerting: false
-    nodeExporterRecording: false
     windows: false
   # Off because a sleeping laptop sets it off (PT-15): the cluster's VM is frozen, the clock
   # jumps on wake, and every rule group counts the sleep as missed evaluations. The platform
@@ -31,6 +33,10 @@ defaultRules:
   # docs/RUNBOOK.md, Prometheus misses rule evaluations).
   disabled:
     PrometheusMissingRuleEvaluations: true
+  # The Docker VM's kernel never reports its clock as synchronised (node_timex_sync_status
+  # is 0 for good: the VM takes its time from the laptop, not from NTP), so this one would
+  # fire for ever.
+    NodeClockNotSynchronising: true
 
 kube-state-metrics:
   fullnameOverride: kube-state-metrics

@@ -360,6 +360,42 @@ def test_monitoring_pods_meet_the_restricted_level(name: str, release: str, valu
             assert (of_pod | own).get("seccompProfile") == {"type": "RuntimeDefault"}, where
 
 
+@pytest.mark.integration
+def test_the_stack_ships_node_rules_and_dashboards_but_no_exporter_of_its_own() -> None:
+    """node-exporter comes from its own chart, in its own namespace; the stack still ships
+    the rules and dashboards that read it, selecting the job that exporter has, and the
+    disk alerts have their entry in the runbook."""
+    chart = VALUES["charts"]["kubePrometheusStack"]
+    _render()  # skips without helm
+    out = subprocess.run(
+        [
+            *("helm", "template", "monitoring", f"{chart['repo']}@{chart['digest']}"),
+            *("--namespace", "monitoring"),
+            *("--values", str(ROOT / "deploy/kind/monitoring-values.yaml")),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    docs = [d for d in yaml.safe_load_all(out) if d]
+    assert not [d for d in docs if d["kind"] == "DaemonSet"]
+    names = {(d["kind"], d["metadata"]["name"]) for d in docs}
+    assert {
+        ("PrometheusRule", "kps-node-exporter"),
+        ("PrometheusRule", "kps-node-exporter.rules"),
+        ("PrometheusRule", "kps-node.rules"),
+        ("ConfigMap", "kps-nodes"),
+    } <= names
+    assert ("ConfigMap", "kps-nodes-darwin") not in names
+    (rules,) = [d for d in docs if d["metadata"]["name"] == "kps-node-exporter"]
+    alerts = {r["alert"]: r["expr"] for g in rules["spec"]["groups"] for r in g["rules"]}
+    runbook = (ROOT / "docs/RUNBOOK.md").read_text()
+    for alert in ("NodeFilesystemSpaceFillingUp", "NodeFilesystemAlmostOutOfSpace"):
+        assert 'job="node-exporter"' in alerts[alert]
+        assert f"`{alert}`" in runbook
+    assert "NodeClockNotSynchronising" not in alerts  # never true on the Docker VM
+
+
 def test_grafana_reads_the_logs_from_the_store_that_admits_it() -> None:
     """Grafana's data source, the store's Service and the store's NetworkPolicy are three
     values files' worth of names: a rename on one side must fail here, not in Explore."""
