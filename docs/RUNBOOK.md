@@ -245,6 +245,19 @@ itself, which no app's metrics show: 5xx for a route with no backend, 404 for a 
 no route matches. A route with no backend has no Envoy series of its own: it drops off
 "Healthy backends", and is listed under "Routes with no backend", from its status.
 
+**Deploy marks:** a blue mark (annotation "Deploys") at the minute an Argo CD Application's
+sync deployed a new revision; hover for the Application and the revision: a commit's short
+SHA, or the start of a chart's digest. An app's Application (`<app>-<env>`) is marked for
+each source that moved: its chart (a pin), its values repo (a release), the platform's
+`deploy/app-namespace`. A merge to `main` that changes no Application's manifests syncs
+nothing and marks nothing. kube-state-metrics reads the revisions from each Application's
+last sync (`argocd_application_synced_revision_info` for one source,
+`argocd_application_synced_revisions_info` for several; `deploy/kind/monitoring-values.yaml`):
+Argo CD's own metrics carry none. Not marked: an Application's first sync, a deploy in the
+first minutes after a sleep, and a move back to a revision it had in the 5 minutes before.
+No marks at all: is kube-state-metrics exporting them (`kubectl -n monitoring logs
+deploy/kube-state-metrics`)?
+
 Prometheus scrapes the proxies (job `envoy`) and the controller (job `envoy-gateway`):
 http://prometheus.localhost:8090/targets. The proxies count every request they answer,
 the ones that never reached an app included; a route's series (`envoy_cluster_*`) carry

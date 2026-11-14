@@ -227,8 +227,11 @@ def _route_status_series() -> str:
     values = yaml.safe_load((ROOT / "deploy/kind/monitoring-values.yaml").read_text())
     ksm = values["kube-state-metrics"]
     assert ksm["customResourceState"]["enabled"] is True
-    (resource,) = ksm["customResourceState"]["config"]["spec"]["resources"]
-    assert resource["groupVersionKind"]["kind"] == "HTTPRoute"
+    (resource,) = [
+        r
+        for r in ksm["customResourceState"]["config"]["spec"]["resources"]
+        if r["groupVersionKind"]["kind"] == "HTTPRoute"
+    ]
     assert {
         "apiGroups": [resource["groupVersionKind"]["group"]],
         "resources": ["httproutes"],
@@ -269,8 +272,12 @@ def test_the_stack_hands_kube_state_metrics_the_route_config() -> None:
     (container,) = deployment["spec"]["template"]["spec"]["containers"]
     (flag,) = [a for a in container["args"] if a.startswith("--custom-resource-state-config-file=")]
     (config_map,) = [d for d in docs if d["kind"] == "ConfigMap"]
-    (resource,) = yaml.safe_load(config_map["data"][Path(flag.split("=")[1]).name])["spec"][
-        "resources"
+    (resource,) = [
+        r
+        for r in yaml.safe_load(config_map["data"][Path(flag.split("=")[1]).name])["spec"][
+            "resources"
+        ]
+        if r["groupVersionKind"]["kind"] == "HTTPRoute"
     ]
     assert f"{resource['metricNamePrefix']}_{resource['metrics'][0]['name']}" == series
     (role,) = [d for d in docs if d["kind"] == "ClusterRole"]
