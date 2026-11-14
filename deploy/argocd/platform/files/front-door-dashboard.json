@@ -6,7 +6,7 @@
     "front-door"
   ],
   "timezone": "browser",
-  "description": "What the Envoy proxies saw of every request to every app and tool (docs/RUNBOOK.md, The front door).",
+  "description": "What the Envoy proxies saw of every request to every app and tool, and the routes whose status says they have no backend (docs/RUNBOOK.md, The front door).",
   "schemaVersion": 39,
   "version": 1,
   "editable": false,
@@ -847,6 +847,52 @@
           "mode": "multi",
           "sort": "desc"
         }
+      }
+    },
+    {
+      "id": 18,
+      "type": "table",
+      "title": "Routes with no backend",
+      "description": "From the routes' status, with or without traffic: BackendsAvailable False (EndpointsNotFound: no ready pod) or ResolvedRefs False (BackendNotFound: no such Service). The proxy answers these routes 5xx itself. Empty: every route has a backend.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 43,
+        "w": 24,
+        "h": 6
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max by (route_namespace, route, type, reason) (gateway_httproute_status_condition{job=\"kube-state-metrics\",type=~\"BackendsAvailable|ResolvedRefs\"}) == 0",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value": true
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
       }
     }
   ]

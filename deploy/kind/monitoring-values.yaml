@@ -40,6 +40,38 @@ defaultRules:
 
 kube-state-metrics:
   fullnameOverride: kube-state-metrics
+  # Every HTTPRoute's status conditions as series (custom resource state): the route's
+  # status is the one place that says a route has no backend to send to. Envoy counts those
+  # answers per listener only, and only when someone asks (docs/RUNBOOK.md, A route with no
+  # backend). gateway_httproute_status_condition{route_namespace, route, type, reason} is 1
+  # for True, 0 for False; the labels are the ones a route's Envoy series carry
+  # (deploy/argocd/platform/templates/monitoring.yaml). The first parent's conditions only
+  # (a path can't walk two lists): every route here attaches to the one Gateway.
+  rbac:
+    extraRules:
+      - apiGroups: [gateway.networking.k8s.io]
+        resources: [httproutes]
+        verbs: [list, watch]
+  customResourceState:
+    enabled: true
+    config:
+      kind: CustomResourceStateMetrics
+      spec:
+        resources:
+          - groupVersionKind: { group: gateway.networking.k8s.io, version: v1, kind: HTTPRoute }
+            metricNamePrefix: gateway_httproute
+            labelsFromPath:
+              route_namespace: [metadata, namespace]
+              route: [metadata, name]
+            metrics:
+              - name: status_condition
+                help: A condition of the HTTPRoute's first parent (1 True, 0 False)
+                each:
+                  type: Gauge
+                  gauge:
+                    path: [status, parents, "0", conditions]
+                    labelsFromPath: { type: [type], reason: [reason] }
+                    valueFrom: [status]
 
 prometheus:
   prometheusSpec:
@@ -136,7 +168,9 @@ alertmanager:
             - 'namespace =~ "|argo-rollouts|argocd|backups|cert-manager|cnpg-system|envoy-gateway-system|external-secrets|gateway|kube-system|kyverno|local-path-storage|log-collector|monitoring|node-exporter|secret-store"'
           group_by: [alertname, namespace, severity]
         # The front door's alerts (deploy/argocd/platform/files/front-door-rules.yaml): about
-        # the proxies every app shares, so the platform's, whichever app's route it is.
+        # the proxies every app shares, so the platform's, whichever app's route it is. To
+        # the platform only: the route's namespace is in `route_namespace`, so an app's
+        # routes above don't match, and the app's own alerts cover its pods being gone.
         - receiver: platform
           matchers: ['alertname =~ "FrontDoor.+"']
           group_by: [alertname]
