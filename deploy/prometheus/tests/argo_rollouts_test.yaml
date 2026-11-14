@@ -1,0 +1,107 @@
+# promtool unit tests for the alerts on Argo Rollouts: synthetic series in, expected alerts
+# out, with the labels the scrape gives them (the controller's metrics carry the Rollout's
+# namespace, which the scrape keeps as exported_namespace). Run by tests/test_alerting.py
+# with the others.
+rule_files:
+  - ../../argocd/platform/files/argo-rollouts-rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - name: no controller scraped for 10 minutes warns, a restart doesn't
+    interval: 1m
+    input_series:
+      - series: 'up{job="argo-rollouts",namespace="argo-rollouts",pod="argo-rollouts-6d9f8b7c5-x2kqp"}'
+        values: '1 1 0 0 1 1 1 1 1 1 0x15'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: ArgoRolloutsControllerDown
+        exp_alerts: []
+      - eval_time: 18m
+        alertname: ArgoRolloutsControllerDown
+        exp_alerts: []
+      - eval_time: 21m
+        alertname: ArgoRolloutsControllerDown
+        exp_alerts:
+          - exp_labels: {namespace: argo-rollouts, severity: warning}
+            exp_annotations:
+              summary: The Argo Rollouts controller isn't running (or isn't scraped)
+              description: The Argo Rollouts controller hasn't been scraped for 10 minutes. While it is down no release to prod starts, and a canary in flight neither moves on nor aborts.
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#argo-rollouts-alerts
+
+  # aipostit's prod canary: its step-1 analysis runs, ends in Error at 5m, the Rollout aborts
+  # at 6m and is retried at 20m. api-v2 (a name with a segment that could pass for a pod
+  # hash, a two-digit revision, a collision suffix) has been aborted on an errored run
+  # throughout.
+  - name: an analysis that errored warns while its canary stays aborted, not after a retry
+    interval: 1m
+    input_series:
+      - series: 'analysis_run_info{job="argo-rollouts",namespace="argo-rollouts",exported_namespace="aipostit-prod",name="aipostit-6f9c8d7b5-4-1",phase="Running"}'
+        values: '1x4 stale'
+      - series: 'analysis_run_info{job="argo-rollouts",namespace="argo-rollouts",exported_namespace="aipostit-prod",name="aipostit-6f9c8d7b5-4-1",phase="Error"}'
+        values: '_x5 1x24'
+      - series: 'rollout_info{job="argo-rollouts",namespace="argo-rollouts",exported_namespace="aipostit-prod",name="aipostit",strategy="canary",phase="Progressing"}'
+        values: '1x5 stale _x13 1x9'
+      - series: 'rollout_info{job="argo-rollouts",namespace="argo-rollouts",exported_namespace="aipostit-prod",name="aipostit",strategy="canary",phase="Abort"}'
+        values: '_x6 1x13 stale'
+      - series: 'analysis_run_info{job="argo-rollouts",namespace="argo-rollouts",exported_namespace="shortly-prod",name="api-v2-7b5c9d84f6-12-3.1",phase="Error"}'
+        values: '1x29'
+      - series: 'rollout_info{job="argo-rollouts",namespace="argo-rollouts",exported_namespace="shortly-prod",name="api-v2",strategy="canary",phase="Abort"}'
+        values: '1x29'
+      - series: 'up{job="argo-rollouts",namespace="argo-rollouts"}'
+        values: '1x29'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: CanaryAnalysisErrored
+        exp_alerts:
+          - &api-v2
+            exp_labels: {namespace: argo-rollouts, exported_namespace: shortly-prod, rollout: api-v2, analysisrun: api-v2-7b5c9d84f6-12-3.1, severity: warning}
+            exp_annotations:
+              summary: "Canary of shortly-prod/api-v2 aborted: its analysis errored"
+              description: "Rollout shortly-prod/api-v2 is aborted, and its AnalysisRun api-v2-7b5c9d84f6-12-3.1 ended in Error: it couldn't take its measurements (Prometheus didn't answer, or the k6 Job didn't run). That is the platform's to fix, not a verdict on the release. It stays aborted until it is retried or a new release starts."
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#argo-rollouts-alerts
+      - eval_time: 10m
+        alertname: CanaryAnalysisErrored
+        exp_alerts:
+          - exp_labels: {namespace: argo-rollouts, exported_namespace: aipostit-prod, rollout: aipostit, analysisrun: aipostit-6f9c8d7b5-4-1, severity: warning}
+            exp_annotations:
+              summary: "Canary of aipostit-prod/aipostit aborted: its analysis errored"
+              description: "Rollout aipostit-prod/aipostit is aborted, and its AnalysisRun aipostit-6f9c8d7b5-4-1 ended in Error: it couldn't take its measurements (Prometheus didn't answer, or the k6 Job didn't run). That is the platform's to fix, not a verdict on the release. It stays aborted until it is retried or a new release starts."
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#argo-rollouts-alerts
+          - *api-v2
+      # Retried: the errored run is still there, the Rollout no longer aborted.
+      - eval_time: 25m
+        alertname: CanaryAnalysisErrored
+        exp_alerts:
+          - *api-v2
+
+  # shortly's canary failed on its measurements: the app's to read, not the platform's.
+  # aipostit's staging has an errored run from an earlier release, and is healthy since.
+  # shortly-worker's errored run must not be taken for the aborted shortly's.
+  - name: a canary the release itself failed, or an old errored run, stays quiet
+    interval: 1m
+    input_series:
+      - series: 'analysis_run_info{job="argo-rollouts",namespace="argo-rollouts",exported_namespace="shortly-prod",name="shortly-58d4f7b6c9-3-3",phase="Failed"}'
+        values: '1x29'
+      - series: 'rollout_info{job="argo-rollouts",namespace="argo-rollouts",exported_namespace="shortly-prod",name="shortly",strategy="canary",phase="Abort"}'
+        values: '1x29'
+      - series: 'analysis_run_info{job="argo-rollouts",namespace="argo-rollouts",exported_namespace="shortly-prod",name="shortly-worker-5c8d7f9b4-2-1",phase="Error"}'
+        values: '1x29'
+      - series: 'rollout_info{job="argo-rollouts",namespace="argo-rollouts",exported_namespace="shortly-prod",name="shortly-worker",strategy="canary",phase="Completed"}'
+        values: '1x29'
+      - series: 'analysis_run_info{job="argo-rollouts",namespace="argo-rollouts",exported_namespace="aipostit-staging",name="aipostit-7c9f5b6d4-2-1",phase="Error"}'
+        values: '1x29'
+      - series: 'rollout_info{job="argo-rollouts",namespace="argo-rollouts",exported_namespace="aipostit-staging",name="aipostit",strategy="canary",phase="Completed"}'
+        values: '1x29'
+      - series: 'up{job="argo-rollouts",namespace="argo-rollouts"}'
+        values: '1x29'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: CanaryAnalysisErrored
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: CanaryAnalysisErrored
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: ArgoRolloutsControllerDown
+        exp_alerts: []

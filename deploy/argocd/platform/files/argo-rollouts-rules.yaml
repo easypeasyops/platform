@@ -1,0 +1,50 @@
+# Alerts on Argo Rollouts, which runs prod's canary releases: the controller, and a canary
+# aborted by an analysis that ended in Error (it couldn't measure: Prometheus didn't answer,
+# the k6 Job didn't run) rather than Failed (it measured, and the release was bad).
+# Shipped as a PrometheusRule by the platform chart (templates/monitoring.yaml); tested by
+# deploy/prometheus/tests/argo_rollouts_test.yaml (promtool). Metrics: the controller's,
+# through the ServiceMonitor beside the rule; their own `namespace`, the Rollout's, is kept
+# as exported_namespace.
+# Severity warning, namespace argo-rollouts: what Alertmanager sends to the platform's
+# channel (deploy/kind/monitoring-values.yaml), whichever app the Rollout belongs to. Not
+# the app's channel too: an Error is the platform's to fix, and the app's channel already
+# hears of the aborted canary from Argo CD (ArgoCDAppUnhealthy). The channel's message is
+# the description, so it names the Rollout.
+groups:
+  - name: argo-rollouts
+    rules:
+      - alert: ArgoRolloutsControllerDown
+        # 10 minutes: a restart takes seconds (with the Gateway API plugin's download), and
+        # nothing in flight is lost meanwhile, only stalled.
+        expr: absent(up{job="argo-rollouts"} == 1)
+        for: 10m
+        labels:
+          severity: warning
+          namespace: argo-rollouts # absent() has none to give: named for the route
+        annotations:
+          summary: The Argo Rollouts controller isn't running (or isn't scraped)
+          description: The Argo Rollouts controller hasn't been scraped for 10 minutes. While it is down no release to prod starts, and a canary in flight neither moves on nor aborts.
+          runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#argo-rollouts-alerts
+      - alert: CanaryAnalysisErrored
+        # An AnalysisRun in Error, while its Rollout is aborted (rollout_info's phase "Abort";
+        # a retry or a new release ends it). Its runs are kept after the abort, so the
+        # Rollout's state is what makes the alert end. The Rollout is the run's name without
+        # what the controller appends: -<pod hash>-<revision>, then -<step>, -pre or -post,
+        # then .<n> on a name collision. The hash's alphabet has no vowels, which is what
+        # keeps a Rollout named like "api-v2" whole.
+        expr: |-
+          max by (exported_namespace, rollout, analysisrun) (
+            label_replace(
+              label_replace(analysis_run_info{phase="Error"}, "analysisrun", "$1", "name", "(.+)"),
+              "rollout", "$1", "name", "(.+?)-[bcdfghjklmnpqrstvwxz2456789]+-[0-9]+(-[0-9]+|-pre|-post)?([.][0-9]+)?"
+            )
+          )
+          and on (exported_namespace, rollout)
+            label_replace(rollout_info{phase="Abort"}, "rollout", "$1", "name", "(.+)")
+        labels:
+          severity: warning
+          namespace: argo-rollouts
+        annotations:
+          summary: "Canary of {{ $labels.exported_namespace }}/{{ $labels.rollout }} aborted: its analysis errored"
+          description: "Rollout {{ $labels.exported_namespace }}/{{ $labels.rollout }} is aborted, and its AnalysisRun {{ $labels.analysisrun }} ended in Error: it couldn't take its measurements (Prometheus didn't answer, or the k6 Job didn't run). That is the platform's to fix, not a verdict on the release. It stays aborted until it is retried or a new release starts."
+          runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#argo-rollouts-alerts
