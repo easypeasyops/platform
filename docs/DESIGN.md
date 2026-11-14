@@ -230,7 +230,8 @@ What the children are for:
   namespace of its own, the only two at Pod Security `privileged`. Argo CD is scraped and alerted on too (tickets,
   not pages): with GitOps, a sync that silently stops is a deploy that silently never
   happens. So is the log pipeline: logs that stop arriving fail nothing either, until the
-  day they are needed. Details: RUNBOOK.
+  day they are needed. And External Secrets (warnings): a sync that fails leaves a stale
+  Secret and no error. Details: RUNBOOK.
 - **Databases and backups.** CloudNativePG runs each app's Postgres from the `Cluster` its
   chart renders: failover, base backups and point-in-time recovery from an operator
   instead of a hand-rolled StatefulSet and dumps. Backups go through the Barman Cloud

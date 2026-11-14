@@ -48,7 +48,8 @@ Argo CD installs the platform from `deploy/argocd/platform/` in sync waves:
 - **Wave 0:** the secret store, CloudNativePG and its Barman Cloud plugin, metrics-server,
   Envoy Gateway, the Gateway and the tool routes, Argo Rollouts, kube-prometheus-stack,
   node-exporter, VictoriaLogs and the log collector, Kyverno, the backup bucket.
-- **Wave 1:** the Kyverno policies, and the alerts on Argo CD and on the log pipeline.
+- **Wave 1:** the Kyverno policies, and the alerts on Argo CD, on the log pipeline and on
+  External Secrets.
 
 On a fresh cluster the waves overlap: a child that has never synced doesn't hold its wave,
 and what orders them is each child's sync retry (every 5 s, doubling to 30 s).
@@ -371,6 +372,27 @@ kubectl -n <app ns> annotate externalsecret <release>-db-backup force-sync=$(dat
 **Replace an app's keys:** edit its dotenv file and run `scripts/load-app-env.sh` again
 (every key in the file replaces what the Secret held; it prints key names, never values),
 then restart the app's pods, which read their env at start.
+
+## External Secrets alerts
+
+Warnings, to the platform's channel whichever app the ExternalSecret belongs to: a failed
+sync breaks nothing that runs, the Secret keeps its last value. Label `exported_namespace`
+is the ExternalSecret's namespace (`namespace` is the controller's). Rules:
+`deploy/argocd/platform/files/external-secrets-rules.yaml`.
+
+| Alert | Means | First look |
+| --- | --- | --- |
+| `ExternalSecretNotSyncing` | An ExternalSecret has been not Ready for 15 minutes: its Secret is stale, or was never made | `kubectl get externalsecret -A`; `kubectl -n <ns> describe externalsecret <name>` (the events name the store or the key it can't read) |
+| `ExternalSecretsDown` | No controller scraped for 10 minutes: nothing is refreshed or created, and the alert above is blind | `kubectl -n external-secrets get pods`; `kubectl -n external-secrets logs deploy/external-secrets --tail=50` |
+
+| The ExternalSecret says | Cause | Fix |
+| --- | --- | --- |
+| The store Secret or one of its keys doesn't exist | Never loaded, or loaded without that key | Platform secrets, above: `scripts/load-app-env.sh` for an app's, Slack alerts for `alertmanager-slack` |
+| The store isn't ready | `kubectl get clustersecretstore` shows which; `kubectl describe clustersecretstore <name>` why (its ServiceAccount or Role in `secret-store`) | `deploy/secrets/`, through a PR |
+| Nothing wrong, after a fix | The next try is up to an hour away | `kubectl -n <ns> annotate externalsecret <name> force-sync=$(date +%s) --overwrite` |
+
+`ExternalSecretsDown` with the pod running is the scrape: Prometheus's Targets page
+(http://prometheus.localhost:8090/targets), `external-secrets-metrics`.
 
 ## Prometheus data
 

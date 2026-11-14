@@ -1,5 +1,5 @@
 """The platform's alerting: its own alert rules (Argo CD, Prometheus, the logs, the front
-door) and Alertmanager's routing.
+door, External Secrets) and Alertmanager's routing.
 
 An alert that never fires looks exactly like a healthy system, so:
 - every platform alert has a promtool scenario, and the scenarios pass;
