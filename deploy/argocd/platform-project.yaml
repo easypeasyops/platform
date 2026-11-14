@@ -18,6 +18,7 @@ spec:
     - oci://ghcr.io/victoriametrics/helm-charts/victoria-logs-single
     - oci://ghcr.io/victoriametrics/helm-charts/victoria-logs-collector
     - oci://ghcr.io/prometheus-community/charts/prometheus-node-exporter
+    - oci://ghcr.io/prometheus-community/charts/prometheus-blackbox-exporter
     - oci://ghcr.io/kyverno/charts/kyverno
     - oci://ghcr.io/external-secrets/charts/external-secrets
     - oci://quay.io/jetstack/charts/cert-manager

@@ -443,11 +443,12 @@ def test_node_exporter_reports_the_nodes_disk_once() -> None:
     [
         ("kubePrometheusStack", "monitoring", "monitoring-values.yaml"),
         ("victoriaLogs", "logs", "victoria-logs-values.yaml"),
+        ("blackboxExporter", "blackbox-exporter", "blackbox-exporter-values.yaml"),
     ],
 )
 def test_monitoring_pods_meet_the_restricted_level(name: str, release: str, values: str) -> None:
     """The monitoring namespace enforces Pod Security "restricted": a pod below it is refused
-    at its next start. Every pod the two charts there render with our values meets it,
+    at its next start. Every pod the charts there render with our values meets it,
     their install hooks' Jobs too. (Prometheus's and Alertmanager's pods are made by the
     operator, not rendered: the cluster's e2e sees those.)"""
     (monitoring,) = [a for a in _render() if a["metadata"]["name"] == "monitoring"]

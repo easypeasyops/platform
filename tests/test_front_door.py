@@ -305,3 +305,35 @@ def test_the_front_door_alerts_ship_as_the_rules_file_says() -> None:
         assert (
             "{{ $labels.route_namespace }}/{{ $labels.route }}" in (alert["annotations"]["summary"])
         )
+
+
+def test_the_probes_go_through_the_proxies_one_module_per_listener() -> None:
+    """The blackbox exporter (deploy/kind/blackbox-exporter-values.yaml) sends each probe to
+    the proxies' Service as a proxy request, so it takes a listener and a route as a user's
+    does: one module per listener, at the Service's port for it, never resolving the name
+    itself (a `.localhost` name is the exporter's own pod)."""
+    values = yaml.safe_load((ROOT / "deploy/kind/blackbox-exporter-values.yaml").read_text())
+    service = _gateway_docs()["EnvoyProxy"]["spec"]["provider"]["kubernetes"]["envoyService"]
+    ports = {
+        listener["name"]: listener["port"]
+        for listener in _gateway_docs()["Gateway"]["spec"]["listeners"]
+    }
+    modules = values["config"]["modules"]
+    assert set(modules) == {f"front_door_{name}" for name in LISTENER_NAMESPACES}
+    for listener, port in ports.items():
+        http = modules[f"front_door_{listener}"]["http"]
+        assert http["proxy_url"] == f"http://{service['name']}.envoy-gateway-system.svc:{port}"
+        assert http["skip_resolve_phase_with_proxy"] is True
+        assert http["follow_redirects"] is False
+    # Only Prometheus's namespace may ask it to fetch a URL.
+    assert values["networkPolicy"] == {
+        "enabled": True,
+        "allowMonitoringNamespace": True,
+        "monitoringNamespaceName": "monitoring",
+    }
+    apps = {d["metadata"]["name"]: d for d in _platform() if d["kind"] == "Application"}
+    assert apps["blackbox-exporter"]["spec"]["destination"]["namespace"] == "monitoring"
+    assert apps["envoy-gateway"]["spec"]["destination"]["namespace"] == "envoy-gateway-system"
+    assert "blackbox-exporter" not in {
+        d["metadata"]["name"] for d in _platform("components.monitoring=false")
+    }

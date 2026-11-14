@@ -47,6 +47,10 @@ charts:
     repo: oci://ghcr.io/prometheus-community/charts/prometheus-node-exporter
     version: 5.1.0
     digest: sha256:3001c54dd6248a0a31d25bb963f3d3f95ba9b7fbccd5d366f910461acf039f48
+  blackboxExporter: # blackbox exporter v0.29.1: probes each app through the front door, as a user would
+    repo: oci://ghcr.io/prometheus-community/charts/prometheus-blackbox-exporter
+    version: 11.21.3
+    digest: sha256:128e142cda55d0d4ca4cc84dde39c0d325b9805645ba87885e664fecbdfb1599
   externalSecrets: # External Secrets Operator v2.14.0: secrets from the store (deploy/secrets/)
     repo: oci://ghcr.io/external-secrets/charts/external-secrets
     version: 2.14.0

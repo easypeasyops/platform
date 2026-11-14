@@ -180,6 +180,17 @@ spec:
   {{- include "platform.chartSources" (dict "root" $ "chart" $v.charts.nodeExporter "release" "node-exporter" "values" "deploy/kind/node-exporter-values.yaml") | nindent 2 }}
   destination: { server: {{ $dest }}, namespace: node-exporter }
   {{- include "platform.syncPolicy" (dict "labels" (dict "pod-security.kubernetes.io/enforce" "privileged")) | nindent 2 }}
+---
+# The blackbox exporter: asks for each app's page through the front door, as a user would
+# (docs/RUNBOOK.md, The front door; deploy/kind/blackbox-exporter-values.yaml). In
+# kube-prometheus-stack's namespace, beside Prometheus, the only one that may ask it; the
+# namespace's labels are set once, by the monitoring Application.
+{{ include "platform.meta" (dict "name" "blackbox-exporter" "wave" 0) }}
+spec:
+  project: platform
+  {{- include "platform.chartSources" (dict "root" $ "chart" $v.charts.blackboxExporter "release" "blackbox-exporter" "values" "deploy/kind/blackbox-exporter-values.yaml") | nindent 2 }}
+  destination: { server: {{ $dest }}, namespace: monitoring }
+  {{- include "platform.syncPolicy" (dict) | nindent 2 }}
 {{- end }}
 {{- if $v.components.policies }}
 ---
