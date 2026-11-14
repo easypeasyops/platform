@@ -198,7 +198,7 @@ flowchart TB
   CS["scripts/cluster.sh up<br/>Helm: Argo CD"] --> Root["Application platform (root)<br/>parameters: revision, arch, components"]
   Root --> WP["wave -2<br/>platform-project"]
   WP --> WB["wave -1<br/>external-secrets, cert-manager"]
-  WB --> W0["wave 0<br/>secret-store · cloudnative-pg, barman-cloud · metrics-server<br/>envoy-gateway, gateway, tool-routes · argo-rollouts<br/>monitoring, logs, log-collector · kyverno · backups"]
+  WB --> W0["wave 0<br/>secret-store · cloudnative-pg, barman-cloud · metrics-server<br/>envoy-gateway, gateway, tool-routes · argo-rollouts<br/>monitoring, node-exporter, logs, log-collector · kyverno · backups"]
   W0 --> W1["wave 1<br/>kyverno-policies · Argo CD's alerts"]
 ```
 
@@ -225,8 +225,9 @@ What the children are for:
   both on 127.0.0.1; they outlive releases and sleep, which a `kubectl port-forward` doesn't.
 - **Monitoring and logs.** kube-prometheus-stack: the operator's CRDs make scraping, rules
   and dashboards part of each app's chart. Alertmanager routes by namespace to Slack.
-  VictoriaLogs keeps every pod's log lines, sent by a collector that runs in the one
-  namespace at Pod Security `privileged`. Argo CD is scraped and alerted on too (tickets,
+  VictoriaLogs keeps every pod's log lines, sent by a collector; node-exporter reports the
+  node's CPU, memory and disk. Both read the node's files, so each runs alone in a
+  namespace of its own, the only two at Pod Security `privileged`. Argo CD is scraped and alerted on too (tickets,
   not pages): with GitOps, a sync that silently stops is a deploy that silently never
   happens. Details: RUNBOOK.
 - **Databases and backups.** CloudNativePG runs each app's Postgres from the `Cluster` its

@@ -115,7 +115,7 @@ spec:
   {{- include "platform.chartSources" (dict "root" $ "chart" $v.charts.kubePrometheusStack "release" "monitoring" "values" "deploy/kind/monitoring-values.yaml" "extra" "deploy/secrets/monitoring.yaml") | nindent 2 }}
   destination: { server: {{ $dest }}, namespace: monitoring }
   # Every pod of the stack and of VictoriaLogs meets "restricted" (tests/test_platform.py);
-  # node-exporter, which never could, is off (deploy/kind/monitoring-values.yaml).
+  # node-exporter, which never could, has a namespace of its own (below).
   {{- include "platform.syncPolicy" (dict "labels" (dict "pod-security.kubernetes.io/enforce" "restricted")) | nindent 2 }}
   ignoreDifferences:
     # The chart's admission-webhook Job writes the CA bundle into these after install.
@@ -138,14 +138,27 @@ spec:
   {{- include "platform.syncPolicy" (dict) | nindent 2 }}
 ---
 # vlagent: reads every container's log file on the node and sends the lines to VictoriaLogs.
-# A namespace of its own, because it is the one platform namespace at "privileged": Pod
-# Security allows a hostPath volume at no other level. Nothing else goes in it
+# A namespace of its own, because it needs "privileged": Pod Security allows a hostPath
+# volume at no other level. Nothing else goes in it
 # (deploy/kind/log-collector-values.yaml says what the pod gets).
 {{ include "platform.meta" (dict "name" "log-collector" "wave" 0) }}
 spec:
   project: platform
   {{- include "platform.chartSources" (dict "root" $ "chart" $v.charts.logCollector "release" "log-collector" "values" "deploy/kind/log-collector-values.yaml") | nindent 2 }}
   destination: { server: {{ $dest }}, namespace: log-collector }
+  {{- include "platform.syncPolicy" (dict "labels" (dict "pod-security.kubernetes.io/enforce" "privileged")) | nindent 2 }}
+---
+# node-exporter: the node's CPU, memory and disk, scraped by Prometheus. Its own chart, not
+# the one kube-prometheus-stack bundles, and a namespace of its own for the same reason as
+# the log collector: it reads the node through hostPath volumes, so the namespace is at
+# "privileged" and nothing else goes in it (deploy/kind/node-exporter-values.yaml says what
+# the pod gets). Its PodMonitor's CRD comes with the monitoring Application, in the same
+# wave: the sync retry covers the race.
+{{ include "platform.meta" (dict "name" "node-exporter" "wave" 0) }}
+spec:
+  project: platform
+  {{- include "platform.chartSources" (dict "root" $ "chart" $v.charts.nodeExporter "release" "node-exporter" "values" "deploy/kind/node-exporter-values.yaml") | nindent 2 }}
+  destination: { server: {{ $dest }}, namespace: node-exporter }
   {{- include "platform.syncPolicy" (dict "labels" (dict "pod-security.kubernetes.io/enforce" "privileged")) | nindent 2 }}
 {{- end }}
 {{- if $v.components.policies }}

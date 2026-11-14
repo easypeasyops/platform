@@ -1,0 +1,42 @@
+# node-exporter (the prometheus-node-exporter chart) for the local kind cluster, deployed by
+# Argo CD (deploy/argocd/platform/, the `node-exporter` Application): one pod per node that
+# reads the node's CPU, memory and disk figures and serves them to Prometheus
+# (docs/RUNBOOK.md, Node metrics).
+#
+# Reading them takes hostPath volumes (the node's /proc, /sys and /), which Pod Security
+# allows only at "privileged": so, like the log collector, it has a namespace of its own
+# with that level, and holds nothing else. What it gets is narrower than the level allows
+# (tests/test_platform.py checks the render): the three host paths read-only, no host
+# network, PID or IPC, no privileged container, no capabilities, no token for the API. Not
+# root either, with a read-only root filesystem: the chart's defaults, which the test pins.
+
+# Its name, and the `job` of its metrics: the stack's node rules and dashboards
+# (deploy/kind/monitoring-values.yaml) select job="node-exporter".
+nameOverride: node-exporter
+fullnameOverride: node-exporter
+
+# The chart's default is the node's network, where a NetworkPolicy doesn't apply: port 9100
+# would answer anything that reaches the node. On the pod network the policy below holds.
+# The price: the network figures (node_network_*) are the pod's own interface, not the
+# node's. CPU, memory and disk don't depend on it.
+hostNetwork: false
+# The node's /proc already lists every process; its PID namespace adds nothing we read.
+hostPID: false
+
+resources:
+  requests: { cpu: 10m, memory: 32Mi }
+
+# Scraped like everything else, by a PodMonitor: no Service, nothing else needs to find it.
+# Nothing but Prometheus may connect to it, and it may connect to nothing.
+service:
+  enabled: false
+prometheus:
+  podMonitor:
+    enabled: true
+networkPolicy:
+  enabled: true
+  ingress:
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: monitoring } }
+          podSelector: { matchLabels: { app.kubernetes.io/name: prometheus } }
+      ports: [{ port: 9100, protocol: TCP }]
