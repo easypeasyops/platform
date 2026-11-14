@@ -227,11 +227,23 @@ grafana:
       root_url: http://grafana.localhost:8090
   # The logs, beside the metrics: VictoriaLogs (deploy/kind/victoria-logs-values.yaml) as a
   # data source, read in Explore (docs/RUNBOOK.md, Logs). Its plugin isn't part of Grafana:
-  # Grafana downloads it from grafana.com before it starts, at every start of the pod (its
-  # disk is an emptyDir). Pinned to a version, signed by its publisher: a bump is a change
-  # here. The store's NetworkPolicy admits Grafana's pods by name (tests/test_platform.py).
+  # Grafana downloads it from grafana.com before it starts, unless its plugin directory
+  # already holds this version. Pinned to a version, signed by its publisher (Grafana checks
+  # the signature at every start): a bump is a change here. The store's NetworkPolicy admits
+  # Grafana's pods by name (tests/test_platform.py).
   plugins:
     - victoriametrics-logs-datasource@0.33.1
+  # The plugin directory on a volume of its own (the claim is extraManifests, at the end),
+  # so a pod that starts with no route to grafana.com finds the plugin there (PT-13). Only
+  # that directory: the rest of Grafana's disk stays an emptyDir, so its database is still
+  # rebuilt from git and the secret store at every start.
+  extraVolumes:
+    - name: plugins
+      existingClaim: grafana-plugins
+  extraVolumeMounts:
+    - name: plugins
+      mountPath: /var/lib/grafana/plugins
+      readOnly: false
   additionalDataSources:
     - name: VictoriaLogs
       uid: victorialogs
@@ -242,3 +254,16 @@ grafana:
   # chart's defaults); shortly's prod release ships the SLO dashboard that way.
   resources:
     requests: { cpu: 50m, memory: 128Mi }
+
+# Grafana's plugin directory (grafana.extraVolumes). Deleting the claim only costs a
+# download at Grafana's next start.
+extraManifests:
+  - apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: grafana-plugins
+    spec:
+      storageClassName: standard # kind's local-path provisioner
+      accessModes: [ReadWriteOnce]
+      resources:
+        requests: { storage: 1Gi }

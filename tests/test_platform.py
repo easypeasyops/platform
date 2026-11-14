@@ -417,6 +417,15 @@ def test_grafana_reads_the_logs_from_the_store_that_admits_it() -> None:
     # The plugin the data source needs, at a pinned version.
     (plugin,) = grafana["plugins"]
     assert re.fullmatch(rf"{re.escape(source['type'])}@\d+\.\d+\.\d+", plugin)
+    # Kept on a claim these values declare, mounted where Grafana installs and loads plugins
+    # (the chart's GF_PATHS_PLUGINS): a start with no route to grafana.com still has it.
+    values = yaml.safe_load((ROOT / "deploy/kind/monitoring-values.yaml").read_text())
+    (volume,) = grafana["extraVolumes"]
+    assert grafana["extraVolumeMounts"] == [
+        {"name": volume["name"], "mountPath": "/var/lib/grafana/plugins", "readOnly": False}
+    ]
+    (claim,) = [m for m in values["extraManifests"] if m["kind"] == "PersistentVolumeClaim"]
+    assert volume["existingClaim"] == claim["metadata"]["name"]
 
 
 def test_logs_are_kept_for_a_time_and_a_size_that_fit_the_volume() -> None:
