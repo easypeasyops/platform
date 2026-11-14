@@ -440,31 +440,22 @@ namespace (`namespace` is the controller's). Rules:
 | The Certificate says | Cause | Fix |
 | --- | --- | --- |
 | Its Issuer isn't found or isn't Ready | The plugin's Issuer was refused while cert-manager's webhook wasn't serving, or was deleted | The `barman-cloud` Application makes it: `kubectl -n argocd annotate application barman-cloud argocd.argoproj.io/refresh=normal --overwrite` if its retries gave up |
-| A CertificateRequest failed | `kubectl -n <ns> describe certificaterequest <name>` says why; cert-manager waits before it tries again (an hour, doubling) | Fix the cause, then wait for the next try, or `cmctl renew <name> -n <ns>` (cert-manager's CLI) to issue now |
+| A CertificateRequest failed | `kubectl -n <ns> describe certificaterequest <name>` says why; cert-manager waits before it tries again (an hour, doubling) | Fix the cause, then wait for the next try, or `cmctl renew <name> -n <ns>` (cert-manager's CLI: `brew install cmctl`) to issue now |
 | Ready again after it had expired, and backups still fail | The plugin or the operator still holds the old certificate | `kubectl -n cnpg-system rollout restart deploy/plugin-barman-cloud deploy/cloudnative-pg` |
 
 `CertManagerDown` with the pod running is the scrape: Prometheus's Targets page
 (http://prometheus.localhost:8090/targets), `cert-manager`.
 
-**The controller's restart count climbs on the laptop (about 20 a day), and that is the
-laptop sleeping, not a fault.** While the laptop sleeps Docker's VM is frozen: on wake the
-wall clock jumps and the clock the controller's renewal timers run on doesn't. cert-manager
-adds those jumps up, and once they pass 5 minutes its `/livez` answers 500 (`clockHealth
-failed: the system clock is out of sync with the internal monotonic clock`) until the
-kubelet restarts it, 8 failed probes later: its way of getting timers that fire on time
-again. The container exits 0 (`Completed`) and is back within a second, far short of the 10
-minutes `CertManagerDown` waits, so a restart alone never fires it. The probe stays on
-(the chart's default): without it a renewal would come late by as long as the laptop had
-slept. Only the controller has this check; the cainjector and the webhook restart far less.
-To see that the last restart was this one:
-
-```bash
-kubectl -n cert-manager logs deploy/cert-manager --previous | grep -m1 clockHealth
-```
-
-A restart without that line is another kind: last state `Unknown`, exit code 255, is the
-node having restarted (Docker or the cluster stopped); anything else (`OOMKilled`, `Error`)
-is a fault, and the end of the previous log says which.
+The controller's restart count climbs with the laptop's sleeps (about 20 a day), by design:
+its `/livez` fails once the clock has jumped more than 5 minutes in all since it started,
+short sleeps added up (`clockHealth` in
+`kubectl -n cert-manager logs deploy/cert-manager --previous`), so the kubelet restarts it
+and its renewal timers start again from the real time. So it restarts while the laptop is
+in use too, some minutes after enough short sleeps. A restart takes seconds, far less than
+`CertManagerDown` waits. The liveness probe stays on: without it a renewal would come late
+by as long as the laptop had slept. A restart with no `clockHealth` line in the previous
+log is another kind: last state `Unknown`, exit code 255, is the node having restarted
+(Docker or the cluster stopped); `OOMKilled` or `Error` is a fault.
 
 ## Prometheus data
 
