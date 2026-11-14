@@ -256,7 +256,8 @@ last sync (`argocd_application_synced_revision_info` for one source,
 Argo CD's own metrics carry none. Not marked: an Application's first sync, a deploy in the
 first minutes after a sleep, and a move back to a revision it had in the 5 minutes before.
 No marks at all: is kube-state-metrics exporting them (`kubectl -n monitoring logs
-deploy/kube-state-metrics`)?
+deploy/kube-state-metrics`)? An app's SLO dashboard (service chart 1.3.0 on) has the same
+marks for the environment it shows, its Application only.
 
 Prometheus scrapes the proxies (job `envoy`) and the controller (job `envoy-gateway`):
 http://prometheus.localhost:8090/targets. The proxies count every request they answer,

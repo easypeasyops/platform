@@ -376,6 +376,24 @@ data:
           }
         ]
       },
+      "annotations": {
+        "list": [
+          {
+            "name": "Deploys",
+            "enable": true,
+            "iconColor": "blue",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "expr": "label_replace(label_replace(({__name__=~\"argocd_application_synced_revisions?_info\",job=\"kube-state-metrics\",name=\"$namespace\"} unless present_over_time({__name__=~\"argocd_application_synced_revisions?_info\",job=\"kube-state-metrics\",name=\"$namespace\"}[5m] offset 2m)) and on (name) present_over_time({__name__=~\"argocd_application_synced_revisions?_info\",job=\"kube-state-metrics\",name=\"$namespace\"}[5m] offset 2m), \"revision\", \"$1\", \"revision\", \"([0-9a-f]{7})[0-9a-f]{33}\"), \"revision\", \"sha256:$1\", \"revision\", \"sha256:([0-9a-f]{12})[0-9a-f]{52}\")",
+            "step": "60s",
+            "titleFormat": "{{name}} synced",
+            "textFormat": "{{revision}}",
+            "tagKeys": "project"
+          }
+        ]
+      },
       "links": [
         {
           "title": "Runbook",
