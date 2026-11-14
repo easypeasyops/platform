@@ -1,5 +1,5 @@
-"""The platform's alerting: its own alert rules (Argo CD, Prometheus, the logs) and
-Alertmanager's routing.
+"""The platform's alerting: its own alert rules (Argo CD, Prometheus, the logs, the front
+door) and Alertmanager's routing.
 
 An alert that never fires looks exactly like a healthy system, so:
 - every platform alert has a promtool scenario, and the scenarios pass;
@@ -180,6 +180,15 @@ def test_alertmanager_config_is_valid(alertmanager_config: Path) -> None:
         (["project=aipostit", "name=aipostit-prod", "severity=ticket"], "aipostit-prod"),
         (["project=aipostit", "name=aipostit-preview", "severity=ticket"], "aipostit-prod"),
         (["project=shortly", "name=shortly-prod", "severity=ticket"], "tickets"),
+        # The front door's, whichever listener: the platform's.
+        (
+            [
+                "alertname=FrontDoorRouteWithoutBackend",
+                "envoy_http_conn_manager_prefix=http-10080",
+                "severity=ticket",
+            ],
+            "platform",
+        ),
         # The platform's own: Argo CD down (no project) and on the platform's Applications.
         (["alertname=ArgoCDDown", "severity=ticket"], "platform"),
         (

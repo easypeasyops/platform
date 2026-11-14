@@ -1,0 +1,25 @@
+# Alerts on the front door (docs/RUNBOOK.md, The front door), from the Envoy proxies'
+# metrics (templates/monitoring.yaml scrapes them). An app's own alerts can't see a request
+# that never reached it. Shipped as a PrometheusRule by the platform chart; tested by
+# deploy/prometheus/tests/front_door_test.yaml (promtool).
+groups:
+  - name: front-door
+    rules:
+      - alert: FrontDoorRouteWithoutBackend
+        # Envoy Gateway gives a route whose Service has no ready pod (503), or doesn't exist
+        # (500), no Envoy cluster: the proxy answers itself, a "direct response", counted
+        # per listener only. So this names the listener, not the route; the runbook finds
+        # the route. Both counters: a direct response that isn't a 5xx (a redirect, if a
+        # route ever gets one) is no error. It needs traffic: a route nobody asks for is
+        # silent. 5 minutes of it: a few requests while a single pod restarts are not a ticket.
+        expr: |
+          sum by (envoy_http_conn_manager_prefix) (rate(envoy_http_rq_direct_response{job="envoy"}[5m])) > 0
+          and
+          sum by (envoy_http_conn_manager_prefix) (rate(envoy_http_downstream_rq_xx{job="envoy", envoy_response_code_class="5"}[5m])) > 0
+        for: 5m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "The front door answers 5xx itself on listener {{ $labels.envoy_http_conn_manager_prefix }}: a route there has no backend"
+          description: Requests to a route whose Service has no ready pod, or doesn't exist, get a 503 or 500 from the proxy. They never reach the app, so its own metrics and alerts don't show them.
+          runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#a-route-with-no-backend

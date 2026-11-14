@@ -141,4 +141,16 @@ metadata:
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
   {{- .Files.Get "files/logs-rules.yaml" | fromYaml | toYaml | nindent 2 }}
+---
+# Alerts from the front door's metrics (files/front-door-rules.yaml).
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: front-door
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true # as above
+spec:
+  {{- .Files.Get "files/front-door-rules.yaml" | fromYaml | toYaml | nindent 2 }}
 {{- end }}
