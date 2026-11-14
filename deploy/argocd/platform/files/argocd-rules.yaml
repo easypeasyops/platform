@@ -65,3 +65,25 @@ groups:
           summary: Argo CD has failed to read git for an hour
           description: Every Application stays Synced at the last commit Argo CD saw, so a merged change (a promotion included) never lands. Running workloads are unaffected.
           runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#argo-cd-alerts
+      - alert: ArgoCDRepoServerDown
+        # No repo server scraped: no manifests rendered, so nothing new syncs, and
+        # ArgoCDCantReachGit is blind (its series come from here).
+        expr: absent(up{job="argocd-repo-server-metrics"} == 1)
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: Argo CD's repo server isn't running (or isn't scraped)
+          description: Argo CD can't read git or render manifests while it is down, so nothing merged lands. Running workloads are unaffected.
+          runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#argo-cd-alerts
+      - alert: ArgoCDApplicationSetDown
+        # No ApplicationSet controller scraped: a new app or environment in apps/ never gets
+        # its Application, and the alerts above only know Applications that exist.
+        expr: absent(up{job="argocd-applicationset-controller-metrics"} == 1)
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: Argo CD's ApplicationSet controller isn't running (or isn't scraped)
+          description: A new app or environment in apps/ gets no Application. Existing Applications keep syncing.
+          runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#argo-cd-alerts
