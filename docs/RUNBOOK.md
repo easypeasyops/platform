@@ -451,8 +451,8 @@ its `/livez` fails once the clock has jumped more than 5 minutes in all since it
 short sleeps added up (`clockHealth` in
 `kubectl -n cert-manager logs deploy/cert-manager --previous`), so the kubelet restarts it
 and its renewal timers start again from the real time. So it restarts while the laptop is
-in use too, some minutes after enough short sleeps. A restart takes seconds, far less than
-`CertManagerDown` waits. The liveness probe stays on: without it a renewal would come late
+in use too, when idle sleeps of a minute or two have added up. A restart takes seconds, far
+less than `CertManagerDown` waits. The liveness probe stays on: without it a renewal would come late
 by as long as the laptop had slept. A restart with no `clockHealth` line in the previous
 log is another kind: last state `Unknown`, exit code 255, is the node having restarted
 (Docker or the cluster stopped); `OOMKilled` or `Error` is a fault.
