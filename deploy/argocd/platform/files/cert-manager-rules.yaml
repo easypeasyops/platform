@@ -1,0 +1,49 @@
+# Alerts on cert-manager's certificates. A renewal that fails changes nothing that runs: the
+# certificate stays Ready until the day it expires, and then the CloudNativePG operator and
+# its Barman Cloud plugin stop talking and backups stop.
+# Shipped as a PrometheusRule by the platform chart (templates/monitoring.yaml); tested by
+# deploy/prometheus/tests/cert_manager_test.yaml (promtool). Metrics: the controller
+# (certmanager_certificate_*), scraped through the ServiceMonitor beside the rule. The scrape
+# keeps the target's namespace in `namespace`, so the Certificate's own is `exported_namespace`.
+# Severity warning, namespace cert-manager: what Alertmanager sends to the platform's
+# channel (deploy/kind/monitoring-values.yaml), whichever namespace the Certificate is in.
+# The channel's message is the description, so it names the object.
+groups:
+  - name: cert-manager
+    rules:
+      - alert: CertManagerDown
+        # No controller scraped: nothing is issued or renewed, and the alerts below are blind.
+        expr: absent(up{job="cert-manager"} == 1)
+        for: 10m
+        labels:
+          severity: warning
+          namespace: cert-manager # absent() has none to give: named for the route
+        annotations:
+          summary: The cert-manager controller isn't running (or isn't scraped)
+          description: The cert-manager controller hasn't been scraped for 10 minutes. No certificate is issued or renewed while it is down; issued certificates keep working until they expire.
+          runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#cert-manager-alerts
+      - alert: CertificateNotReady
+        # Ready is False (or Unknown) until the first issuance succeeds, and again once the
+        # certificate has expired. 15 minutes: longer than a fresh cluster takes to bring up
+        # cert-manager's webhook and the Issuer.
+        expr: max by (namespace, exported_namespace, name) (certmanager_certificate_ready_status{condition!="True"}) == 1
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Certificate {{ $labels.exported_namespace }}/{{ $labels.name }} hasn't been Ready for 15 minutes"
+          description: "Certificate {{ $labels.exported_namespace }}/{{ $labels.name }} hasn't been Ready for 15 minutes: it was never issued, or it has expired. What mounts its Secret can't start or can't connect."
+          runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#cert-manager-alerts
+      - alert: CertificateExpiresSoon
+        # 7 days: the certificates here last 90 days and are renewed 15 days before the end
+        # (the Barman Cloud plugin's chart), so a healthy one never has less than 15 days
+        # left and this means renewal has failed for 8. A certificate not issued yet reports
+        # 0: that one is CertificateNotReady's.
+        expr: min by (namespace, exported_namespace, name) (certmanager_certificate_expiration_timestamp_seconds > 0) - time() < 7 * 86400
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Certificate {{ $labels.exported_namespace }}/{{ $labels.name }} expires in less than 7 days"
+          description: "Certificate {{ $labels.exported_namespace }}/{{ $labels.name }} expires in less than 7 days and hasn't been renewed. cert-manager renews long before that, so renewal is failing; when the certificate expires, what uses it stops connecting."
+          runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#cert-manager-alerts

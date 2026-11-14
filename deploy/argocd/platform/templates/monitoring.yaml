@@ -168,4 +168,38 @@ metadata:
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
   {{- .Files.Get "files/external-secrets-rules.yaml" | fromYaml | toYaml | nindent 2 }}
+---
+# cert-manager's controller scraped, and the alerts on its certificates
+# (files/cert-manager-rules.yaml). The ServiceMonitor is the platform's, not the chart's:
+# the chart renders its own whether or not the CRD exists (cert-manager is in wave -1, and
+# a cluster without monitoring never has it) and drops the pods' scrape annotations, which
+# rolls all three Deployments. It selects the controller's Service, which the chart always
+# renders: job="cert-manager". The namespace exists since wave -1.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: cert-manager
+  namespace: cert-manager
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true # as above
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cert-manager
+      app.kubernetes.io/component: controller
+  endpoints:
+    - port: http-metrics
+      interval: 60s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: cert-manager
+  namespace: cert-manager
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true # as above
+spec:
+  {{- .Files.Get "files/cert-manager-rules.yaml" | fromYaml | toYaml | nindent 2 }}
 {{- end }}

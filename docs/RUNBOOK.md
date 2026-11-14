@@ -48,8 +48,8 @@ Argo CD installs the platform from `deploy/argocd/platform/` in sync waves:
 - **Wave 0:** the secret store, CloudNativePG and its Barman Cloud plugin, metrics-server,
   Envoy Gateway, the Gateway and the tool routes, Argo Rollouts, kube-prometheus-stack,
   node-exporter, VictoriaLogs and the log collector, Kyverno, the backup bucket.
-- **Wave 1:** the Kyverno policies, and the alerts on Argo CD, on the log pipeline and on
-  External Secrets.
+- **Wave 1:** the Kyverno policies, and the alerts on Argo CD, on the log pipeline, on
+  External Secrets and on cert-manager.
 
 On a fresh cluster the waves overlap: a child that has never synced doesn't hold its wave,
 and what orders them is each child's sync retry (every 5 s, doubling to 30 s).
@@ -393,6 +393,31 @@ is the ExternalSecret's namespace (`namespace` is the controller's). Rules:
 
 `ExternalSecretsDown` with the pod running is the scrape: Prometheus's Targets page
 (http://prometheus.localhost:8090/targets), `external-secrets-metrics`.
+
+## cert-manager alerts
+
+Warnings, to the platform's channel. The only certificates are the two the Barman Cloud
+plugin and the CloudNativePG operator talk over (`barman-cloud-client` and
+`barman-cloud-server` in `cnpg-system`): 90 days, renewed 15 days before the end, so a
+healthy one never has less than 15 days left. A renewal that fails breaks nothing until the
+certificate expires; then backups stop. Label `exported_namespace` is the Certificate's
+namespace (`namespace` is the controller's). Rules:
+`deploy/argocd/platform/files/cert-manager-rules.yaml`.
+
+| Alert | Means | First look |
+| --- | --- | --- |
+| `CertificateExpiresSoon` | A certificate has less than 7 days left: its renewal has been failing for 8 | `kubectl get certificate -A`; `kubectl -n <ns> describe certificate <name>` (the events name the CertificateRequest); `kubectl -n <ns> get certificaterequest` |
+| `CertificateNotReady` | A Certificate has been not Ready for 15 minutes: never issued, or expired | The same; `kubectl -n <ns> get issuer` (Ready?) |
+| `CertManagerDown` | No controller scraped for 10 minutes: nothing is issued or renewed, and the alerts above are blind | `kubectl -n cert-manager get pods`; `kubectl -n cert-manager logs deploy/cert-manager --tail=50` |
+
+| The Certificate says | Cause | Fix |
+| --- | --- | --- |
+| Its Issuer isn't found or isn't Ready | The plugin's Issuer was refused while cert-manager's webhook wasn't serving, or was deleted | The `barman-cloud` Application makes it: `kubectl -n argocd annotate application barman-cloud argocd.argoproj.io/refresh=normal --overwrite` if its retries gave up |
+| A CertificateRequest failed | `kubectl -n <ns> describe certificaterequest <name>` says why; cert-manager waits before it tries again (an hour, doubling) | Fix the cause, then wait for the next try, or `cmctl renew <name> -n <ns>` (cert-manager's CLI) to issue now |
+| Ready again after it had expired, and backups still fail | The plugin or the operator still holds the old certificate | `kubectl -n cnpg-system rollout restart deploy/plugin-barman-cloud deploy/cloudnative-pg` |
+
+`CertManagerDown` with the pod running is the scrape: Prometheus's Targets page
+(http://prometheus.localhost:8090/targets), `cert-manager`.
 
 ## Prometheus data
 
