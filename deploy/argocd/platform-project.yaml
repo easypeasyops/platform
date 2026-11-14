@@ -18,6 +18,7 @@ spec:
     - oci://ghcr.io/victoriametrics/helm-charts/victoria-logs-single
     - oci://ghcr.io/victoriametrics/helm-charts/victoria-logs-collector
     - oci://ghcr.io/prometheus-community/charts/prometheus-node-exporter
+    - oci://ghcr.io/prometheus-community/charts/prometheus-blackbox-exporter
     - oci://ghcr.io/kyverno/charts/kyverno
     - oci://ghcr.io/external-secrets/charts/external-secrets
     - oci://quay.io/jetstack/charts/cert-manager
@@ -33,6 +34,7 @@ spec:
     - { server: https://kubernetes.default.svc, namespace: monitoring } # kube-prometheus-stack, VictoriaLogs
     - { server: https://kubernetes.default.svc, namespace: log-collector } # vlagent, and nothing else
     - { server: https://kubernetes.default.svc, namespace: node-exporter } # node-exporter, and nothing else
+    - { server: https://kubernetes.default.svc, namespace: event-exporter } # Kubernetes events into the logs
     - { server: https://kubernetes.default.svc, namespace: kyverno }
     - { server: https://kubernetes.default.svc, namespace: backups }
     - { server: https://kubernetes.default.svc, namespace: external-secrets }

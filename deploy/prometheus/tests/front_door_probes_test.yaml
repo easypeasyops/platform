@@ -1,0 +1,65 @@
+# promtool unit tests for the front door's probe alert: synthetic series in, expected
+# alerts out. Run by tests/test_alerting.py with the other files here. The series as the
+# Probes give them (the platform chart's templates/monitoring.yaml): job="front-door", the
+# Probe's namespace, the target's URL as instance, and the Probe's hostname and listener.
+rule_files:
+  - ../../argocd/platform/files/front-door-probes-rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # Staging's NetworkPolicy no longer admits the proxies: every probe of its hostname fails
+  # from minute 5, with nobody using it. Prod's keeps answering and stays quiet.
+  - name: a hostname failing for ten minutes opens a ticket that names it
+    interval: 1m
+    input_series:
+      - series: 'probe_success{job="front-door",namespace="argocd",instance="http://staging.aipostit.localhost/healthz",hostname="staging.aipostit.localhost",listener="http"}'
+        values: '1x4 0x20'
+      - series: 'probe_success{job="front-door",namespace="argocd",instance="http://aipostit.localhost/healthz",hostname="aipostit.localhost",listener="http"}'
+        values: '1x25'
+    alert_rule_test:
+      - eval_time: 7m # failing since minute 5: still pending
+        alertname: FrontDoorProbeFailing
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: FrontDoorProbeFailing
+        exp_alerts:
+          - exp_labels: {hostname: staging.aipostit.localhost, listener: http, severity: ticket}
+            exp_annotations:
+              summary: "http://staging.aipostit.localhost doesn't answer through the front door (listener http)"
+              description: A request for the hostname, through the Gateway's proxies as a user's, has got no 2xx for 5 minutes. The app's own probes and metrics go around the Gateway, so they may not show it. The Front door dashboard's "Probes failing now" has the status it got.
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#a-hostname-the-front-door-doesnt-serve
+              dashboard_url: /d/front-door
+
+  - name: a tool's hostname opens one too, naming its listener
+    interval: 1m
+    input_series:
+      - series: 'probe_success{job="front-door",namespace="argocd",instance="http://grafana.localhost/api/health",hostname="grafana.localhost",listener="tools"}'
+        values: '0x15'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: FrontDoorProbeFailing
+        exp_alerts:
+          - exp_labels: {hostname: grafana.localhost, listener: tools, severity: ticket}
+            exp_annotations:
+              summary: "http://grafana.localhost doesn't answer through the front door (listener tools)"
+              description: A request for the hostname, through the Gateway's proxies as a user's, has got no 2xx for 5 minutes. The app's own probes and metrics go around the Gateway, so they may not show it. The Front door dashboard's "Probes failing now" has the status it got.
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#a-hostname-the-front-door-doesnt-serve
+              dashboard_url: /d/front-door
+
+  # What must not open one: a few failed probes while a single pod restarts, and another
+  # job's probe_success (a probe that isn't the front door's).
+  - name: a short gap and another job's probes stay quiet
+    interval: 1m
+    input_series:
+      - series: 'probe_success{job="front-door",namespace="argocd",instance="http://aipostit.localhost/healthz",hostname="aipostit.localhost",listener="http"}'
+        values: '1x4 0x3 1x20'
+      - series: 'probe_success{job="blackbox",namespace="monitoring",instance="https://example.test"}'
+        values: '0x30'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: FrontDoorProbeFailing
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: FrontDoorProbeFailing
+        exp_alerts: []

@@ -19,6 +19,22 @@ components:
   policies: true
   backups: true
 
+# What the blackbox exporter asks for through the front door, every minute, as a user would
+# (templates/monitoring.yaml: one Probe each; docs/RUNBOOK.md, The front door). A list in
+# git, since Prometheus can't discover an HTTPRoute: scripts/check-apps.py fails CI when
+# the `http` entries and the hostnames the apps' routes serve (their values, rendered as
+# Argo CD renders them) disagree; tests/test_front_door.py, the same for the tool routes.
+#   listener  the Gateway listener the hostname is on (a blackbox module per listener)
+#   path      a page that answers 200 without a login: /healthz for an app (the service
+#             chart's liveness probe, so the app contract), each tool's own health page
+frontDoorProbes:
+  - { hostname: aipostit.localhost, listener: http, path: /healthz } # aipostit-prod
+  - { hostname: staging.aipostit.localhost, listener: http, path: /healthz } # aipostit-staging
+  - { hostname: argocd.localhost, listener: tools, path: /healthz }
+  - { hostname: grafana.localhost, listener: tools, path: /api/health }
+  - { hostname: prometheus.localhost, listener: tools, path: /-/healthy }
+  - { hostname: alertmanager.localhost, listener: tools, path: /-/healthy }
+
 # Helm charts, pulled by Argo CD from their OCI registries by DIGEST: the tag says what it
 # is, the digest that it can't change. tests/test_platform.py (integration) checks each
 # version still resolves to its digest, so a re-pushed tag is caught.
@@ -47,6 +63,10 @@ charts:
     repo: oci://ghcr.io/prometheus-community/charts/prometheus-node-exporter
     version: 5.1.0
     digest: sha256:3001c54dd6248a0a31d25bb963f3d3f95ba9b7fbccd5d366f910461acf039f48
+  blackboxExporter: # blackbox exporter v0.29.1: probes each app through the front door, as a user would
+    repo: oci://ghcr.io/prometheus-community/charts/prometheus-blackbox-exporter
+    version: 11.21.3
+    digest: sha256:128e142cda55d0d4ca4cc84dde39c0d325b9805645ba87885e664fecbdfb1599
   externalSecrets: # External Secrets Operator v2.14.0: secrets from the store (deploy/secrets/)
     repo: oci://ghcr.io/external-secrets/charts/external-secrets
     version: 2.14.0

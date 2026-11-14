@@ -19,6 +19,8 @@ For each apps/<app>/envs/<env>.yaml (the ApplicationSet's input):
   4. the chart at that digest renders with the app's values files, fetched from its repo at
      the named revision and layered in order, as Argo CD will render them. The renders are
      written to --out for kubeconform.
+Then, across every app: 5. each hostname their HTTPRoutes serve is probed through the front
+door, and nothing else is (frontDoorProbes, deploy/argocd/platform/values.yaml).
 """
 
 import argparse
@@ -37,6 +39,7 @@ CHART = "oci://ghcr.io/easypeasyops/charts/service"
 PLATFORM = "https://github.com/easypeasyops/platform.git"  # deploy/app-namespace
 SIGNER = "easypeasyops/platform/.github/workflows/release-chart.yml"
 errors: list[str] = []
+hostnames: dict[str, str] = {}  # every app route's hostname: the env file that serves it
 
 
 def fail(where: str, msg: str) -> None:
@@ -123,7 +126,10 @@ def check(env_file: Path, out: Path) -> None:
         except subprocess.CalledProcessError as e:
             return fail(where, f"doesn't render: {e.stderr.strip()}")
     (out / f"{namespace}.yaml").write_text(rendered)
-    kinds = sorted({d["kind"] for d in yaml.safe_load_all(rendered) if d})
+    docs = [d for d in yaml.safe_load_all(rendered) if d]
+    for route in (d for d in docs if d["kind"] == "HTTPRoute"):
+        hostnames.update(dict.fromkeys(route["spec"].get("hostnames") or [], where))
+    kinds = sorted({d["kind"] for d in docs})
     print(f"ok {where}: service {version} renders {', '.join(kinds)}")
 
 
@@ -138,7 +144,23 @@ def main() -> int:
         return 1
     for env_file in env_files:
         check(env_file, args.out)
+    check_probes()
     return 1 if errors else 0
+
+
+def check_probes() -> None:
+    """5. The front door's probes (the platform chart's Probes) and the apps' hostnames agree:
+    a hostname nobody probes is a broken route nobody hears about; a probe of a hostname no
+    route serves fails for good. Only when every app rendered: otherwise the list is short."""
+    if errors:
+        return
+    values = yaml.safe_load((ROOT / "deploy/argocd/platform/values.yaml").read_text())
+    probed = {p["hostname"] for p in values["frontDoorProbes"] if p["listener"] == "http"}
+    where = "deploy/argocd/platform/values.yaml"
+    for hostname in sorted(hostnames.keys() - probed):
+        fail(where, f"{hostname} ({hostnames[hostname]}) is not in frontDoorProbes")
+    for hostname in sorted(probed - hostnames.keys()):
+        fail(where, f"frontDoorProbes has {hostname}, which no app's route serves")
 
 
 if __name__ == "__main__":

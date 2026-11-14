@@ -205,7 +205,7 @@ flowchart TB
   CS["scripts/cluster.sh up<br/>Helm: Argo CD"] --> Root["Application platform (root)<br/>parameters: revision, arch, components"]
   Root --> WP["wave -2<br/>platform-project"]
   WP --> WB["wave -1<br/>external-secrets, cert-manager"]
-  WB --> W0["wave 0<br/>secret-store · cloudnative-pg, barman-cloud · metrics-server<br/>envoy-gateway, gateway, tool-routes · argo-rollouts<br/>monitoring, node-exporter, logs, log-collector · kyverno · backups"]
+  WB --> W0["wave 0<br/>secret-store · cloudnative-pg, barman-cloud · metrics-server<br/>envoy-gateway, gateway, tool-routes · argo-rollouts<br/>monitoring, node-exporter, blackbox-exporter, logs, log-collector · kyverno · backups"]
   W0 --> W1["wave 1<br/>kyverno-policies · the platform's alerts"]
 ```
 
@@ -232,8 +232,10 @@ What the children are for:
   both on 127.0.0.1; they outlive releases and sleep, which a `kubectl port-forward` doesn't.
 - **Monitoring and logs.** kube-prometheus-stack: the operator's CRDs make scraping, rules
   and dashboards part of each app's chart. Alertmanager routes by namespace to Slack.
-  VictoriaLogs keeps every pod's log lines, sent by a collector; node-exporter reports the
-  node's CPU, memory and disk. Both read the node's files, so each runs alone in a
+  VictoriaLogs keeps every pod's log lines, sent by a collector, and the cluster's events,
+  which an exporter writes as its own log lines (the API server keeps them an hour; no
+  second way into the store); node-exporter reports the
+  node's CPU, memory and disk. Those two read the node's files, so each runs alone in a
   namespace of its own, the only two at Pod Security `privileged`. Argo CD is scraped and alerted on too (tickets,
   not pages): with GitOps, a sync that silently stops is a deploy that silently never
   happens. So is the log pipeline: logs that stop arriving fail nothing either, until the
@@ -242,11 +244,19 @@ What the children are for:
   certificate that works until the day it expires. And Kyverno (warnings): with its one
   admission pod down, no Pod can be created in an app's namespace. And CloudNativePG
   (warnings): its operator down, or a database whose last base backup is over a day old,
-  for every app's database from one rule rather than one per app. And a route with no
+  for every app's database from one rule rather than one per app. And Argo Rollouts
+  (warnings): its controller down, or a canary aborted by an analysis that errored (it
+  couldn't measure) rather than failed, the platform's to fix. And a route with no
   backend, read from the HTTPRoute's status through kube-state-metrics (custom resource
   state) rather than from Envoy: the proxy counts its own 5xx per listener only, and only
   when someone asks, while the status names the route and kube-state-metrics already runs.
-  Details: RUNBOOK.
+  The dashboards' deploy marks are read the same way, from each Argo CD Application's last
+  sync: Argo CD's own metrics name no revision, and this needs no Grafana API token, which
+  Argo CD's notifications into Grafana would. And each hostname, asked for through the
+  proxies every minute by a blackbox exporter, as a user would: everything else that watches
+  an app goes around the Gateway, and a quiet app's broken route burns no SLO budget. The
+  hostnames are a list in git (Prometheus can't discover an HTTPRoute), which CI checks
+  against the apps' rendered routes. Details: RUNBOOK.
 - **Databases and backups.** CloudNativePG runs each app's Postgres from the `Cluster` its
   chart renders: failover, base backups and point-in-time recovery from an operator
   instead of a hand-rolled StatefulSet and dumps. Backups go through the Barman Cloud

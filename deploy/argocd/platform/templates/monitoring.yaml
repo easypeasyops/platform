@@ -1,5 +1,6 @@
 {{- if .Values.components.monitoring }}
-# Argo CD's own monitoring: its application controller scraped, and alerts on it
+# Argo CD's own monitoring: its application controller, repo server and ApplicationSet
+# controller scraped, and alerts on them
 # (files/argocd-rules.yaml); and the front door's metrics. Part of the root, in wave 1: the CRDs come with
 # kube-prometheus-stack in wave 0. Prometheus selects ServiceMonitors and rules in every
 # namespace (deploy/kind/monitoring-values.yaml).
@@ -21,6 +22,45 @@ spec:
       # deploy/kind/argocd-values.yaml).
       app.kubernetes.io/name: argocd-metrics
       app.kubernetes.io/component: application-controller
+  endpoints:
+    - port: http-metrics
+      interval: 30s
+---
+# The repo server (job="argocd-repo-server-metrics"): its git requests and their failures.
+# The Service comes with repoServer.metrics.enabled (deploy/kind/argocd-values.yaml), which
+# reaches the cluster with `scripts/cluster.sh up`: until then this selects nothing.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: argocd-repo-server
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true # as above
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: argocd-repo-server-metrics
+      app.kubernetes.io/component: repo-server
+  endpoints:
+    - port: http-metrics
+      interval: 30s
+---
+# The ApplicationSet controller (job="argocd-applicationset-controller-metrics"), as the
+# repo server above (applicationSet.metrics.enabled).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: argocd-applicationset-controller
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true # as above
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: argocd-metrics
+      app.kubernetes.io/component: applicationset-controller
   endpoints:
     - port: http-metrics
       interval: 30s
@@ -85,6 +125,33 @@ spec:
   endpoints:
     - port: metrics
       interval: 30s
+{{- /* Each hostname on the front door (values.yaml, frontDoorProbes), asked for as a user
+would, every minute (deploy/kind/blackbox-exporter-values.yaml: through the proxies'
+Service, by hostname). In the root's own namespace, for the fresh cluster's dry run (as the
+PodMonitor above). job="front-door"; `hostname` and `listener` name what failed. */}}
+{{- range .Values.frontDoorProbes }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: front-door-{{ .hostname | replace "." "-" }}
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true # as above
+spec:
+  jobName: front-door
+  interval: 60s
+  module: front_door_{{ .listener }}
+  prober:
+    url: blackbox-exporter.monitoring.svc:9115
+  targets:
+    staticConfig:
+      static: [{{ printf "http://%s%s" .hostname .path | quote }}]
+      labels:
+        hostname: {{ .hostname | quote }}
+        listener: {{ .listener | quote }}
+{{- end }}
 ---
 # The front door's dashboard (files/front-door-dashboard.json, uid front-door): request
 # rate, error rate and latency per route, and what the proxy answered itself. Grafana's
@@ -153,6 +220,18 @@ metadata:
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true # as above
 spec:
   {{- .Files.Get "files/front-door-rules.yaml" | fromYaml | toYaml | nindent 2 }}
+---
+# Alerts from the front door's probes (files/front-door-probes-rules.yaml).
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: front-door-probes
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true # as above
+spec:
+  {{- .Files.Get "files/front-door-probes-rules.yaml" | fromYaml | toYaml | nindent 2 }}
 ---
 # The alerts on External Secrets (files/external-secrets-rules.yaml). Its ServiceMonitors
 # come from its own chart (deploy/kind/external-secrets-values.yaml); its namespace exists
@@ -280,4 +359,43 @@ metadata:
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true # as above
 spec:
   {{- .Files.Get "files/cloudnative-pg-rules.yaml" | fromYaml | toYaml | nindent 2 }}
+---
+# The Argo Rollouts controller scraped: its Rollouts' and AnalysisRuns' phases, for the
+# alerts on prod's canaries. The ServiceMonitor is the platform's, not the chart's
+# (controller.metrics.serviceMonitor, deploy/kind/argo-rollouts-values.yaml): the chart
+# renders its own whether or not the CRD exists, and Argo Rollouts is in wave 0 on every
+# cluster. It selects the chart's metrics Service (controller.metrics.enabled):
+# job="argo-rollouts". In the root's own namespace, selecting across (as the PodMonitor
+# above). The metrics' own `namespace` (the Rollout's) becomes `exported_namespace`.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: argo-rollouts
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true # as above
+spec:
+  namespaceSelector:
+    matchNames: [argo-rollouts]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: argo-rollouts
+      app.kubernetes.io/component: rollouts-controller
+  jobLabel: app.kubernetes.io/name # job="argo-rollouts", not "argo-rollouts-metrics"
+  endpoints:
+    - port: metrics
+      interval: 30s
+---
+# The alerts on it and on prod's canaries (files/argo-rollouts-rules.yaml).
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: argo-rollouts
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true # as above
+spec:
+  {{- .Files.Get "files/argo-rollouts-rules.yaml" | fromYaml | toYaml | nindent 2 }}
 {{- end }}

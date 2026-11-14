@@ -94,3 +94,45 @@ tests:
               summary: Argo CD's application controller isn't running (or isn't scraped)
               description: Nothing in git reaches the cluster while it is down, and drift goes uncorrected. Running workloads are unaffected.
               runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#argo-cd-alerts
+
+  # The repo server can't reach GitHub: ls-remote fails at every poll. Every Application
+  # stays Synced (nothing else fires); after an hour of failures, a ticket.
+  - name: git failing for an hour opens a ticket
+    interval: 1m
+    input_series:
+      - series: 'argocd_git_lsremote_fail_total{job="argocd-repo-server-metrics",repo="/tmp/_argocd-repo/0b1c",revision="HEAD"}'
+        values: '0+2x90'
+      - series: 'argocd_app_info{name="shortly-prod",project="shortly",sync_status="Synced",health_status="Healthy"}'
+        values: '1x90'
+    alert_rule_test:
+      - eval_time: 55m
+        alertname: ArgoCDCantReachGit
+        exp_alerts: []
+      - eval_time: 70m
+        alertname: ArgoCDCantReachGit
+        exp_alerts:
+          - exp_labels: {severity: ticket}
+            exp_annotations:
+              summary: Argo CD has failed to read git for an hour
+              description: Every Application stays Synced at the last commit Argo CD saw, so a merged change (a promotion included) never lands. Running workloads are unaffected.
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#argo-cd-alerts
+      - eval_time: 70m
+        alertname: ArgoCDAppOutOfSync
+        exp_alerts: []
+
+  # The laptop offline for 45 minutes (a train ride), then back: git fails for 45 minutes
+  # and recovers, and a single failed fetch later is a blip. Neither opens a ticket.
+  - name: a train ride offline or a single failed fetch stays quiet
+    interval: 1m
+    input_series:
+      - series: 'argocd_git_lsremote_fail_total{job="argocd-repo-server-metrics",repo="/tmp/_argocd-repo/0b1c",revision="HEAD"}'
+        values: '0+2x45 90x75'
+      - series: 'argocd_git_fetch_fail_total{job="argocd-repo-server-metrics",repo="/tmp/_argocd-repo/0b1c",revision="0f3a9e1"}'
+        values: '0x80 1x40'
+    alert_rule_test:
+      - eval_time: 60m
+        alertname: ArgoCDCantReachGit
+        exp_alerts: []
+      - eval_time: 120m
+        alertname: ArgoCDCantReachGit
+        exp_alerts: []

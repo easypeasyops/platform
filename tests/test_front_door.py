@@ -229,7 +229,7 @@ def test_the_dashboard_reads_the_series_the_monitors_make() -> None:
         for target in panel.get("targets", [])
     }
     for title, expr in queries.items():
-        assert re.search(r'job="(envoy(-gateway)?|kube-state-metrics)"', expr), title
+        assert re.search(r'job="(envoy(-gateway)?|kube-state-metrics|front-door)"', expr), title
         for label in re.findall(r"\broute\w*", expr):
             assert label in route_labels, f"{title}: {label}"
     for title, metric in (
@@ -240,6 +240,10 @@ def test_the_dashboard_reads_the_series_the_monitors_make() -> None:
     ):
         assert metric in queries[title], title
         assert "by (route_namespace, route" in queries[title], title
+    # The probes (_probes): what each one answered, by the labels the Probes give them.
+    for title in ("Probes failing now", "Probe result"):
+        assert 'probe_success{job="front-door"}' in queries[title], title
+        assert "by (hostname, listener)" in queries[title], title
 
 
 def _route_status_series() -> str:
@@ -249,8 +253,11 @@ def _route_status_series() -> str:
     values = yaml.safe_load((ROOT / "deploy/kind/monitoring-values.yaml").read_text())
     ksm = values["kube-state-metrics"]
     assert ksm["customResourceState"]["enabled"] is True
-    (resource,) = ksm["customResourceState"]["config"]["spec"]["resources"]
-    assert resource["groupVersionKind"]["kind"] == "HTTPRoute"
+    (resource,) = [
+        r
+        for r in ksm["customResourceState"]["config"]["spec"]["resources"]
+        if r["groupVersionKind"]["kind"] == "HTTPRoute"
+    ]
     assert {
         "apiGroups": [resource["groupVersionKind"]["group"]],
         "resources": ["httproutes"],
@@ -291,8 +298,12 @@ def test_the_stack_hands_kube_state_metrics_the_route_config() -> None:
     (container,) = deployment["spec"]["template"]["spec"]["containers"]
     (flag,) = [a for a in container["args"] if a.startswith("--custom-resource-state-config-file=")]
     (config_map,) = [d for d in docs if d["kind"] == "ConfigMap"]
-    (resource,) = yaml.safe_load(config_map["data"][Path(flag.split("=")[1]).name])["spec"][
-        "resources"
+    (resource,) = [
+        r
+        for r in yaml.safe_load(config_map["data"][Path(flag.split("=")[1]).name])["spec"][
+            "resources"
+        ]
+        if r["groupVersionKind"]["kind"] == "HTTPRoute"
     ]
     assert f"{resource['metricNamePrefix']}_{resource['metrics'][0]['name']}" == series
     (role,) = [d for d in docs if d["kind"] == "ClusterRole"]
@@ -310,12 +321,106 @@ def test_the_front_door_alerts_ship_as_the_rules_file_says() -> None:
         if d["kind"] == "PrometheusRule" and d["metadata"]["name"] == "front-door"
     ]
     assert rule["spec"] == yaml.safe_load((CHART / "files/front-door-rules.yaml").read_text())
-    # They read the routes' status, and name the route: no backend, with or without traffic.
-    for group in rule["spec"]["groups"]:
-        for alert in group["rules"]:
-            assert _route_status_series() + '{job="kube-state-metrics"' in alert["expr"]
-            assert "by (route_namespace, route, type, reason)" in alert["expr"]
-            assert (
-                "{{ $labels.route_namespace }}/{{ $labels.route }}"
-                in (alert["annotations"]["summary"])
-            )
+    alerts = {a["alert"]: a for group in rule["spec"]["groups"] for a in group["rules"]}
+    # The proxies and the controller: absent from the jobs their monitors give them, so a
+    # pod that is gone (no target left to be down) counts as down.
+    proxies = _monitors()["PodMonitor"]["spec"]
+    job = proxies["selector"]["matchLabels"][proxies["jobLabel"]]
+    assert alerts.pop("FrontDoorDown")["expr"] == f'absent(up{{job="{job}"}} == 1)'
+    controller = alerts.pop("FrontDoorControllerDown")
+    assert controller["expr"] == 'absent(up{job="envoy-gateway"} == 1)'
+    # The rest read the routes' status, and name the route: no backend, with or without
+    # traffic.
+    assert alerts
+    for alert in alerts.values():
+        assert _route_status_series() + '{job="kube-state-metrics"' in alert["expr"]
+        assert "by (route_namespace, route, type, reason)" in alert["expr"]
+        assert (
+            "{{ $labels.route_namespace }}/{{ $labels.route }}" in (alert["annotations"]["summary"])
+        )
+
+
+def test_the_probes_go_through_the_proxies_one_module_per_listener() -> None:
+    """The blackbox exporter (deploy/kind/blackbox-exporter-values.yaml) sends each probe to
+    the proxies' Service as a proxy request, so it takes a listener and a route as a user's
+    does: one module per listener, at the Service's port for it, never resolving the name
+    itself (a `.localhost` name is the exporter's own pod)."""
+    values = yaml.safe_load((ROOT / "deploy/kind/blackbox-exporter-values.yaml").read_text())
+    service = _gateway_docs()["EnvoyProxy"]["spec"]["provider"]["kubernetes"]["envoyService"]
+    ports = {
+        listener["name"]: listener["port"]
+        for listener in _gateway_docs()["Gateway"]["spec"]["listeners"]
+    }
+    modules = values["config"]["modules"]
+    assert set(modules) == {f"front_door_{name}" for name in LISTENER_NAMESPACES}
+    for listener, port in ports.items():
+        http = modules[f"front_door_{listener}"]["http"]
+        assert http["proxy_url"] == f"http://{service['name']}.envoy-gateway-system.svc:{port}"
+        assert http["skip_resolve_phase_with_proxy"] is True
+        assert http["follow_redirects"] is False
+    # Only Prometheus's namespace may ask it to fetch a URL.
+    assert values["networkPolicy"] == {
+        "enabled": True,
+        "allowMonitoringNamespace": True,
+        "monitoringNamespaceName": "monitoring",
+    }
+    apps = {d["metadata"]["name"]: d for d in _platform() if d["kind"] == "Application"}
+    assert apps["blackbox-exporter"]["spec"]["destination"]["namespace"] == "monitoring"
+    assert apps["envoy-gateway"]["spec"]["destination"]["namespace"] == "envoy-gateway-system"
+    assert "blackbox-exporter" not in {
+        d["metadata"]["name"] for d in _platform("components.monitoring=false")
+    }
+
+
+def _probes() -> dict[str, dict[str, Any]]:
+    return {d["metadata"]["name"]: d["spec"] for d in _platform() if d["kind"] == "Probe"}
+
+
+def test_every_hostname_on_the_front_door_is_probed_every_minute() -> None:
+    """One Probe per frontDoorProbes entry, through the module for its listener, at the
+    exporter's Service. The tool routes are all there, at the listener they attach to; the
+    apps' hostnames are checked against their rendered routes by scripts/check-apps.py."""
+    entries = yaml.safe_load((CHART / "values.yaml").read_text())["frontDoorProbes"]
+    probes = _probes()
+    assert len(probes) == len(entries)
+    exporter = yaml.safe_load((ROOT / "deploy/kind/blackbox-exporter-values.yaml").read_text())
+    for entry in entries:
+        probe = probes[f"front-door-{entry['hostname'].replace('.', '-')}"]
+        assert probe["jobName"] == "front-door"
+        assert probe["interval"] == "60s"
+        assert probe["module"] == f"front_door_{entry['listener']}"
+        assert probe["module"] in exporter["config"]["modules"]
+        assert probe["prober"]["url"] == f"{exporter['fullnameOverride']}.monitoring.svc:9115"
+        assert probe["targets"]["staticConfig"] == {
+            "static": [f"http://{entry['hostname']}{entry['path']}"],
+            "labels": {"hostname": entry["hostname"], "listener": entry["listener"]},
+        }
+    tools = {
+        hostname
+        for f in sorted((ROOT / "deploy/kind/tools").glob("*.yaml"))
+        for route in _docs(f)
+        for hostname in route["spec"]["hostnames"]
+    }
+    assert {e["hostname"] for e in entries if e["listener"] == "tools"} == tools
+    assert {e["listener"] for e in entries} == set(LISTENER_NAMESPACES)
+    assert not [d for d in _platform("components.monitoring=false") if d["kind"] == "Probe"]
+    # Prometheus picks up Probes from any release, as it does the monitors.
+    values = yaml.safe_load((ROOT / "deploy/kind/monitoring-values.yaml").read_text())
+    assert values["prometheus"]["prometheusSpec"]["probeSelectorNilUsesHelmValues"] is False
+
+
+def test_the_probe_alert_ships_as_the_rules_file_says() -> None:
+    """It reads the Probes' job and names the hostname, aggregated to the Probes' own labels
+    (no namespace: Alertmanager routes it to the platform by its name)."""
+    (rule,) = [
+        d
+        for d in _platform()
+        if d["kind"] == "PrometheusRule" and d["metadata"]["name"] == "front-door-probes"
+    ]
+    rules = yaml.safe_load((CHART / "files/front-door-probes-rules.yaml").read_text())
+    assert rule["spec"] == rules
+    ((alert,),) = [group["rules"] for group in rules["groups"]]
+    assert alert["alert"].startswith("FrontDoor")
+    assert 'max by (hostname, listener) (probe_success{job="front-door"})' in alert["expr"]
+    assert "{{ $labels.hostname }}" in alert["annotations"]["summary"]
+    assert {p["jobName"] for p in _probes().values()} == {"front-door"}

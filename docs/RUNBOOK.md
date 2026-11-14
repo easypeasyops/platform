@@ -66,6 +66,7 @@ platform's own. Rules: `deploy/argocd/platform/files/argocd-rules.yaml`.
 | `ArgoCDAppUnhealthy` | Degraded, Missing or Unknown for 10 minutes (a canary between steps is Suspended or Progressing, never this) | `kubectl -n argocd get application <name> -o jsonpath='{range .status.resources[?(@.health.status!="Healthy")]}{.kind}/{.namespace}/{.name}: {.health.message}{"\n"}{end}'` |
 | `ArgoCDSyncFailed` | A sync was refused in the last 15 minutes (admission policy, invalid manifest, failed hook), even if a retry worked | `kubectl -n argocd get application <name> -o jsonpath='{.status.operationState.message}'` |
 | `ArgoCDDown` | No application controller scraped for 10 minutes: nothing syncs, nothing self-heals, and the three above are blind | `kubectl -n argocd get pods`; `kubectl -n argocd logs statefulset/argocd-application-controller --tail=50` |
+| `ArgoCDCantReachGit` | The repo server's ls-remote or fetch has failed in every 10 minutes for an hour: GitHub (or an app's repo) unreachable, or its credentials refused. Every Application stays Synced at the last commit it saw, so nothing merged lands. The laptop offline for more than about 50 minutes raises it too; it clears within 10 minutes of being back online | `kubectl -n argocd logs deploy/argocd-repo-server --tail=50`; then "Synced, but to an older revision" below |
 
 Then the tables below, and the app's own runbook for its Application (aipostit: "API
 health check fails").
@@ -83,7 +84,7 @@ An app's Application (`<app>-<env>`):
 
 | What you see | Cause | Fix |
 | --- | --- | --- |
-| Synced, but to an older revision | Not polled yet (every 60 s), or the repo server can't reach GitHub | Wait a minute; `kubectl -n argocd annotate application <name> argocd.argoproj.io/refresh=normal --overwrite` forces a check; then the repo server's logs |
+| Synced, but to an older revision | Not polled yet (every 60 s), or the repo server can't reach GitHub (`ArgoCDCantReachGit` after an hour) | Wait a minute; `kubectl -n argocd annotate application <name> argocd.argoproj.io/refresh=normal --overwrite` forces a check; then the repo server's logs |
 | `ComparisonError` | The service chart doesn't render with the app's values (a typo, a bad value), or the env file here names a digest or a file that doesn't exist | The message names the template or the file; fix it in a PR. Nothing changed in the cluster. CI here (`apps` job) renders every env file, so the break is usually in the app's repo |
 | `<app>-<env>` missing | The ApplicationSet isn't running, or can't read `apps/` | `kubectl -n argocd get applicationset apps -o jsonpath='{.status.conditions}'` |
 | Sync failed, a webhook denied the request | An admission policy refused a Pod | Admission policy refuses pods, below |
@@ -135,6 +136,9 @@ kubectl -n kyverno get pods
 kubectl get imagevalidatingpolicy,validatingpolicy     # READY must be true
 ```
 
+Events are gone from the API an hour after they last happened; they stay in the logs (Logs,
+Kubernetes events): `involvedObject.namespace:=<ns> reason:=FailedCreate` there.
+
 | Message | Cause | Fix |
 | --- | --- | --- |
 | `our images must be a release digest with provenance…` | An unreleased or unattested image: a CI build, a fork, or a per-platform child digest instead of the release's index digest | Deploy the digest from the GitHub Release notes. `scripts/verify-image.sh <ref>` tells you why it fails |
@@ -182,15 +186,22 @@ a scale-up, the replacement for a pod that crashed. What already runs keeps runn
 | --- | --- | --- |
 | `KyvernoAdmissionControllerDown` | The admission controller hasn't been scraped for 5 minutes: no Pod can be created in an app's namespace | `kubectl -n kyverno get pods`; `kubectl -n kyverno describe pod -l app.kubernetes.io/component=admission-controller` (OOMKilled? its limit is in `deploy/kind/kyverno-values.yaml`); `kubectl -n kyverno logs deploy/kyverno-admission-controller --tail=50` (add `--previous` after a crash) |
 | `KyvernoReportsControllerDown` | The reports controller hasn't been scraped for 15 minutes: PolicyReports go stale (the allowlist's Audit results), admission still works | `kubectl -n kyverno get pods`; `kubectl -n kyverno logs deploy/kyverno-reports-controller --tail=50` |
+| `KyvernoProvenanceCheckErrors` | Kyverno is up but the provenance policy couldn't run for a request in `resource_namespace` (it errored, it didn't refuse): that Pod or rollout was refused. Usually `ghcr.io` unreachable from Kyverno; in one namespace only, maybe a digest that doesn't exist | `kubectl -n <resource_namespace> get events --sort-by=.lastTimestamp \| grep -i -E 'denied\|webhook' \| tail`; `kubectl -n kyverno logs deploy/kyverno-admission-controller --tail=50 \| grep -i -E 'imagedata\|error'`; `scripts/verify-image.sh <ref>` from the laptop |
+| `KyvernoWebhookCallsFailing` | The API server got no answer from the provenance webhook (a 30 s timeout, or Kyverno unreachable) and refused the request: no Pod can be created in an app's namespace. Fires beside `KyvernoAdmissionControllerDown` when the pod is down, and before it | As `KyvernoAdmissionControllerDown`; with the pod Ready, it is slow: `kubectl -n kyverno top pod`, and its log for registry or Rekor timeouts |
 
 A pod that is there and not Ready, or in a crash loop: propose
 `kubectl -n kyverno rollout restart deploy/kyverno-admission-controller` (or
 `deploy/kyverno-reports-controller`). No pod at all: the `kyverno` Application
 (`kubectl -n argocd get application kyverno`; An Application that won't sync, above). If
 pods must start before Kyverno is back, the break glass is in Admission policy refuses
-pods, above. Either alert with its pod running and Ready is the scrape: Prometheus's Targets
+pods, above. Either `…Down` alert with its pod running and Ready is the scrape: Prometheus's Targets
 page (http://prometheus.localhost:8090/targets), `kyverno-svc-metrics` and
 `kyverno-reports-controller-metrics`.
+
+Neither of the last two tells Sigstore (Rekor, TUF) unreachable from an unreleased image:
+Kyverno counts a signature it couldn't check as a refusal (`result="fail"`). A release
+digest refused with `our images must be a release digest…` is that case: check
+Kyverno's log, and `scripts/verify-image.sh <ref>`, which passes for a release.
 
 ## The front door
 
@@ -204,8 +215,11 @@ The `tools` listener has no login of its own: the forwarders listen on 127.0.0.1
 
 The Gateway is the user path; probes and Prometheus go around it. So a broken front door
 looks like **traffic dropping**, not errors: no alert fires on the pods. The proxies' own
-metrics show it (the dashboard below), and one alert watches the routes' status
-([a route with no backend](#a-route-with-no-backend)).
+metrics show it (the dashboard below); alerts watch the proxies and the controller
+([the front door is down](#the-front-door-is-down)), the routes' status
+([a route with no backend](#a-route-with-no-backend)), and each hostname, asked for
+through the proxies every minute as a user would
+([a hostname the front door doesn't serve](#a-hostname-the-front-door-doesnt-serve)).
 
 ```sh
 docker ps --filter name=shortly-front-door                     # two, Up
@@ -231,12 +245,46 @@ backends, for the requests that reached a backend. Per listener (`http-10080` is
 the users' port 8080; `http-8081` is `tools`): every answer, and the ones the proxy gave
 itself, which no app's metrics show: 5xx for a route with no backend, 404 for a hostname
 no route matches. A route with no backend has no Envoy series of its own: it drops off
-"Healthy backends", and is listed under "Routes with no backend", from its status.
+"Healthy backends", and is listed under "Routes with no backend", from its status The row "Probes"
+has each hostname as a user would have it, every minute, whether or not anyone asks.
+
+**Deploy marks:** a blue mark (annotation "Deploys") at the minute an Argo CD Application's
+sync deployed a new revision; hover for the Application and the revision: a commit's short
+SHA, or the start of a chart's digest. An app's Application (`<app>-<env>`) is marked for
+each source that moved: its chart (a pin), its values repo (a release), the platform's
+`deploy/app-namespace`. A merge to `main` that changes no Application's manifests syncs
+nothing and marks nothing. kube-state-metrics reads the revisions from each Application's
+last sync (`argocd_application_synced_revision_info` for one source,
+`argocd_application_synced_revisions_info` for several; `deploy/kind/monitoring-values.yaml`):
+Argo CD's own metrics carry none. Not marked: an Application's first sync, a deploy in the
+first minutes after a sleep, and a move back to a revision it had in the 5 minutes before.
+No marks at all: is kube-state-metrics exporting them (`kubectl -n monitoring logs
+deploy/kube-state-metrics`)? An app's SLO dashboard (service chart 1.3.0 on) has the same
+marks for the environment it shows, its Application only.
 
 Prometheus scrapes the proxies (job `envoy`) and the controller (job `envoy-gateway`):
 http://prometheus.localhost:8090/targets. The proxies count every request they answer,
 the ones that never reached an app included; a route's series (`envoy_cluster_*`) carry
 `route_namespace` and `route`, the HTTPRoute's namespace and name.
+
+### The front door is down
+
+To #platform-alerts. Rules: `deploy/argocd/platform/files/front-door-rules.yaml`. With
+the pod gone the stack's `TargetDown` has no target left to be down, so these read
+`absent(up{job=...} == 1)`.
+
+| Alert | Means | First look |
+| --- | --- | --- |
+| `FrontDoorDown` (critical) | No proxy (job `envoy`) scraped for 3 minutes: every app and tool is unreachable from outside | `kubectl -n envoy-gateway-system get deploy,pods -l app.kubernetes.io/component=proxy`; `kubectl -n envoy-gateway-system describe pod -l app.kubernetes.io/component=proxy` (OOMKilled? its limit is the EnvoyProxy's, `deploy/kind/gateway.yaml`); `kubectl -n gateway get gateway shortly` |
+| `FrontDoorControllerDown` (warning) | No controller (job `envoy-gateway`) scraped for 10 minutes: what runs keeps serving, but no Gateway or route change reaches the proxies, and a proxy that goes is not replaced | `kubectl -n envoy-gateway-system get pods`; `kubectl -n envoy-gateway-system logs deploy/envoy-gateway --tail=50` (add `--previous` after a crash) |
+
+The controller makes the proxy's Deployment: a proxy Deployment that is gone with the
+controller up comes back within seconds, so `FrontDoorDown` with no proxy Deployment
+means the controller is down too (fix that first) or the Gateway isn't `Programmed` (the
+table above). No controller pod at all: the `envoy-gateway` Application
+(`kubectl -n argocd get application envoy-gateway`; An Application that won't sync,
+above). Either alert with its pod running and Ready is the scrape: Prometheus's Targets
+page (http://prometheus.localhost:8090/targets), `envoy` and `envoy-gateway`.
 
 ### The access log
 
@@ -303,6 +351,43 @@ when. Then it is the app's incident (its runbook): the pods have to come back. F
 Argo CD or monitoring route (`tools`), it is the platform's own pod. The alert resolves
 once the route's status says it has a backend again. No alert and no series at all:
 kube-state-metrics isn't exporting them (`kubectl -n monitoring logs deploy/kube-state-metrics`).
+
+### A hostname the front door doesn't serve
+
+`FrontDoorProbeFailing` (a ticket, to #platform-alerts): for 5 minutes, every request for a
+hostname through the Gateway got no 2xx. The blackbox exporter (`monitoring`,
+`deploy/kind/blackbox-exporter-values.yaml`) asks every minute for each hostname in
+`frontDoorProbes` (`deploy/argocd/platform/values.yaml`): an app's `/healthz` on the `http`
+listener, each tool's health page on `tools`. It sends the request to the proxies' Service
+as an HTTP proxy request, so it takes the listener, the route and the app's NetworkPolicy
+that a user's request takes, and it needs no traffic: a quiet app with a broken route burns
+no SLO budget, and its pods' probes and scrapes go around the Gateway.
+
+The message names the hostname and the listener. The dashboard's "Probes failing now" has
+the status it got. To see one probe in full (the request, the answer, the timings):
+
+```sh
+kubectl -n monitoring port-forward svc/blackbox-exporter 9115 &
+curl -s 'http://localhost:9115/probe?module=front_door_http&target=http://aipostit.localhost/healthz&debug=true'
+# a tool: module=front_door_tools, e.g. target=http://grafana.localhost/api/health
+```
+
+| Status it got | Cause | Fix |
+| --- | --- | --- |
+| 0 (no answer within 5 s) or 503, with the app's pods Ready and no `FrontDoorRouteWithoutBackend` | The proxy can't reach the pods: the app's NetworkPolicy doesn't admit `envoy-gateway-system` (the last row of the table above) | The app's `networkPolicy.httpFrom` |
+| 404, and "404 for no route" rises | No route on that listener has the hostname: the route isn't `Accepted`, or names another hostname or listener | The table above, from `kubectl get httproute -A` |
+| 503 or 500, and `FrontDoorRouteWithoutBackend` fires too | The route has no backend: that alert names the route | [A route with no backend](#a-route-with-no-backend) |
+| Every hostname at once | The proxies: with none running, `FrontDoorDown` fires and holds these back (an inhibit rule); with them running, the exporter's way to them | [The front door is down](#the-front-door-is-down); `kubectl -n envoy-gateway-system get pods,svc` |
+| Another 4xx or 5xx | The app answered: its `/healthz` fails through the Gateway as well as for the kubelet | The app's runbook |
+
+No series at all for a hostname: the exporter is down or Prometheus doesn't scrape it (the
+stack's `TargetDown` fires for job `front-door`; http://prometheus.localhost:8090/targets).
+A hostname an app adds or drops must be added to or dropped from `frontDoorProbes` in the
+same change: `scripts/check-apps.py` fails CI until they agree.
+
+What it can't see: the two forwarder containers on the laptop (`shortly-front-door-8080`
+and `-8090`, outside the cluster), which a user's request passes first. A probe that passes
+while the browser gets nothing on 8080 or 8090 is the first row of the table above.
 
 ## Network policies
 
@@ -387,17 +472,29 @@ alert's description and the upstream runbook. The namespaces are listed in the r
 platform namespace is added there (`tests/test_alerting.py` fails until it is). The stack's
 `info` alerts and `Watchdog` stay on `null`.
 
+**The links under a firing message** (`links-slack.tmpl`, both channels), after the
+runbook: **Query**, the alert's expression in Prometheus at the moment it fired; **Logs**,
+Explore on VictoriaLogs with its namespace's lines (`exported_namespace` or
+`route_namespace` where it has one), from an hour before it fired to half an hour after
+(Argo CD's alerts, which name only an Application: Argo CD's lines naming it);
+**Dashboard**, where the rule has a `dashboard_url` annotation, a path under Grafana's
+address (the front door's: `/d/front-door`; the node alerts: Node Exporter / Nodes);
+**Silence**, a new silence filled in with the group's labels. A resolved message keeps only
+the runbook. They open on the laptop only (`*.localhost:8090`).
+
 **Test the route end to end** (posts to the real channels: say so there first). An alert sent
 by hand, which resolves itself after its end time:
 
 ```sh
 amtool --alertmanager.url=http://alertmanager.localhost:8090 alert add AipostitTest \
   namespace=aipostit-staging severity=ticket \
-  --annotation=summary="Test alert, please ignore" --end="$(date -u -v+5M +%Y-%m-%dT%H:%M:%SZ)"
+  --annotation=summary="Test alert, please ignore" --end="$(date -u -v+5M +%Y-%m-%dT%H:%M:%SZ)" \
+  --generator-url='http://prometheus.localhost:8090/graph?g0.expr=up%7Bnamespace%3D%22aipostit-staging%22%7D&g0.tab=1'
 ```
 
 It reaches #aipostit-alerts-staging after `group_wait` (30 s), and a resolved message about
-5 minutes after the end time. `namespace=aipostit-prod severity=page` tests the prod channel
+5 minutes after the end time. Its links open `up{namespace="aipostit-staging"}` at the
+moment it fired, aipostit-staging's logs around then, and a silence for it. `namespace=aipostit-prod severity=page` tests the prod channel
 and its `@channel`. Nothing arrives: `kubectl -n monitoring logs alertmanager-kps-alertmanager-0
 -c alertmanager | grep -i slack` (a 404 or `invalid_token` is a revoked webhook: load a new
 one, above).
@@ -448,7 +545,7 @@ is the ExternalSecret's namespace (`namespace` is the controller's). Rules:
 
 | Alert | Means | First look |
 | --- | --- | --- |
-| `ExternalSecretNotSyncing` | An ExternalSecret has been not Ready for 15 minutes: its Secret is stale, or was never made | `kubectl get externalsecret -A`; `kubectl -n <ns> describe externalsecret <name>` (the events name the store or the key it can't read) |
+| `ExternalSecretNotSyncing` | An ExternalSecret has been not Ready for 15 minutes: its Secret is stale, or was never made | `kubectl get externalsecret -A`; `kubectl -n <ns> describe externalsecret <name>` (the events name the store or the key it can't read; after an hour, in the logs: Logs, Kubernetes events) |
 | `ExternalSecretsDown` | No controller scraped for 10 minutes: nothing is refreshed or created, and the alert above is blind | `kubectl -n external-secrets get pods`; `kubectl -n external-secrets logs deploy/external-secrets --tail=50` |
 
 | The ExternalSecret says | Cause | Fix |
@@ -472,7 +569,7 @@ namespace (`namespace` is the controller's). Rules:
 
 | Alert | Means | First look |
 | --- | --- | --- |
-| `CertificateExpiresSoon` | A certificate has less than 7 days left: its renewal has been failing for 8 | `kubectl get certificate -A`; `kubectl -n <ns> describe certificate <name>` (the events name the CertificateRequest); `kubectl -n <ns> get certificaterequest` |
+| `CertificateExpiresSoon` | A certificate has less than 7 days left: its renewal has been failing for 8 | `kubectl get certificate -A`; `kubectl -n <ns> describe certificate <name>` (the events name the CertificateRequest; after an hour, in the logs: Logs, Kubernetes events); `kubectl -n <ns> get certificaterequest` |
 | `CertificateNotReady` | A Certificate has been not Ready for 15 minutes: never issued, or expired | The same; `kubectl -n <ns> get issuer` (Ready?) |
 | `CertManagerDown` | No controller scraped for 10 minutes: nothing is issued or renewed, and the alerts above are blind | `kubectl -n cert-manager get pods`; `kubectl -n cert-manager logs deploy/cert-manager --tail=50` |
 
@@ -619,6 +716,34 @@ re-sends lines. Settings: `deploy/kind/log-collector-values.yaml`.
 - A pod deleted before its lines were read loses them: the kubelet removes its files with it.
   Recreating the kind node loses the reading positions with the rest of its disk.
 
+### Kubernetes events
+
+The API server forgets an event an hour after it last happened. `event-exporter` (one pod
+in the namespace of that name, the platform's `event-exporter` Application,
+`deploy/kind/event-exporter.yaml`) writes every event, from every namespace, as a JSON line
+to its stdout, so they are kept with the logs, 30 days. Fields: `reason`, `type` (`Normal`
+or `Warning`), `involvedObject.kind`, `involvedObject.namespace`, `involvedObject.name`,
+`reportingController`; the event's message is `_msg`, its time `_time`.
+
+```
+# What happened to this pod (or Deployment, ExternalSecret, Certificate...: its kind and name)
+_time:1d {kubernetes.pod_namespace="event-exporter"} involvedObject.namespace:=aipostit-prod involvedObject.kind:=Pod involvedObject.name:=<pod>
+# Every Warning in this namespace since yesterday
+_time:1d {kubernetes.pod_namespace="event-exporter"} involvedObject.namespace:=aipostit-prod type:=Warning
+# Which warnings, where, how often (BackOff, Unhealthy, FailedScheduling, Failed, FailedCreate, Evicted...)
+_time:1d {kubernetes.pod_namespace="event-exporter"} type:=Warning | stats by (involvedObject.namespace, reason) count() events | sort by (events desc)
+# How much it writes a day
+_time:1d {kubernetes.pod_namespace="event-exporter"} | stats count() events, sum_len(_msg) bytes
+```
+
+- An event is written when it first happens: its repeats (the count `kubectl get events`
+  shows) are not written again, so a crash loop is one `BackOff`, not hundreds.
+- It may list and watch events, nothing else. Its own log lines (warnings and errors only)
+  are on stderr: `kubectl -n event-exporter logs deploy/event-exporter`.
+- While it is down, events still reach the API, and a restart writes those of the last
+  minute again: a longer outage leaves a gap in the logs, not in `kubectl get events`.
+  Its pod's alerts (`KubePodCrashLooping`...) go to #platform-alerts.
+
 ### Log alerts
 
 Nothing fails when logs stop arriving, so rules watch the pipeline's own metrics
@@ -748,3 +873,49 @@ the scrape: Prometheus's Targets page (http://prometheus.localhost:8090/targets)
 `cloudnative-pg`. A database is watched only while Prometheus scrapes its instances
 (`<ns>/<release>-db` on the same page): that needs `monitoring.enabled` in the app's values,
 and an app whose database isn't scraped gets no backup alert.
+
+## Argo Rollouts alerts
+
+Warnings, to the platform's channel whichever app the Rollout belongs to: an analysis that
+errored is the platform's to fix, and the app's channel already hears of the aborted
+canary from Argo CD (`ArgoCDAppUnhealthy`). In `CanaryAnalysisErrored`, label
+`exported_namespace` is the Rollout's namespace, `rollout` its name and `analysisrun` the
+run that errored. Rules: `deploy/argocd/platform/files/argo-rollouts-rules.yaml`.
+
+| Alert | Means | First look |
+| --- | --- | --- |
+| `ArgoRolloutsControllerDown` | The controller hasn't been scraped for 10 minutes: no release to prod starts, a canary in flight neither moves on nor aborts | `kubectl -n argo-rollouts get pods`; `kubectl -n argo-rollouts logs deploy/argo-rollouts --tail=50` (add `--previous` after a crash) |
+| `CanaryAnalysisErrored` | A Rollout is aborted and one of its AnalysisRuns ended in `Error`: it couldn't measure, rather than measured a bad release (`Failed`, which is the app's and doesn't alert here) | Reading an aborted canary, below |
+
+| What you find | Cause | Fix |
+| --- | --- | --- |
+| The controller's pod is not Ready or in a crash loop, the log naming the Gateway API plugin | It downloads the plugin from GitHub at every start and refuses it unless the checksum matches (`gatewayAPIPlugin`, `deploy/argocd/platform/values.yaml`) | Check GitHub is reachable from the node; propose `kubectl -n argo-rollouts rollout restart deploy/argo-rollouts` |
+| No controller pod at all | The `argo-rollouts` Application | `kubectl -n argocd get application argo-rollouts`; An Application that won't sync, above |
+| The pod Ready, `ArgoRolloutsControllerDown` stays | The scrape | Prometheus's Targets page (http://prometheus.localhost:8090/targets), `argo-rollouts` |
+
+### Reading an aborted canary
+
+```sh
+# The steps, where it stopped, and each AnalysisRun with its status (the kubectl plugin)
+kubectl argo rollouts get rollout <rollout> -n <ns>
+# Without the plugin: why it aborted ("RolloutAborted: ... analysis phase error/failed: ...")
+kubectl -n <ns> get rollout <rollout> -o jsonpath='{.status.message}{"\n"}'
+kubectl -n <ns> get analysisruns --sort-by=.metadata.creationTimestamp   # newest last
+# The run's message, then each measurement's phase and its last error
+kubectl -n <ns> get analysisrun <run> -o jsonpath='{.status.message}{"\n"}'
+kubectl -n <ns> get analysisrun <run> -o jsonpath='{range .status.metricResults[*]}{.name}: {.phase} {.message}{"\n"}{end}'
+```
+
+A run is named `<rollout>-<pod hash>-<revision>-<step>`. The alert names every `Error` run
+the aborted Rollout still has: one of an older revision says only that that release
+errored too, and `get rollout` shows which run stopped the current one.
+
+| What you find | Cause | Fix |
+| --- | --- | --- |
+| Run `Failed`: `traffic`, `error-ratio` or a latency check `Failed` | The release: it measured, and missed a threshold | The app's team: the canary did its job. Nothing for the platform |
+| Run `Error`, a Prometheus measurement's message a connection error or timeout | The analysis couldn't query Prometheus (`canary.analysis.prometheusUrl`) | `kubectl -n monitoring get pods`; Prometheus data, above |
+| Run `Error` on `synthetic-traffic` | The k6 Job didn't start or didn't finish: refused at admission, its image, its deadline | `kubectl -n <ns> get jobs,pods -l app.kubernetes.io/name=canary-traffic`; `kubectl -n <ns> describe job <job>`; Admission policy refuses pods, above |
+
+Once the cause is fixed, propose `kubectl argo rollouts retry rollout <rollout> -n <ns>`:
+the canary starts again from its first step (a new release does too), and the alert ends
+when the Rollout is no longer aborted.
