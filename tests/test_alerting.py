@@ -1,4 +1,4 @@
-"""The platform's alerting: its own alert rules (Argo CD) and Alertmanager's routing.
+"""The platform's alerting: its own alert rules (Argo CD, Prometheus) and Alertmanager's routing.
 
 An alert that never fires looks exactly like a healthy system, so:
 - every platform alert has a promtool scenario, and the scenarios pass;
@@ -19,7 +19,7 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
-RULES = ROOT / "deploy/argocd/platform/files/argocd-rules.yaml"
+RULES = sorted((ROOT / "deploy/argocd/platform/files").glob("*-rules.yaml"))
 RUNBOOK = ROOT / "docs/RUNBOOK.md"
 RUNBOOK_URL = "https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md"
 PROMTOOL_TESTS = ROOT / "deploy/prometheus/tests"
@@ -42,7 +42,8 @@ def _docker() -> None:
 def test_every_platform_alert_has_a_scenario() -> None:
     alerts = {
         rule["alert"]
-        for group in yaml.safe_load(RULES.read_text())["groups"]
+        for path in RULES
+        for group in yaml.safe_load(path.read_text())["groups"]
         for rule in group["rules"]
         if "alert" in rule
     }
@@ -70,7 +71,8 @@ def test_every_runbook_link_names_a_heading() -> None:
     }
     links = [
         rule["annotations"]["runbook_url"]
-        for group in yaml.safe_load(RULES.read_text())["groups"]
+        for path in RULES
+        for group in yaml.safe_load(path.read_text())["groups"]
         for rule in group["rules"]
         if "alert" in rule
     ]
