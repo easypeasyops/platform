@@ -446,11 +446,16 @@ namespace (`namespace` is the controller's). Rules:
 `CertManagerDown` with the pod running is the scrape: Prometheus's Targets page
 (http://prometheus.localhost:8090/targets), `cert-manager`.
 
-The controller's restart count climbs with every sleep of the laptop, by design: its
-`/livez` fails when the clock has jumped more than 5 minutes (`clockHealth` in
+The controller's restart count climbs with the laptop's sleeps (about 20 a day), by design:
+its `/livez` fails once the clock has jumped more than 5 minutes in all since it started,
+short sleeps added up (`clockHealth` in
 `kubectl -n cert-manager logs deploy/cert-manager --previous`), so the kubelet restarts it
-and its renewal timers start again from the real time. A restart takes seconds, far less
-than `CertManagerDown` waits.
+and its renewal timers start again from the real time. So it restarts while the laptop is
+in use too, when idle sleeps of a minute or two have added up. A restart takes seconds, far
+less than `CertManagerDown` waits. The liveness probe stays on: without it a renewal would come late
+by as long as the laptop had slept. A restart with no `clockHealth` line in the previous
+log is another kind: last state `Unknown`, exit code 255, is the node having restarted
+(Docker or the cluster stopped); `OOMKilled` or `Error` is a fault.
 
 ## Prometheus data
 
