@@ -479,12 +479,15 @@ _time:1h | stats by (kubernetes.pod_namespace) count() lines
 
 The data source is provisioned (`grafana.additionalDataSources`,
 `deploy/kind/monitoring-values.yaml`), so it can't be edited in the UI. Is it healthy:
-Connections, Data sources, VictoriaLogs, **Test**. If it is missing or says the plugin is
-not found, Grafana started without `victoriametrics-logs-datasource`: it downloads the
-plugin from grafana.com at every start of its pod (`kubectl -n monitoring logs
-deploy/grafana -c grafana | grep -i plugin`), so restart it once the laptop is online:
-propose `kubectl -n monitoring rollout restart deploy/grafana`. If Test fails with the
-plugin there, the store is down or its NetworkPolicy no longer admits Grafana's pods.
+Connections, Data sources, VictoriaLogs, **Test**. If Test fails, the store is down or its
+NetworkPolicy no longer admits Grafana's pods.
+
+Its plugin, `victoriametrics-logs-datasource`, is kept on a volume of its own
+(`grafana-plugins` in `monitoring`, mounted at Grafana's plugin directory), so Grafana
+starts with it whether the laptop is online or not. Grafana downloads it from grafana.com
+only when the volume doesn't hold the pinned version: on a new cluster, after the PVC was
+deleted, and after a bump of `grafana.plugins`. Offline, that one start waits for the
+network (`kubectl -n monitoring logs deploy/grafana -c grafana | grep -i plugin`).
 
 **Asking it directly.** `kubectl -n monitoring port-forward svc/victoria-logs 9428`, then its own UI
 at http://localhost:9428/select/vmui, or:
