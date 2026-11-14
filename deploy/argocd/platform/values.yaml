@@ -40,6 +40,10 @@ charts:
     repo: oci://ghcr.io/victoriametrics/helm-charts/victoria-logs-collector
     version: 0.3.8
     digest: sha256:ea4a285f5f4d47caf43d6540f9d840d4c047e101a7599d2e69ed40096f7394f7
+  nodeExporter: # node-exporter v1.12.1: the node's CPU, memory and disk, for Prometheus
+    repo: oci://ghcr.io/prometheus-community/charts/prometheus-node-exporter
+    version: 5.1.0
+    digest: sha256:3001c54dd6248a0a31d25bb963f3d3f95ba9b7fbccd5d366f910461acf039f48
   externalSecrets: # External Secrets Operator v2.14.0: secrets from the store (deploy/secrets/)
     repo: oci://ghcr.io/external-secrets/charts/external-secrets
     version: 2.14.0

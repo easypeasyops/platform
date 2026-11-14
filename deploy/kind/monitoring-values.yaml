@@ -10,7 +10,8 @@ kubeEtcd: { enabled: false }
 kubeControllerManager: { enabled: false }
 kubeScheduler: { enabled: false }
 kubeProxy: { enabled: false }
-# node-exporter needs hostNetwork/hostPID, which the namespace's Pod Security level forbids.
+# The bundled node-exporter needs host access the namespace's Pod Security level forbids:
+# it runs from its own chart in a namespace of its own (deploy/kind/node-exporter-values.yaml).
 nodeExporter: { enabled: false }
 windowsMonitoring: { enabled: false }
 defaultRules:
@@ -120,7 +121,7 @@ alertmanager:
         - receiver: platform
           matchers:
             - 'severity =~ "warning|critical"'
-            - 'namespace =~ "|argo-rollouts|argocd|backups|cert-manager|cnpg-system|envoy-gateway-system|external-secrets|gateway|kube-system|kyverno|local-path-storage|log-collector|monitoring|secret-store"'
+            - 'namespace =~ "|argo-rollouts|argocd|backups|cert-manager|cnpg-system|envoy-gateway-system|external-secrets|gateway|kube-system|kyverno|local-path-storage|log-collector|monitoring|node-exporter|secret-store"'
           group_by: [alertname, namespace, severity]
         - receiver: staging # staging never pages anyone, whatever its severity
           # Any app's staging namespace, <app>-staging (platform plan, Phase 2).

@@ -47,7 +47,7 @@ Argo CD installs the platform from `deploy/argocd/platform/` in sync waves:
 - **Wave -1:** External Secrets, cert-manager.
 - **Wave 0:** the secret store, CloudNativePG and its Barman Cloud plugin, metrics-server,
   Envoy Gateway, the Gateway and the tool routes, Argo Rollouts, kube-prometheus-stack,
-  VictoriaLogs and the log collector, Kyverno, the backup bucket.
+  node-exporter, VictoriaLogs and the log collector, Kyverno, the backup bucket.
 - **Wave 1:** the Kyverno policies, and the alerts on Argo CD.
 
 On a fresh cluster the waves overlap: a child that has never synced doesn't hold its wave,
@@ -405,7 +405,8 @@ Grafana and Prometheus connect: don't give it a route on the Gateway.
 - How much it holds: `sum(vl_data_size_bytes)` in Prometheus.
 - Deleting the PVC (or the kind cluster) loses the logs; VictoriaLogs starts empty.
 
-**The collector.** `log-collector` is the one namespace at Pod Security `privileged`,
+**The collector.** `log-collector` is one of the two namespaces at Pod Security `privileged`
+(the other is `node-exporter`, Node metrics below),
 because reading the node's files takes a hostPath volume; nothing else belongs in it. The
 pod runs as root (the kubelet's log files are root's alone) with no capabilities, the
 node's `/var/log` read-only, and one directory it may write: the node's
@@ -420,6 +421,28 @@ re-sends lines. Settings: `deploy/kind/log-collector-values.yaml`.
   context).
 - A pod deleted before its lines were read loses them: the kubelet removes its files with it.
   Recreating the kind node loses the reading positions with the rest of its disk.
+
+## Node metrics
+
+node-exporter (the DaemonSet `node-exporter` in the namespace of that name, the platform's
+`node-exporter` Application) reports the kind node's CPU, memory and disk to Prometheus as
+`node_*`, job `node-exporter`. The node's disk is the one everything is kept on:
+Prometheus's volume, the logs' volume and the backup bucket are directories under the
+node's `/var` (`node_filesystem_avail_bytes{mountpoint="/var"}`), which is the Docker VM's
+disk.
+
+`node-exporter` is the other namespace at Pod Security `privileged`: it reads the node's
+`/proc`, `/sys` and `/` through hostPath volumes, all read-only, and nothing else belongs
+in it. The pod is not root, has no capabilities, no token for the API and no host network,
+so its NetworkPolicy holds: only Prometheus may connect, and it may connect to nothing.
+Because it is on the pod network, `node_network_*` describes the pod's own interface, not
+the node's. Settings: `deploy/kind/node-exporter-values.yaml`.
+
+- Is it up: the `node-exporter` Application is Synced and Healthy, and in Prometheus
+  `up{job="node-exporter"}` is 1.
+- The target is down with `context deadline exceeded`: its NetworkPolicy no longer admits
+  Prometheus's pods (Network policies, above). `kubectl -n node-exporter get pods` shows a
+  pod refused at admission as a DaemonSet with none (`describe ds/node-exporter`).
 
 ## The backup bucket
 

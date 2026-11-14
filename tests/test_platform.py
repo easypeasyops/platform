@@ -162,22 +162,23 @@ def test_logs_ship_with_monitoring_and_leave_its_namespace_labels_alone() -> Non
     assert not {"logs", "monitoring"} & without
 
 
-def test_the_log_collector_is_the_only_privileged_namespace() -> None:
-    """Reading the node's log files takes a hostPath volume, which Pod Security allows only
-    at "privileged": one namespace has that level, holds only the collector, and is the one
-    the store's NetworkPolicy lets write."""
+def test_privileged_namespaces_hold_one_application_each() -> None:
+    """Reading the node's files takes a hostPath volume, which Pod Security allows only at
+    "privileged": the log collector and node-exporter each have a namespace at that level
+    that holds nothing else, and the collector's is the one the store's NetworkPolicy lets
+    write."""
     privileged = {
         a["spec"]["destination"]["namespace"]
         for a in _render()
         if "privileged"
         in a["spec"]["syncPolicy"].get("managedNamespaceMetadata", {}).get("labels", {}).values()
     }
-    assert privileged == {"log-collector"}
-    in_it = [a for a in _render() if a["spec"]["destination"]["namespace"] == "log-collector"]
-    assert [a["metadata"]["name"] for a in in_it] == ["log-collector"]
-    assert "log-collector" not in {
-        a["metadata"]["name"] for a in _render("components.monitoring=false")
-    }
+    assert privileged == {"log-collector", "node-exporter"}
+    without_monitoring = {a["metadata"]["name"] for a in _render("components.monitoring=false")}
+    for ns in privileged:
+        in_it = [a for a in _render() if a["spec"]["destination"]["namespace"] == ns]
+        assert [a["metadata"]["name"] for a in in_it] == [ns]
+        assert ns not in without_monitoring
     store = yaml.safe_load((ROOT / "deploy/kind/victoria-logs-values.yaml").read_text())
     (rule,) = store["networkPolicy"]["ingress"]
     assert store["networkPolicy"]["enabled"] is True
@@ -236,6 +237,76 @@ def test_the_log_collector_gets_less_than_its_namespace_allows() -> None:
             "verbs": ["get", "list", "watch"],
         }
     ]
+
+
+@pytest.mark.integration
+def test_node_exporter_gets_less_than_its_namespace_allows() -> None:
+    """The chart, rendered with our values: the node's /proc, /sys and / read-only and
+    nothing else of the node's (no host network, PID or IPC), not root, no privileged
+    container or capability, no token and no role in the API, and a NetworkPolicy that
+    admits Prometheus alone. On the pod network, or that policy wouldn't apply to it."""
+    chart = VALUES["charts"]["nodeExporter"]
+    _render()  # skips without helm
+    out = subprocess.run(
+        [
+            *("helm", "template", "node-exporter", f"{chart['repo']}@{chart['digest']}"),
+            *("--namespace", "node-exporter"),
+            *("--values", str(ROOT / "deploy/kind/node-exporter-values.yaml")),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    docs = [d for d in yaml.safe_load_all(out) if d]
+    assert {d["kind"] for d in docs} == {
+        "DaemonSet",
+        "NetworkPolicy",
+        "PodMonitor",
+        "ServiceAccount",
+    }
+    (daemonset,) = [d for d in docs if d["kind"] == "DaemonSet"]
+    pod = daemonset["spec"]["template"]["spec"]
+    assert not any(pod.get(k) for k in ("hostNetwork", "hostPID", "hostIPC", "initContainers"))
+    assert pod["automountServiceAccountToken"] is False
+    assert pod["securityContext"]["runAsNonRoot"] is True
+    assert pod["securityContext"]["runAsUser"] != 0
+    (container,) = pod["containers"]
+    assert container["securityContext"] == {
+        "allowPrivilegeEscalation": False,
+        "capabilities": {"drop": ["ALL"]},
+        "readOnlyRootFilesystem": True,
+        "seccompProfile": {"type": "RuntimeDefault"},
+    }
+    assert "hostPort" not in str(container["ports"])
+    host_paths = {v["name"]: v["hostPath"]["path"] for v in pod["volumes"]}
+    assert set(host_paths.values()) == {"/proc", "/sys", "/"}
+    assert len(host_paths) == len(pod["volumes"])  # no other kind of volume either
+    assert {m["name"] for m in container["volumeMounts"]} == set(host_paths)
+    assert all(m["readOnly"] is True for m in container["volumeMounts"])
+    (policy,) = [d["spec"] for d in docs if d["kind"] == "NetworkPolicy"]
+    assert (
+        policy["podSelector"]["matchLabels"].items()
+        <= daemonset["spec"]["template"]["metadata"]["labels"].items()
+    )
+    assert policy["policyTypes"] == ["Egress", "Ingress"]
+    assert "egress" not in policy
+    assert policy["ingress"] == [
+        {
+            "from": [
+                {
+                    "namespaceSelector": {
+                        "matchLabels": {"kubernetes.io/metadata.name": "monitoring"}
+                    },
+                    "podSelector": {"matchLabels": {"app.kubernetes.io/name": "prometheus"}},
+                }
+            ],
+            "ports": [{"port": 9100, "protocol": "TCP"}],
+        }
+    ]
+    # The stack's node rules and dashboards select this job.
+    (monitor,) = [d for d in docs if d["kind"] == "PodMonitor"]
+    job_label = monitor["spec"]["jobLabel"]
+    assert daemonset["spec"]["template"]["metadata"]["labels"][job_label] == "node-exporter"
 
 
 @pytest.mark.integration
