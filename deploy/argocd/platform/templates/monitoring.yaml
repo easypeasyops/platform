@@ -86,6 +86,20 @@ spec:
     - port: metrics
       interval: 30s
 ---
+# The front door's dashboard (files/front-door-dashboard.json, uid front-door): request
+# rate, error rate and latency per route, and what the proxy answered itself. Grafana's
+# sidecar loads every ConfigMap labelled grafana_dashboard=1, in any namespace.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: front-door-dashboard
+  namespace: argocd
+  labels:
+    grafana_dashboard: "1"
+data:
+  front-door.json: |-
+    {{- .Files.Get "files/front-door-dashboard.json" | trim | nindent 4 }}
+---
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:

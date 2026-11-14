@@ -362,7 +362,9 @@ def test_argo_cd_alerts_ship_only_with_monitoring() -> None:
         text=True,
         check=True,
     ).stdout
-    for doc in (d for d in yaml.safe_load_all(out) if d and d["kind"] != "Application"):
+    for doc in (
+        d for d in yaml.safe_load_all(out) if d and d["apiVersion"] == "monitoring.coreos.com/v1"
+    ):
         options = doc["metadata"]["annotations"]["argocd.argoproj.io/sync-options"]
         assert "SkipDryRunOnMissingResource=true" in options, doc["kind"]
     assert not {"ServiceMonitor", "PrometheusRule"} & set(kinds("components.monitoring=false"))
