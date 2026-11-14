@@ -199,7 +199,7 @@ flowchart TB
   Root --> WP["wave -2<br/>platform-project"]
   WP --> WB["wave -1<br/>external-secrets, cert-manager"]
   WB --> W0["wave 0<br/>secret-store · cloudnative-pg, barman-cloud · metrics-server<br/>envoy-gateway, gateway, tool-routes · argo-rollouts<br/>monitoring, node-exporter, logs, log-collector · kyverno · backups"]
-  W0 --> W1["wave 1<br/>kyverno-policies · Argo CD's and the logs' alerts"]
+  W0 --> W1["wave 1<br/>kyverno-policies · the platform's alerts"]
 ```
 
 | Choice | Why |
