@@ -307,4 +307,16 @@ spec:
   endpoints:
     - port: metrics
       interval: 30s
+---
+# The alerts on it and on prod's canaries (files/argo-rollouts-rules.yaml).
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: argo-rollouts
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true # as above
+spec:
+  {{- .Files.Get "files/argo-rollouts-rules.yaml" | fromYaml | toYaml | nindent 2 }}
 {{- end }}

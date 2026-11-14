@@ -780,3 +780,49 @@ the scrape: Prometheus's Targets page (http://prometheus.localhost:8090/targets)
 `cloudnative-pg`. A database is watched only while Prometheus scrapes its instances
 (`<ns>/<release>-db` on the same page): that needs `monitoring.enabled` in the app's values,
 and an app whose database isn't scraped gets no backup alert.
+
+## Argo Rollouts alerts
+
+Warnings, to the platform's channel whichever app the Rollout belongs to: an analysis that
+errored is the platform's to fix, and the app's channel already hears of the aborted
+canary from Argo CD (`ArgoCDAppUnhealthy`). In `CanaryAnalysisErrored`, label
+`exported_namespace` is the Rollout's namespace, `rollout` its name and `analysisrun` the
+run that errored. Rules: `deploy/argocd/platform/files/argo-rollouts-rules.yaml`.
+
+| Alert | Means | First look |
+| --- | --- | --- |
+| `ArgoRolloutsControllerDown` | The controller hasn't been scraped for 10 minutes: no release to prod starts, a canary in flight neither moves on nor aborts | `kubectl -n argo-rollouts get pods`; `kubectl -n argo-rollouts logs deploy/argo-rollouts --tail=50` (add `--previous` after a crash) |
+| `CanaryAnalysisErrored` | A Rollout is aborted and one of its AnalysisRuns ended in `Error`: it couldn't measure, rather than measured a bad release (`Failed`, which is the app's and doesn't alert here) | Reading an aborted canary, below |
+
+| What you find | Cause | Fix |
+| --- | --- | --- |
+| The controller's pod is not Ready or in a crash loop, the log naming the Gateway API plugin | It downloads the plugin from GitHub at every start and refuses it unless the checksum matches (`gatewayAPIPlugin`, `deploy/argocd/platform/values.yaml`) | Check GitHub is reachable from the node; propose `kubectl -n argo-rollouts rollout restart deploy/argo-rollouts` |
+| No controller pod at all | The `argo-rollouts` Application | `kubectl -n argocd get application argo-rollouts`; An Application that won't sync, above |
+| The pod Ready, `ArgoRolloutsControllerDown` stays | The scrape | Prometheus's Targets page (http://prometheus.localhost:8090/targets), `argo-rollouts` |
+
+### Reading an aborted canary
+
+```sh
+# The steps, where it stopped, and each AnalysisRun with its status (the kubectl plugin)
+kubectl argo rollouts get rollout <rollout> -n <ns>
+# Without the plugin: why it aborted ("RolloutAborted: ... analysis phase error/failed: ...")
+kubectl -n <ns> get rollout <rollout> -o jsonpath='{.status.message}{"\n"}'
+kubectl -n <ns> get analysisruns --sort-by=.metadata.creationTimestamp   # newest last
+# The run's message, then each measurement's phase and its last error
+kubectl -n <ns> get analysisrun <run> -o jsonpath='{.status.message}{"\n"}'
+kubectl -n <ns> get analysisrun <run> -o jsonpath='{range .status.metricResults[*]}{.name}: {.phase} {.message}{"\n"}{end}'
+```
+
+A run is named `<rollout>-<pod hash>-<revision>-<step>`. The alert names every `Error` run
+the aborted Rollout still has: one of an older revision says only that that release
+errored too, and `get rollout` shows which run stopped the current one.
+
+| What you find | Cause | Fix |
+| --- | --- | --- |
+| Run `Failed`: `traffic`, `error-ratio` or a latency check `Failed` | The release: it measured, and missed a threshold | The app's team: the canary did its job. Nothing for the platform |
+| Run `Error`, a Prometheus measurement's message a connection error or timeout | The analysis couldn't query Prometheus (`canary.analysis.prometheusUrl`) | `kubectl -n monitoring get pods`; Prometheus data, above |
+| Run `Error` on `synthetic-traffic` | The k6 Job didn't start or didn't finish: refused at admission, its image, its deadline | `kubectl -n <ns> get jobs,pods -l app.kubernetes.io/name=canary-traffic`; `kubectl -n <ns> describe job <job>`; Admission policy refuses pods, above |
+
+Once the cause is fixed, propose `kubectl argo rollouts retry rollout <rollout> -n <ns>`:
+the canary starts again from its first step (a new release does too), and the alert ends
+when the Rollout is no longer aborted.

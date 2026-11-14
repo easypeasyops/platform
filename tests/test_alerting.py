@@ -1,5 +1,6 @@
 """The platform's alerting: its own alert rules (Argo CD, Prometheus, the logs, the front
-door, External Secrets, cert-manager, Kyverno, CloudNativePG) and Alertmanager's routing.
+door, External Secrets, cert-manager, Kyverno, CloudNativePG, Argo Rollouts) and
+Alertmanager's routing.
 
 An alert that never fires looks exactly like a healthy system, so:
 - every platform alert has a promtool scenario, and the scenarios pass;
@@ -202,6 +203,17 @@ def test_alertmanager_config_is_valid(alertmanager_config: Path) -> None:
             [
                 "alertname=FrontDoorControllerDown",
                 "namespace=envoy-gateway-system",
+                "severity=warning",
+            ],
+            "platform",
+        ),
+        # Argo Rollouts' on an app's canary: the platform's, not aipostit's channel. The
+        # Rollout's namespace is in exported_namespace.
+        (
+            [
+                "alertname=CanaryAnalysisErrored",
+                "namespace=argo-rollouts",
+                "exported_namespace=aipostit-prod",
                 "severity=warning",
             ],
             "platform",

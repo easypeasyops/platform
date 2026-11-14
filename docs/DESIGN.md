@@ -244,7 +244,9 @@ What the children are for:
   certificate that works until the day it expires. And Kyverno (warnings): with its one
   admission pod down, no Pod can be created in an app's namespace. And CloudNativePG
   (warnings): its operator down, or a database whose last base backup is over a day old,
-  for every app's database from one rule rather than one per app. And a route with no
+  for every app's database from one rule rather than one per app. And Argo Rollouts
+  (warnings): its controller down, or a canary aborted by an analysis that errored (it
+  couldn't measure) rather than failed, the platform's to fix. And a route with no
   backend, read from the HTTPRoute's status through kube-state-metrics (custom resource
   state) rather than from Envoy: the proxy counts its own 5xx per listener only, and only
   when someone asks, while the status names the route and kube-state-metrics already runs.
