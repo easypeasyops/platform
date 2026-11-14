@@ -128,6 +128,13 @@ multi-window burn-rate alerts (each needing a minimum of bad events, so a quiet 
 page on one slow request), as a values file the chart ships. A generator because the rules
 are too repetitive to write by hand, and small enough to need no extra binary or CRD. Its
 output's bytes are in every app's goldens, so its dependencies are pinned in the script.
+The window is 30 days (the generator accepts no other: the burn-rate factors assume it),
+but a rule can only look back as far as Prometheus keeps: 10 days, or less once
+`retentionSize` or a fresh volume cuts it (RUNBOOK, Prometheus data). So
+`slo:sli_error:ratio_rate30d`, and the "Error budget remaining" built on it, is the error
+ratio of the days Prometheus has, not of 30: an incident older than that has left the
+budget, which shows it restored. The burn-rate alerts are unaffected (their longest window
+is 3 days).
 
 ### Canary releases
 
