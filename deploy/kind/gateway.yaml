@@ -49,6 +49,35 @@ spec:
           resources:
             requests: { cpu: 50m, memory: 64Mi }
             limits: { memory: 256Mi }
+  # The access log: one JSON line per request to stdout, which the log collector sends to
+  # VictoriaLogs like any pod's (RUNBOOK, Logs and The front door). The keys are the fields
+  # to search by: `msg` and `time` become `_msg` and `_time`, `request_id` is the
+  # X-Request-ID the proxy gave the request (Envoy Gateway generates one at the edge) and the
+  # app logs too. No query string (REQ_WITHOUT_QUERY) and no other header: they can carry
+  # secrets. Without this, Envoy Gateway's default format logs both, and no `_msg`.
+  # One setting with no `type`: route-level lines, plus listener-level ones for requests no
+  # route matched (NR), so a 404 for an unknown hostname is logged too.
+  telemetry:
+    accessLog:
+      settings:
+        - format:
+            type: JSON
+            json:
+              time: "%START_TIME%"
+              msg: "%REQ(:METHOD)% %REQ(:AUTHORITY)%%REQ_WITHOUT_QUERY(X-ENVOY-ORIGINAL-PATH?:PATH)% %RESPONSE_CODE% %RESPONSE_FLAGS%"
+              request_id: "%REQ(X-REQUEST-ID)%"
+              method: "%REQ(:METHOD)%"
+              authority: "%REQ(:AUTHORITY)%"
+              path: "%REQ_WITHOUT_QUERY(X-ENVOY-ORIGINAL-PATH?:PATH)%"
+              response_code: "%RESPONSE_CODE%"
+              response_flags: "%RESPONSE_FLAGS%"
+              response_code_details: "%RESPONSE_CODE_DETAILS%"
+              duration_ms: "%DURATION%"
+              upstream_host: "%UPSTREAM_HOST%"
+              route_name: "%ROUTE_NAME%"
+          sinks:
+            - type: File
+              file: { path: /dev/stdout }
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: GatewayClass

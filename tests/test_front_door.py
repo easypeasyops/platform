@@ -122,9 +122,31 @@ def test_the_front_door_is_scraped_where_envoy_gateway_runs() -> None:
     # The proxy: Envoy's own Prometheus endpoint (EnvoyProxy's default, not switched off).
     (endpoint,) = monitors["PodMonitor"]["spec"]["podMetricsEndpoints"]
     assert (endpoint["port"], endpoint["path"]) == ("metrics", "/stats/prometheus")
-    proxy = _gateway_docs()["EnvoyProxy"]["spec"]
-    assert "telemetry" not in proxy, "check metrics.prometheus is still on, then update this"
+    telemetry = _gateway_docs()["EnvoyProxy"]["spec"].get("telemetry", {})
+    assert "metrics" not in telemetry, "check metrics.prometheus is still on, then update this"
     assert not _monitors("components.monitoring=false")
+
+
+# The access log's fields (RUNBOOK, The access log): what the queries search by, and nothing that can
+# hold a secret. A header the proxy reads beyond these, or a path with its query string, fails.
+ACCESS_LOG_FIELDS = {"time", "msg", "request_id", "authority", "path", "response_code"}
+ACCESS_LOG_HEADERS = {":METHOD", ":AUTHORITY", "X-REQUEST-ID"}
+
+
+def test_the_proxy_logs_each_request_as_json_without_secrets() -> None:
+    (setting,) = _gateway_docs()["EnvoyProxy"]["spec"]["telemetry"]["accessLog"]["settings"]
+    # No type: route-level lines plus listener-level ones for requests no route matched.
+    assert "type" not in setting
+    assert "matches" not in setting
+    assert setting["format"]["type"] == "JSON"
+    assert setting["sinks"] == [{"type": "File", "file": {"path": "/dev/stdout"}}]
+    fields = setting["format"]["json"]
+    assert set(fields) >= ACCESS_LOG_FIELDS
+    assert fields["request_id"] == "%REQ(X-REQUEST-ID)%"
+    for value in fields.values():
+        headers = set(re.findall(r"%REQ\(([^)?]+)\)%", value))
+        assert headers <= ACCESS_LOG_HEADERS, f"{value}: logs a header that may hold a secret"
+        assert not re.search(r"%(REQ|RESP|TRAILER)\([^)]*PATH", value), f"{value}: query string"
 
 
 def test_a_routes_series_say_which_route() -> None:
