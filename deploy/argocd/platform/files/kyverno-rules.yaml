@@ -1,0 +1,36 @@
+# Alerts on Kyverno, which admits every Pod in the apps' namespaces (deploy/policies/). It
+# runs one admission pod and the provenance policy fails closed: while that pod is down no
+# Pod is created there, and nothing that already runs notices.
+# Shipped as a PrometheusRule by the platform chart (templates/monitoring.yaml); tested by
+# deploy/prometheus/tests/kyverno_test.yaml (promtool). Metrics: `up` for the two metrics
+# Services, scraped through the ServiceMonitor beside the rule.
+# Severity warning, namespace kyverno: what Alertmanager sends to the platform's channel
+# (deploy/kind/monitoring-values.yaml). absent() has no labels to give, so each alert names
+# the namespace itself.
+groups:
+  - name: kyverno
+    rules:
+      - alert: KyvernoAdmissionControllerDown
+        # 5 minutes, shorter than the other components' 10: this one blocks deploys,
+        # scale-ups and a crashed pod's replacement. A rollout of Kyverno itself takes
+        # under a minute.
+        expr: absent(up{job="kyverno-svc-metrics"} == 1)
+        for: 5m
+        labels:
+          severity: warning
+          namespace: kyverno
+        annotations:
+          summary: Kyverno's admission controller isn't running (or isn't scraped)
+          description: Kyverno's admission controller hasn't been scraped for 5 minutes. While it is down no Pod can be created in an app's namespace (deploys, scale-ups, a replacement for a crashed pod); pods that already run are not affected.
+          runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#kyverno-alerts
+      - alert: KyvernoReportsControllerDown
+        # Nothing is refused or admitted by this one: 15 minutes is soon enough.
+        expr: absent(up{job="kyverno-reports-controller-metrics"} == 1)
+        for: 15m
+        labels:
+          severity: warning
+          namespace: kyverno
+        annotations:
+          summary: Kyverno's reports controller isn't running (or isn't scraped)
+          description: Kyverno's reports controller hasn't been scraped for 15 minutes. PolicyReports are no longer updated, so an image outside an app's allowlist (an Audit policy) runs without being reported; admission is not affected.
+          runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#kyverno-alerts

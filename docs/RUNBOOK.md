@@ -171,6 +171,27 @@ image outside the allowlist, or another app's image, runs and is reported.
 kubectl get policyreport -A -o wide                  # FAIL > 0: an image outside the allowlist ran
 ```
 
+## Kyverno alerts
+
+Warnings, to the platform's channel. Kyverno runs one admission pod and the provenance
+policy fails closed, so Kyverno down blocks every new Pod in the apps' namespaces: a deploy,
+a scale-up, the replacement for a pod that crashed. What already runs keeps running. Rules:
+`deploy/argocd/platform/files/kyverno-rules.yaml`.
+
+| Alert | Means | First look |
+| --- | --- | --- |
+| `KyvernoAdmissionControllerDown` | The admission controller hasn't been scraped for 5 minutes: no Pod can be created in an app's namespace | `kubectl -n kyverno get pods`; `kubectl -n kyverno describe pod -l app.kubernetes.io/component=admission-controller` (OOMKilled? its limit is in `deploy/kind/kyverno-values.yaml`); `kubectl -n kyverno logs deploy/kyverno-admission-controller --tail=50` (add `--previous` after a crash) |
+| `KyvernoReportsControllerDown` | The reports controller hasn't been scraped for 15 minutes: PolicyReports go stale (the allowlist's Audit results), admission still works | `kubectl -n kyverno get pods`; `kubectl -n kyverno logs deploy/kyverno-reports-controller --tail=50` |
+
+A pod that is there and not Ready, or in a crash loop: propose
+`kubectl -n kyverno rollout restart deploy/kyverno-admission-controller` (or
+`deploy/kyverno-reports-controller`). No pod at all: the `kyverno` Application
+(`kubectl -n argocd get application kyverno`; An Application that won't sync, above). If
+pods must start before Kyverno is back, the break glass is in Admission policy refuses
+pods, above. Either alert with its pod running and Ready is the scrape: Prometheus's Targets
+page (http://prometheus.localhost:8090/targets), `kyverno-svc-metrics` and
+`kyverno-reports-controller-metrics`.
+
 ## The front door
 
 One Gateway, `shortly` in namespace `gateway` (Envoy Gateway, `deploy/kind/gateway.yaml`),
