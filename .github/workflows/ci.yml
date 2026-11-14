@@ -58,6 +58,8 @@ jobs:
           kubectl kustomize deploy/platform/metrics-server | kc -
           # The dev tools' routes on the kind Gateway.
           kc deploy/kind/tools
+          # The event exporter, a plain manifest Argo CD syncs as it is.
+          kc deploy/kind/event-exporter.yaml
 
       # A manifest fetched or edited after it was pinned would be unreviewed code running
       # with cluster-admin (see deploy/platform/metrics-server/kustomization.yaml).

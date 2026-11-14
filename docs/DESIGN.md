@@ -232,8 +232,10 @@ What the children are for:
   both on 127.0.0.1; they outlive releases and sleep, which a `kubectl port-forward` doesn't.
 - **Monitoring and logs.** kube-prometheus-stack: the operator's CRDs make scraping, rules
   and dashboards part of each app's chart. Alertmanager routes by namespace to Slack.
-  VictoriaLogs keeps every pod's log lines, sent by a collector; node-exporter reports the
-  node's CPU, memory and disk. Both read the node's files, so each runs alone in a
+  VictoriaLogs keeps every pod's log lines, sent by a collector, and the cluster's events,
+  which an exporter writes as its own log lines (the API server keeps them an hour; no
+  second way into the store); node-exporter reports the
+  node's CPU, memory and disk. Those two read the node's files, so each runs alone in a
   namespace of its own, the only two at Pod Security `privileged`. Argo CD is scraped and alerted on too (tickets,
   not pages): with GitOps, a sync that silently stops is a deploy that silently never
   happens. So is the log pipeline: logs that stop arriving fail nothing either, until the

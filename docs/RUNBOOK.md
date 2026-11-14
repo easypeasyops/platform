@@ -135,6 +135,9 @@ kubectl -n kyverno get pods
 kubectl get imagevalidatingpolicy,validatingpolicy     # READY must be true
 ```
 
+Events are gone from the API an hour after they last happened; they stay in the logs (Logs,
+Kubernetes events): `involvedObject.namespace:=<ns> reason:=FailedCreate` there.
+
 | Message | Cause | Fix |
 | --- | --- | --- |
 | `our images must be a release digest with provenance…` | An unreleased or unattested image: a CI build, a fork, or a per-platform child digest instead of the release's index digest | Deploy the digest from the GitHub Release notes. `scripts/verify-image.sh <ref>` tells you why it fails |
@@ -454,7 +457,7 @@ is the ExternalSecret's namespace (`namespace` is the controller's). Rules:
 
 | Alert | Means | First look |
 | --- | --- | --- |
-| `ExternalSecretNotSyncing` | An ExternalSecret has been not Ready for 15 minutes: its Secret is stale, or was never made | `kubectl get externalsecret -A`; `kubectl -n <ns> describe externalsecret <name>` (the events name the store or the key it can't read) |
+| `ExternalSecretNotSyncing` | An ExternalSecret has been not Ready for 15 minutes: its Secret is stale, or was never made | `kubectl get externalsecret -A`; `kubectl -n <ns> describe externalsecret <name>` (the events name the store or the key it can't read; after an hour, in the logs: Logs, Kubernetes events) |
 | `ExternalSecretsDown` | No controller scraped for 10 minutes: nothing is refreshed or created, and the alert above is blind | `kubectl -n external-secrets get pods`; `kubectl -n external-secrets logs deploy/external-secrets --tail=50` |
 
 | The ExternalSecret says | Cause | Fix |
@@ -478,7 +481,7 @@ namespace (`namespace` is the controller's). Rules:
 
 | Alert | Means | First look |
 | --- | --- | --- |
-| `CertificateExpiresSoon` | A certificate has less than 7 days left: its renewal has been failing for 8 | `kubectl get certificate -A`; `kubectl -n <ns> describe certificate <name>` (the events name the CertificateRequest); `kubectl -n <ns> get certificaterequest` |
+| `CertificateExpiresSoon` | A certificate has less than 7 days left: its renewal has been failing for 8 | `kubectl get certificate -A`; `kubectl -n <ns> describe certificate <name>` (the events name the CertificateRequest; after an hour, in the logs: Logs, Kubernetes events); `kubectl -n <ns> get certificaterequest` |
 | `CertificateNotReady` | A Certificate has been not Ready for 15 minutes: never issued, or expired | The same; `kubectl -n <ns> get issuer` (Ready?) |
 | `CertManagerDown` | No controller scraped for 10 minutes: nothing is issued or renewed, and the alerts above are blind | `kubectl -n cert-manager get pods`; `kubectl -n cert-manager logs deploy/cert-manager --tail=50` |
 
@@ -619,6 +622,34 @@ re-sends lines. Settings: `deploy/kind/log-collector-values.yaml`.
   context).
 - A pod deleted before its lines were read loses them: the kubelet removes its files with it.
   Recreating the kind node loses the reading positions with the rest of its disk.
+
+### Kubernetes events
+
+The API server forgets an event an hour after it last happened. `event-exporter` (one pod
+in the namespace of that name, the platform's `event-exporter` Application,
+`deploy/kind/event-exporter.yaml`) writes every event, from every namespace, as a JSON line
+to its stdout, so they are kept with the logs, 30 days. Fields: `reason`, `type` (`Normal`
+or `Warning`), `involvedObject.kind`, `involvedObject.namespace`, `involvedObject.name`,
+`reportingController`; the event's message is `_msg`, its time `_time`.
+
+```
+# What happened to this pod (or Deployment, ExternalSecret, Certificate...: its kind and name)
+_time:1d {kubernetes.pod_namespace="event-exporter"} involvedObject.namespace:=aipostit-prod involvedObject.kind:=Pod involvedObject.name:=<pod>
+# Every Warning in this namespace since yesterday
+_time:1d {kubernetes.pod_namespace="event-exporter"} involvedObject.namespace:=aipostit-prod type:=Warning
+# Which warnings, where, how often (BackOff, Unhealthy, FailedScheduling, Failed, FailedCreate, Evicted...)
+_time:1d {kubernetes.pod_namespace="event-exporter"} type:=Warning | stats by (involvedObject.namespace, reason) count() events | sort by (events desc)
+# How much it writes a day
+_time:1d {kubernetes.pod_namespace="event-exporter"} | stats count() events, sum_len(_msg) bytes
+```
+
+- An event is written when it first happens: its repeats (the count `kubectl get events`
+  shows) are not written again, so a crash loop is one `BackOff`, not hundreds.
+- It may list and watch events, nothing else. Its own log lines (warnings and errors only)
+  are on stderr: `kubectl -n event-exporter logs deploy/event-exporter`.
+- While it is down, events still reach the API, and a restart writes those of the last
+  minute again: a longer outage leaves a gap in the logs, not in `kubectl get events`.
+  Its pod's alerts (`KubePodCrashLooping`...) go to #platform-alerts.
 
 ### Log alerts
 
