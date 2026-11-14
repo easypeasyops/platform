@@ -228,6 +228,10 @@ alertmanager:
       - source_matchers: ['alertname =~ "Aipostit.+"', 'severity = "page"']
         target_matchers: ['alertname =~ "Aipostit.+"', 'severity = "ticket"']
         equal: [namespace]
+      # The front door down: every hostname's probe fails with it, one incident, not a
+      # ticket per hostname (deploy/argocd/platform/files/front-door-probes-rules.yaml).
+      - source_matchers: ['alertname = "FrontDoorDown"']
+        target_matchers: ['alertname = "FrontDoorProbeFailing"']
     receivers:
       - name: "null"
       - name: pager

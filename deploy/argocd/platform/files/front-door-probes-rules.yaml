@@ -1,0 +1,26 @@
+# Alerts from the front door's probes (docs/RUNBOOK.md, A hostname the front door doesn't
+# serve): each hostname asked for through the Gateway every minute, as a user would
+# (the platform chart's Probes, job="front-door"). Probes and scrapes go around the Gateway,
+# and a quiet app's broken route burns no SLO budget: this sees it with no traffic at all.
+# Shipped as a PrometheusRule by the platform chart; tested by
+# deploy/prometheus/tests/front_door_probes_test.yaml (promtool).
+groups:
+  - name: front-door-probes
+    rules:
+      - alert: FrontDoorProbeFailing
+        # Aggregated to the Probe's own labels, without the Probe's namespace or the
+        # target's URL: Alertmanager routes it by its name alone, to the platform, whichever
+        # app's hostname it is. 5 failed probes in a row: an app's pod restarting is not a
+        # ticket. With no series at all (the exporter down), the stack's TargetDown fires.
+        # With no proxy at all every hostname fails: FrontDoorDown inhibits these
+        # (deploy/kind/monitoring-values.yaml).
+        expr: |
+          max by (hostname, listener) (probe_success{job="front-door"}) == 0
+        for: 5m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "http://{{ $labels.hostname }} doesn't answer through the front door (listener {{ $labels.listener }})"
+          description: A request for the hostname, through the Gateway's proxies as a user's, has got no 2xx for 5 minutes. The app's own probes and metrics go around the Gateway, so they may not show it. The Front door dashboard's "Probes failing now" has the status it got.
+          runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#a-hostname-the-front-door-doesnt-serve
+          dashboard_url: /d/front-door # a path under Grafana's root_url: the Slack message links it

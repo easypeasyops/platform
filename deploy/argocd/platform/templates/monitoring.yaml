@@ -221,6 +221,18 @@ metadata:
 spec:
   {{- .Files.Get "files/front-door-rules.yaml" | fromYaml | toYaml | nindent 2 }}
 ---
+# Alerts from the front door's probes (files/front-door-probes-rules.yaml).
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: front-door-probes
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true # as above
+spec:
+  {{- .Files.Get "files/front-door-probes-rules.yaml" | fromYaml | toYaml | nindent 2 }}
+---
 # The alerts on External Secrets (files/external-secrets-rules.yaml). Its ServiceMonitors
 # come from its own chart (deploy/kind/external-secrets-values.yaml); its namespace exists
 # since wave -1.
