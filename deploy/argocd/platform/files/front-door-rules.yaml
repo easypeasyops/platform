@@ -53,3 +53,4 @@ groups:
           summary: "Route {{ $labels.route_namespace }}/{{ $labels.route }} has no backend to send to ({{ $labels.reason }}): the front door answers 5xx itself"
           description: Requests to a route whose Service has no ready pod, or doesn't exist, get a 503 or 500 from the proxy. They never reach the app, so its own metrics and alerts don't show them.
           runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#a-route-with-no-backend
+          dashboard_url: /d/front-door # a path under Grafana's root_url: the Slack message links it

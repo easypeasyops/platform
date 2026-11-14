@@ -32,6 +32,7 @@ tests:
               summary: "Route aipostit-staging/aipostit has no backend to send to (EndpointsNotFound): the front door answers 5xx itself"
               description: Requests to a route whose Service has no ready pod, or doesn't exist, get a 503 or 500 from the proxy. They never reach the app, so its own metrics and alerts don't show them.
               runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#a-route-with-no-backend
+              dashboard_url: /d/front-door
 
   - name: a route to a Service that doesn't exist opens one too
     interval: 1m
@@ -47,6 +48,7 @@ tests:
               summary: "Route monitoring/grafana has no backend to send to (BackendNotFound): the front door answers 5xx itself"
               description: Requests to a route whose Service has no ready pod, or doesn't exist, get a 503 or 500 from the proxy. They never reach the app, so its own metrics and alerts don't show them.
               runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#a-route-with-no-backend
+              dashboard_url: /d/front-door
 
   # What must not open one: a route no listener accepts (a 404, another row of the
   # runbook's table), and a few minutes without a ready pod while a single one restarts.

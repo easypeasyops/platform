@@ -381,17 +381,29 @@ alert's description and the upstream runbook. The namespaces are listed in the r
 platform namespace is added there (`tests/test_alerting.py` fails until it is). The stack's
 `info` alerts and `Watchdog` stay on `null`.
 
+**The links under a firing message** (`links-slack.tmpl`, both channels), after the
+runbook: **Query**, the alert's expression in Prometheus at the moment it fired; **Logs**,
+Explore on VictoriaLogs with its namespace's lines (`exported_namespace` or
+`route_namespace` where it has one), from an hour before it fired to half an hour after
+(Argo CD's alerts, which name only an Application: Argo CD's lines naming it);
+**Dashboard**, where the rule has a `dashboard_url` annotation, a path under Grafana's
+address (the front door's: `/d/front-door`; the node alerts: Node Exporter / Nodes);
+**Silence**, a new silence filled in with the group's labels. A resolved message keeps only
+the runbook. They open on the laptop only (`*.localhost:8090`).
+
 **Test the route end to end** (posts to the real channels: say so there first). An alert sent
 by hand, which resolves itself after its end time:
 
 ```sh
 amtool --alertmanager.url=http://alertmanager.localhost:8090 alert add AipostitTest \
   namespace=aipostit-staging severity=ticket \
-  --annotation=summary="Test alert, please ignore" --end="$(date -u -v+5M +%Y-%m-%dT%H:%M:%SZ)"
+  --annotation=summary="Test alert, please ignore" --end="$(date -u -v+5M +%Y-%m-%dT%H:%M:%SZ)" \
+  --generator-url='http://prometheus.localhost:8090/graph?g0.expr=up%7Bnamespace%3D%22aipostit-staging%22%7D&g0.tab=1'
 ```
 
 It reaches #aipostit-alerts-staging after `group_wait` (30 s), and a resolved message about
-5 minutes after the end time. `namespace=aipostit-prod severity=page` tests the prod channel
+5 minutes after the end time. Its links open `up{namespace="aipostit-staging"}` at the
+moment it fired, aipostit-staging's logs around then, and a silence for it. `namespace=aipostit-prod severity=page` tests the prod channel
 and its `@channel`. Nothing arrives: `kubectl -n monitoring logs alertmanager-kps-alertmanager-0
 -c alertmanager | grep -i slack` (a 404 or `invalid_token` is a revoked webhook: load a new
 one, above).

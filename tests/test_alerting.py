@@ -13,8 +13,10 @@ import os
 import re
 import shutil
 import subprocess
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 import yaml
@@ -278,8 +280,16 @@ def _slack(config: Path, data: dict[str, Any], who: str = "aipostit") -> str:
     return result.stdout
 
 
+FIRED = datetime(2026, 11, 14, 3, 4, 5, tzinfo=UTC)
+QUERY = "http://prometheus.localhost:8090/graph?g0.expr=up&g0.tab=1"
+
+
 def _notification(
-    receiver: str, status: str, labels: dict[str, str], description: str | None = None
+    receiver: str,
+    status: str,
+    labels: dict[str, str],
+    description: str | None = None,
+    extra: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     annotations = {"summary": "The API is down", "runbook_url": "https://example.test#x"}
     if description:
@@ -287,7 +297,9 @@ def _notification(
     alert = {
         "status": status,
         "labels": {"alertname": "AipostitApiDown", **labels},
-        "annotations": annotations,
+        "annotations": {**annotations, **(extra or {})},
+        "startsAt": FIRED.isoformat(),
+        "generatorURL": QUERY,
     }
     return {
         "receiver": receiver,
@@ -383,3 +395,94 @@ def test_an_argo_cd_message_keeps_its_summary(alertmanager_config: Path) -> None
     message = _slack(alertmanager_config, data, "platform")
     assert "• The API is down" in message
     assert "Argo CD reports" not in message
+
+
+def _links(message: str) -> dict[str, str]:
+    """The message's links, by their text."""
+    return {text: url for url, text in re.findall(r"<([^|>]+)\|([^>]+)>", message)}
+
+
+def _ms(at: datetime) -> str:
+    return str(int(at.timestamp() * 1000))
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("who", "labels", "extra", "namespace", "words", "dashboard"),
+    [
+        # An alert with a namespace: that namespace's logs.
+        ("aipostit", {"namespace": "aipostit-prod", "severity": "page"}, {},
+         "aipostit-prod", "", None),
+        # The Certificate's or the ExternalSecret's own namespace, not the exporter's.
+        ("platform", {"alertname": "ExternalSecretNotSynced", "namespace": "external-secrets",
+                      "exported_namespace": "backups", "severity": "warning"}, {},
+         "backups", "", None),
+        # An Application's name only (Argo CD's): Argo CD's lines that name it.
+        ("aipostit", {"alertname": "ArgoCDSyncFailed", "project": "aipostit",
+                      "name": "aipostit-staging", "severity": "ticket"}, {},
+         "argocd", ' "aipostit-staging"', None),
+        # The front door's: the route's namespace, and the rule's dashboard.
+        ("platform", {"alertname": "FrontDoorRouteWithoutBackend",
+                      "route_namespace": "aipostit-staging", "route": "aipostit",
+                      "severity": "ticket"}, {"dashboard_url": "/d/front-door"},
+         "aipostit-staging", "", "/d/front-door"),
+    ],
+)  # fmt: skip
+def test_a_firing_message_links_to_the_evidence(
+    alertmanager_config: Path,
+    who: str,
+    labels: dict[str, str],
+    extra: dict[str, str],
+    namespace: str,
+    words: str,
+    dashboard: str | None,
+) -> None:
+    data = _notification(f"{who}-x", "firing", labels, extra=extra)
+    links = _links(_slack(alertmanager_config, data, who))
+    expected = {"Runbook", "Query", "Logs", "Silence"} | ({"Dashboard"} if dashboard else set())
+    assert set(links) == expected, links
+
+    # The expression, at the moment it fired.
+    assert links["Query"] == QUERY + "&g0.moment_input=2026-11-14+03%3A04%3A05"
+
+    # The namespace's logs, from an hour before it fired to half an hour after.
+    logs = urlsplit(links["Logs"])
+    assert f"{logs.scheme}://{logs.netloc}{logs.path}" == "http://grafana.localhost:8090/explore"
+    (pane,) = json.loads(parse_qs(logs.query)["panes"][0]).values()
+    assert pane["datasource"] == "victorialogs"
+    (query,) = pane["queries"]
+    assert query["datasource"] == {"type": "victoriametrics-logs-datasource",
+                                   "uid": "victorialogs"}  # fmt: skip
+    assert query["expr"] == f'{{kubernetes.pod_namespace="{namespace}"}}{words}'
+    window = {"from": _ms(FIRED - timedelta(hours=1)), "to": _ms(FIRED + timedelta(minutes=30))}
+    assert pane["range"] == window
+
+    if dashboard:
+        assert links["Dashboard"] == (
+            f"http://grafana.localhost:8090{dashboard}?from={window['from']}&to={window['to']}"
+        )
+
+    # A new silence, filled in with the alert's labels.
+    base, _, fragment = links["Silence"].partition("#")
+    assert base == "http://alertmanager.localhost:8090/"
+    path, _, query_string = fragment.partition("?")
+    assert path == "/silences/new"
+    matchers = parse_qs(query_string)["filter"][0]
+    assert matchers[0] + matchers[-1] == "{}", matchers
+    want = {"alertname": data["alerts"][0]["labels"]["alertname"], **labels}
+    assert set(matchers[1:-1].split(",")) == {f'{k}="{v}"' for k, v in want.items()}
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("who", ["aipostit", "platform"])
+def test_a_resolved_message_keeps_only_the_runbook(alertmanager_config: Path, who: str) -> None:
+    labels = {"namespace": "aipostit-prod", "severity": "page"}
+    data = _notification(f"{who}-x", "resolved", labels, extra={"dashboard_url": "/d/x"})
+    assert set(_links(_slack(alertmanager_config, data, who))) == {"Runbook"}
+
+
+def test_the_links_use_grafanas_address() -> None:
+    values = yaml.safe_load((ROOT / "deploy/kind/monitoring-values.yaml").read_text())
+    root_url = values["grafana"]["grafana.ini"]["server"]["root_url"]
+    links = values["alertmanager"]["templateFiles"]["links-slack.tmpl"]
+    assert f'{{{{ define "slack.grafana" }}}}{root_url}{{{{ end }}}}' in links
