@@ -21,6 +21,9 @@ from tests.test_alerting import PROMETHEUS_IMAGE, _docker
 
 ROOT = Path(__file__).resolve().parent.parent
 FRONT_DOOR = ROOT / "deploy/argocd/platform/files/front-door-dashboard.json"
+# The service chart's: the marks of the environment it shows, $namespace, which is its
+# Application's name (apps/applicationset.yaml: <app>-<env> in namespace <app>-<env>).
+SLO = ROOT / "charts/service/files/slo-dashboard.json"
 SERIES = ("argocd_application_synced_revision_info", "argocd_application_synced_revisions_info")
 
 
@@ -86,6 +89,17 @@ def test_the_front_door_marks_every_applications_deploys() -> None:
     assert SERIES[1] in runbook
 
 
+def test_the_slo_dashboard_marks_its_environments_deploys() -> None:
+    front_door, slo = _deploys(FRONT_DOOR), _deploys(SLO)
+    selector = '{__name__=~"argocd_application_synced_revisions?_info",job="kube-state-metrics"'
+    assert slo["expr"] == front_door["expr"].replace(selector, selector + ',name="$namespace"')
+    assert {k: v for k, v in slo.items() if k != "expr"} == {
+        k: v for k, v in front_door.items() if k != "expr"
+    }
+    variables = {v["name"] for v in json.loads(SLO.read_text())["templating"]["list"]}
+    assert "namespace" in variables
+
+
 def _series(name: str, app: str, revision: str) -> str:
     # As kube-state-metrics gives them, with its own pod's namespace.
     return (
@@ -95,7 +109,7 @@ def _series(name: str, app: str, revision: str) -> str:
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("dashboard", [FRONT_DOOR], ids=lambda p: p.stem)
+@pytest.mark.parametrize("dashboard", [FRONT_DOOR, SLO], ids=lambda p: p.stem)
 def test_a_new_revision_is_marked_once_and_nothing_else_is(dashboard: Path, tmp_path: Path) -> None:
     _docker()
     commit = {c: c * 40 for c in "abef"}
@@ -116,9 +130,14 @@ def test_a_new_revision_is_marked_once_and_nothing_else_is(dashboard: Path, tmp_
         _series(one, "sleepy-x", commit["f"]): "1x5 _x20 1x15",
     }
 
+    # The SLO dashboard as Grafana runs it for aipostit's prod: monitoring-x isn't its own.
+    expr = _deploys(dashboard)["expr"].replace("$namespace", "aipostit-prod")
+
     def at(minute: int, *marks: tuple[str, str, str]) -> dict[str, Any]:
+        if dashboard == SLO:
+            marks = tuple(m for m in marks if m[1] == "aipostit-prod")
         return {
-            "expr": _deploys(dashboard)["expr"],
+            "expr": expr,
             "eval_time": f"{minute}m",
             "exp_samples": [{"labels": _series(*m), "value": 1} for m in marks],
         }

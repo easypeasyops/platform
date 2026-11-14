@@ -7,6 +7,16 @@ an app that doesn't set it) is a major version; a new optional value is a minor 
 that changes no render an app relies on is a patch. Each release's digest is in its GitHub
 Release.
 
+## 1.3.0
+
+The SLO dashboard marks its environment's deploys (PT-28): a "Deploys" annotation at the
+minute the environment's Argo CD Application (`<app>-<env>`, the dashboard's `namespace`)
+synced a new revision, naming the Application and the revision (a commit's short SHA, or
+the start of the chart's digest). The same marks as the platform's Front door dashboard
+(platform docs/RUNBOOK.md, The front door), read from kube-state-metrics'
+`argocd_application_synced_revision(s)_info`, which the platform exports since PT-28's
+first PR. Nothing for an app to set or change: only the slo.json render differs from 1.2.1.
+
 ## 1.2.1
 
 Three new optional values, for an app with a queue (platform plan 5.4–5.6; postitglobal
