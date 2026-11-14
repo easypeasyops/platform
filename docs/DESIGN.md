@@ -306,7 +306,7 @@ flowchart LR
 | Several ClusterSecretStores, each with its own reader | A store's conditions say which namespaces may use it, not which Secret each may read. So what the app namespaces can reach is bounded by the reader's Role: `backup-bucket` may get the bucket's keys only, an app's store that app's one Secret only, and only namespaces labelled with that app may use it |
 | Generated values written once, into an immutable Secret | `refreshPolicy: CreatedOnce` so a resync never rotates a password everything uses; `immutable: true` because a recreated ExternalSecret's first sync would otherwise overwrite it silently. A value is replaced only by deleting it |
 | Consumers derive the rest | The ExternalSecret beside the chart that reads it templates the user name or config file around the stored value, and syncs before the workload |
-| Loaded by hand what can't be generated | A Slack webhook or an app's API key comes from somewhere else: `scripts/load-app-env.sh` and RUNBOOK say how, and the value never passes through git, chat or a ticket |
+| Loaded by hand what can't be generated | A Slack webhook or an app's API key comes from somewhere else: `scripts/load-app-env.sh` and RUNBOOK say how, and the value never passes through git, chat or a ticket. Nothing the platform needs to come up may wait on one: Slack is wired only where `cluster.sh` finds the webhooks in the store (`components.slack`), so a fresh cluster installs without them |
 
 The database's credentials are not here: CloudNativePG generates them into the app's
 namespace. `tests/test_secret_store.py` checks each reader's reach and that `cluster.sh`

@@ -96,7 +96,7 @@ A platform Application (`kubectl -n argocd get applications -l app.kubernetes.io
 | What you see | Cause | Fix |
 | --- | --- | --- |
 | `kyverno-policies` fails with a webhook error | Kyverno's admission webhook isn't serving yet | It retries for about 9 minutes; if it still fails, `kubectl -n kyverno get pods` |
-| `monitoring` or `backups` Degraded on an ExternalSecret | It can't read the store: the value isn't there yet (a generator runs within seconds; the Slack webhooks are loaded by hand: Slack alerts), or the store isn't Ready (`secret-store`, below) | `kubectl -n monitoring get externalsecret -o wide`; `kubectl -n monitoring get externalsecret <name> -o jsonpath='{.status.conditions}'` (or `-n backups … seaweedfs-s3`) |
+| `monitoring` or `backups` Degraded on an ExternalSecret | It can't read the store: the value isn't there yet (a generator runs within seconds; the Slack webhooks are loaded by hand, and deleted from the store after `cluster.sh up` saw them: Slack alerts), or the store isn't Ready (`secret-store`, below) | `kubectl -n monitoring get externalsecret -o wide`; `kubectl -n monitoring get externalsecret <name> -o jsonpath='{.status.conditions}'` (or `-n backups … seaweedfs-s3`) |
 | `barman-cloud` stays Progressing or Degraded | Its Certificates aren't issued: cert-manager isn't running, or its webhook refused the Issuer before it was serving (the sync retry catches up) | `kubectl -n cnpg-system get certificates,issuers`; `kubectl -n cert-manager logs deploy/cert-manager --tail=30` |
 | An app's `<release>-db-backup` ExternalSecret isn't Ready | The `backup-bucket` store refuses it: the namespace lacks the app label its conditions select, or the store's reader can't get `seaweedfs-s3` | `kubectl get clustersecretstore backup-bucket -o jsonpath='{.status.conditions}'`; `kubectl -n <ns> describe externalsecret <release>-db-backup` |
 | `secret-store` stays Degraded | A ClusterSecretStore can't read its namespace: External Secrets isn't running, or its token request for the store's reader was refused | `kubectl get clustersecretstore`; `kubectl get clustersecretstore platform -o jsonpath='{.status.conditions}'`; `kubectl -n external-secrets logs deploy/external-secrets --tail=30` |
@@ -293,7 +293,7 @@ selector that no longer matches, a pod's or a namespace's.
 Alertmanager posts to Slack through incoming webhooks, one per channel. A webhook URL is a
 secret (anyone holding it can post to the channel): it lives only in the store, as the
 Secret `alertmanager-slack` in `secret-store`, never in git, chat or a ticket. The
-ExternalSecret in `deploy/secrets/monitoring.yaml` copies it into `monitoring`, where
+ExternalSecret in `deploy/secrets/alertmanager-slack.yaml` copies it into `monitoring`, where
 Alertmanager mounts it. Keys, one per channel:
 
 | Key | Channel |
@@ -302,9 +302,15 @@ Alertmanager mounts it. Keys, one per channel:
 | `aipostit-staging-webhook-url` | #aipostit-alerts-staging |
 | `platform-webhook-url` | #platform-alerts |
 
-**Load or replace the webhooks** (before the ExternalSecret first syncs, or Alertmanager
-can't start). Make each webhook in Slack (api.slack.com/apps: the app, **Incoming
-Webhooks**, **Add New Webhook**, pick the channel), then:
+**A cluster without the webhooks runs without Slack.** `scripts/cluster.sh up` looks for
+the Secret in the store and sets the platform's `components.slack` from it: where it is
+missing (a fresh cluster, an app's CI), the ExternalSecret and Alertmanager's mount of its
+Secret are left out, `up` says so, and alerts stay in Alertmanager. So on a new cluster:
+`up`, load the webhooks (below), `up` again. Deleting the Secret from the store and running
+`up` switches Slack off the same way.
+
+**Load or replace the webhooks.** Make each webhook in Slack (api.slack.com/apps: the app,
+**Incoming Webhooks**, **Add New Webhook**, pick the channel), then:
 
 ```sh
 umask 077

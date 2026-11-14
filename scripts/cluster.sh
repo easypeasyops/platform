@@ -123,11 +123,22 @@ wait_synced() {
 # Its Helm parameters are what git can't know: the node's architecture, which commit to
 # deploy, and which components this cluster wants.
 platform() {
-  local arch revision params children
+  local arch revision found slack params children
   arch=$(kubectl get nodes -o jsonpath='{.items[0].status.nodeInfo.architecture}')
   revision=${PLATFORM_REVISION:-main}
-  params=$(printf '[{"name":"arch","value":"%s"},{"name":"revision","value":"%s"},{"name":"components.monitoring","value":"%s"},{"name":"components.policies","value":"%s"},{"name":"components.backups","value":"%s"}]' \
-    "$arch" "$revision" "$(bool MONITORING)" "$(bool POLICIES)" "$(bool BACKUPS)")
+  # Slack only where the store has the webhooks, which a person loads (RUNBOOK, Slack
+  # alerts): without them the monitoring Application would wait for good on an ExternalSecret
+  # that can't sync. A fresh cluster comes up without Slack; the `up` after loading them
+  # turns it on. A failed lookup stops here (set -e) instead of switching Slack off.
+  found=$(kubectl -n secret-store get secret alertmanager-slack --ignore-not-found -o name)
+  slack=false
+  if [[ -n "$found" ]]; then
+    slack=true
+  elif on MONITORING; then
+    echo "platform: no Slack webhooks in the store, so alerts stay in Alertmanager (RUNBOOK, Slack alerts)"
+  fi
+  params=$(printf '[{"name":"arch","value":"%s"},{"name":"revision","value":"%s"},{"name":"components.monitoring","value":"%s"},{"name":"components.slack","value":"%s"},{"name":"components.policies","value":"%s"},{"name":"components.backups","value":"%s"}]' \
+    "$arch" "$revision" "$(bool MONITORING)" "$slack" "$(bool POLICIES)" "$(bool BACKUPS)")
   # The project, to bootstrap: the root's platform-project child keeps it in sync from git
   # after that (wave -2).
   kubectl apply -f "$ROOT/deploy/argocd/platform-project.yaml" >/dev/null

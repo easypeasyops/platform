@@ -102,7 +102,7 @@ prometheus:
 alertmanager:
   alertmanagerSpec:
     externalUrl: http://alertmanager.localhost:8090 # links in notifications point here
-    # The Slack webhooks (deploy/secrets/monitoring.yaml), mounted at
+    # The Slack webhooks (deploy/secrets/alertmanager-slack.yaml), mounted at
     # /etc/alertmanager/secrets/alertmanager-slack/<key> for the receivers' api_url_file.
     secrets: [alertmanager-slack]
     resources:
