@@ -201,6 +201,14 @@ kubectl -n envoy-gateway-system logs deploy/envoy-gateway --tail=50
 | `ResolvedRefs: False` | The route points at a Service or port that doesn't exist | `kubectl -n <ns> get svc`; the route's `backendRefs` |
 | The Service answers in-cluster, through the Gateway it doesn't | The proxy can't reach the pods: the app's NetworkPolicy doesn't admit `envoy-gateway-system` | The app's `networkPolicy` values |
 
+**Dashboard:** http://grafana.localhost:8090/d/front-door (Front door). Per route (an
+HTTPRoute, so an app and its environment): request rate, 5xx share, latency and healthy
+backends, for the requests that reached a backend. Per listener (`http-10080` is `http`,
+the users' port 8080; `http-8081` is `tools`): every answer, and the ones the proxy gave
+itself, which no app's metrics show: 5xx for a route with no backend, 404 for a hostname
+no route matches. A route with no backend has no series of its own: it drops off "Healthy
+backends".
+
 Prometheus scrapes the proxies (job `envoy`) and the controller (job `envoy-gateway`):
 http://prometheus.localhost:8090/targets. The proxies count every request they answer,
 the ones that never reached an app included; a route's series (`envoy_cluster_*`) carry

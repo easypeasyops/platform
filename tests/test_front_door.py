@@ -6,6 +6,7 @@ Its metrics (the platform chart's templates/monitoring.yaml): Prometheus must fi
 proxies and the controller where Envoy Gateway runs them.
 """
 
+import json
 import os
 import re
 import shutil
@@ -168,3 +169,47 @@ def test_the_controllers_service_has_the_port_the_monitor_scrapes() -> None:
     (service,) = selected
     (endpoint,) = monitor["endpoints"]
     assert endpoint["port"] in {port["name"] for port in service["spec"]["ports"]}
+
+
+def test_the_dashboard_ships_with_monitoring_and_the_runbook_links_it() -> None:
+    def dashboards(*sets: str) -> list[dict[str, Any]]:
+        return [
+            d
+            for d in _platform(*sets)
+            if d["kind"] == "ConfigMap" and d["metadata"]["labels"].get("grafana_dashboard") == "1"
+        ]
+
+    (config_map,) = dashboards()
+    (text,) = config_map["data"].values()
+    dashboard = json.loads(text)  # the chart must hand Grafana the file as it is
+    assert dashboard == json.loads((CHART / "files/front-door-dashboard.json").read_text())
+    values = yaml.safe_load((ROOT / "deploy/kind/monitoring-values.yaml").read_text())
+    link = f"{values['grafana']['grafana.ini']['server']['root_url']}/d/{dashboard['uid']}"
+    assert link in (ROOT / "docs/RUNBOOK.md").read_text()
+    assert not dashboards("components.monitoring=false")
+
+
+def test_the_dashboard_reads_the_series_the_monitors_make() -> None:
+    """Every query selects the proxies' or the controller's job, and breaks a route's series
+    down by the labels the PodMonitor adds: a renamed label must fail here, not as an
+    empty panel. The three things the ticket asks for are there, per route."""
+    monitors = _monitors()
+    (endpoint,) = monitors["PodMonitor"]["spec"]["podMetricsEndpoints"]
+    route_labels = {r["targetLabel"] for r in endpoint["metricRelabelings"]}
+    dashboard = json.loads((CHART / "files/front-door-dashboard.json").read_text())
+    queries = {
+        panel["title"]: target["expr"]
+        for panel in dashboard["panels"]
+        for target in panel.get("targets", [])
+    }
+    for title, expr in queries.items():
+        assert re.search(r'job="envoy(-gateway)?"', expr), title
+        for label in re.findall(r"\broute\w*", expr):
+            assert label in route_labels, f"{title}: {label}"
+    for title, metric in (
+        ("Request rate", "envoy_cluster_upstream_rq_total"),
+        ("Error rate (5xx share)", 'envoy_cluster_upstream_rq_xx{job="envoy",route_namespace'),
+        ("Latency, p95", "envoy_cluster_upstream_rq_time_bucket"),
+    ):
+        assert metric in queries[title], title
+        assert "by (route_namespace, route" in queries[title], title
