@@ -622,11 +622,11 @@ alerts (`Node...`) go to #platform-alerts.
 
 `NodeFilesystemSpaceFillingUp` (under 15% free and, at the last 6 hours' pace, none left
 within a day: warning; under 10% and 4 hours: critical) and `NodeFilesystemAlmostOutOfSpace`
-(under 5% free: warning; under 3%: critical). On `mountpoint="/var"` it is the disk
-everything shares; the same disk is listed again as `/etc/hostname`, `/etc/hosts` and
-`/etc/resolv.conf`, so the alert comes four at a time for one problem. Act on the warning: the kubelet starts evicting pods, prod's too, when
-the disk it keeps images and pods on is nearly full, and Postgres stops when it can't
-write.
+(under 5% free: warning; under 3%: critical). It names `mountpoint="/var"`, once: the disk
+everything shares (the files Docker binds into the node from it, `/etc/hostname`, `/etc/hosts`
+and `/etc/resolv.conf`, aren't reported). Act on the warning: the kubelet starts evicting
+pods, prod's too, when the disk it keeps images and pods on is nearly full, and Postgres
+stops when it can't write.
 
 ```sh
 # Free space on the node's disk, as a share of it

@@ -25,6 +25,7 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 CHART = ROOT / "deploy/argocd/platform"
 VALUES = yaml.safe_load((CHART / "values.yaml").read_text())
+NODE_EXPORTER = yaml.safe_load((ROOT / "deploy/kind/node-exporter-values.yaml").read_text())
 PROJECT = yaml.safe_load((ROOT / "deploy/argocd/platform-project.yaml").read_text())["spec"]
 REPO = "https://github.com/easypeasyops/platform.git"
 WAVE_1 = {"kyverno-policies"}  # needs Kyverno's webhook serving, not just its CRDs
@@ -335,6 +336,36 @@ def test_node_exporter_gets_less_than_its_namespace_allows() -> None:
     (monitor,) = [d for d in docs if d["kind"] == "PodMonitor"]
     job_label = monitor["spec"]["jobLabel"]
     assert daemonset["spec"]["template"]["metadata"]["labels"][job_label] == "node-exporter"
+    # Our filesystem arguments, in place of the chart's (not beside them).
+    exclude = [a for a in container["args"] if a.startswith("--collector.filesystem.")]
+    assert exclude == NODE_EXPORTER["extraArgs"]
+
+
+def test_node_exporter_reports_the_nodes_disk_once() -> None:
+    """The kind node's disk is /var, and Docker binds /etc/hostname, /etc/hosts and
+    /etc/resolv.conf into the node from the same disk: reported, each disk alert fires four
+    times (docs/RUNBOOK.md, The node's disk is filling up). Our list replaces the chart's,
+    so it keeps the chart's own exclusions (chart 5.1.0) and adds the three files."""
+    args = dict(a.split("=", 1) for a in NODE_EXPORTER["extraArgs"])
+    assert set(args) == {
+        "--collector.filesystem.mount-points-exclude",
+        "--collector.filesystem.fs-types-exclude",
+    }
+    mounts = re.compile(args["--collector.filesystem.mount-points-exclude"])
+    for left_out in (
+        *("/etc/hostname", "/etc/hosts", "/etc/resolv.conf"),
+        # the chart's own
+        *("/dev", "/dev/pts", "/proc", "/sys/fs/cgroup"),
+        "/run/containerd/io.containerd.runtime.v2.task/k8s.io/0abc/rootfs",
+        "/var/lib/kubelet/pods/0abc/volumes/kubernetes.io~empty-dir/cache",
+        "/var/lib/docker/overlay2/0abc/merged",
+    ):
+        assert mounts.search(left_out), left_out
+    for kept in ("/var", "/", "/etc", "/etc/hostsx", "/var/local-path-provisioner"):
+        assert not mounts.search(kept), kept
+    fs_types = re.compile(args["--collector.filesystem.fs-types-exclude"])
+    assert all(fs_types.search(t) for t in ("overlay", "proc", "sysfs", "nsfs"))
+    assert not fs_types.search("ext4")
 
 
 @pytest.mark.integration
