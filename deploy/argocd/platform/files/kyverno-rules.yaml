@@ -3,7 +3,8 @@
 # Pod is created there, and nothing that already runs notices.
 # Shipped as a PrometheusRule by the platform chart (templates/monitoring.yaml); tested by
 # deploy/prometheus/tests/kyverno_test.yaml (promtool). Metrics: `up` for the two metrics
-# Services, scraped through the ServiceMonitor beside the rule.
+# Services, scraped through the ServiceMonitor beside the rule; Kyverno's own results for the
+# provenance policy; the API server's count of the requests its webhook refused.
 # Severity warning, namespace kyverno: what Alertmanager sends to the platform's channel
 # (deploy/kind/monitoring-values.yaml). absent() has no labels to give, so each alert names
 # the namespace itself.
@@ -33,4 +34,50 @@ groups:
         annotations:
           summary: Kyverno's reports controller isn't running (or isn't scraped)
           description: Kyverno's reports controller hasn't been scraped for 15 minutes. PolicyReports are no longer updated, so an image outside an app's allowlist (an Audit policy) runs without being reported; admission is not affected.
+          runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#kyverno-alerts
+      # Kyverno up, but the provenance policy couldn't decide: its evaluation errored (the
+      # registry unreachable, a digest that isn't there), so the Pod is refused as if it
+      # were unreleased. An unreleased image correctly refused is result="fail", not this.
+      # Admission requests are a few a day: any one error warns, for 15 minutes after it.
+      # The counter only exists from its first error, and increase() needs two samples, so
+      # a series that is new in the window counts too (the `unless ... offset` half).
+      - alert: KyvernoProvenanceCheckErrors
+        expr: |
+          sum by (resource_namespace) (
+            increase(kyverno_image_validating_policy_results_total{policy_name="require-release-provenance",result="error"}[15m])
+          ) > 0
+          or
+          sum by (resource_namespace) (
+            kyverno_image_validating_policy_results_total{policy_name="require-release-provenance",result="error"}
+            unless
+            kyverno_image_validating_policy_results_total{policy_name="require-release-provenance",result="error"} offset 15m
+          )
+        labels:
+          severity: warning
+          namespace: kyverno
+        annotations:
+          summary: "Kyverno couldn't check an image's provenance in {{ $labels.resource_namespace }}"
+          description: In the last 15 minutes the provenance policy failed to run (not refused an image) for a request in {{ $labels.resource_namespace }}, so that Pod or rollout was refused. If the registry is unreachable, every new Pod in the apps' namespaces is.
+          runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#kyverno-alerts
+      # The API server couldn't get an answer from the provenance policy's webhook (a
+      # timeout at 30s, Kyverno unreachable) and, failing closed, refused the request. Only
+      # this policy's webhook: its namespaceSelector is the apps' namespaces. A refusal
+      # Kyverno itself answers is error_type="no_error", not this. Counted as above.
+      - alert: KyvernoWebhookCallsFailing
+        expr: |
+          sum(
+            increase(apiserver_admission_webhook_rejection_count{name="ivpol.validate.kyverno.svc-fail-finegrained-require-release-provenance",error_type="calling_webhook_error"}[15m])
+          ) > 0
+          or
+          sum(
+            apiserver_admission_webhook_rejection_count{name="ivpol.validate.kyverno.svc-fail-finegrained-require-release-provenance",error_type="calling_webhook_error"}
+            unless
+            apiserver_admission_webhook_rejection_count{name="ivpol.validate.kyverno.svc-fail-finegrained-require-release-provenance",error_type="calling_webhook_error"} offset 15m
+          )
+        labels:
+          severity: warning
+          namespace: kyverno
+        annotations:
+          summary: The API server couldn't call Kyverno's provenance webhook
+          description: In the last 15 minutes the API server refused a request in an app's namespace because Kyverno's provenance webhook didn't answer (a timeout, or Kyverno unreachable). While that lasts no Pod can be created there.
           runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#kyverno-alerts

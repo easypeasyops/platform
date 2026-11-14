@@ -182,15 +182,22 @@ a scale-up, the replacement for a pod that crashed. What already runs keeps runn
 | --- | --- | --- |
 | `KyvernoAdmissionControllerDown` | The admission controller hasn't been scraped for 5 minutes: no Pod can be created in an app's namespace | `kubectl -n kyverno get pods`; `kubectl -n kyverno describe pod -l app.kubernetes.io/component=admission-controller` (OOMKilled? its limit is in `deploy/kind/kyverno-values.yaml`); `kubectl -n kyverno logs deploy/kyverno-admission-controller --tail=50` (add `--previous` after a crash) |
 | `KyvernoReportsControllerDown` | The reports controller hasn't been scraped for 15 minutes: PolicyReports go stale (the allowlist's Audit results), admission still works | `kubectl -n kyverno get pods`; `kubectl -n kyverno logs deploy/kyverno-reports-controller --tail=50` |
+| `KyvernoProvenanceCheckErrors` | Kyverno is up but the provenance policy couldn't run for a request in `resource_namespace` (it errored, it didn't refuse): that Pod or rollout was refused. Usually `ghcr.io` unreachable from Kyverno; in one namespace only, maybe a digest that doesn't exist | `kubectl -n <resource_namespace> get events --sort-by=.lastTimestamp \| grep -i -E 'denied\|webhook' \| tail`; `kubectl -n kyverno logs deploy/kyverno-admission-controller --tail=50 \| grep -i -E 'imagedata\|error'`; `scripts/verify-image.sh <ref>` from the laptop |
+| `KyvernoWebhookCallsFailing` | The API server got no answer from the provenance webhook (a 30 s timeout, or Kyverno unreachable) and refused the request: no Pod can be created in an app's namespace. Fires beside `KyvernoAdmissionControllerDown` when the pod is down, and before it | As `KyvernoAdmissionControllerDown`; with the pod Ready, it is slow: `kubectl -n kyverno top pod`, and its log for registry or Rekor timeouts |
 
 A pod that is there and not Ready, or in a crash loop: propose
 `kubectl -n kyverno rollout restart deploy/kyverno-admission-controller` (or
 `deploy/kyverno-reports-controller`). No pod at all: the `kyverno` Application
 (`kubectl -n argocd get application kyverno`; An Application that won't sync, above). If
 pods must start before Kyverno is back, the break glass is in Admission policy refuses
-pods, above. Either alert with its pod running and Ready is the scrape: Prometheus's Targets
+pods, above. Either `…Down` alert with its pod running and Ready is the scrape: Prometheus's Targets
 page (http://prometheus.localhost:8090/targets), `kyverno-svc-metrics` and
 `kyverno-reports-controller-metrics`.
+
+Neither of the last two tells Sigstore (Rekor, TUF) unreachable from an unreleased image:
+Kyverno counts a signature it couldn't check as a refusal (`result="fail"`). A release
+digest refused with `our images must be a release digest…` is that case: check
+Kyverno's log, and `scripts/verify-image.sh <ref>`, which passes for a release.
 
 ## The front door
 
