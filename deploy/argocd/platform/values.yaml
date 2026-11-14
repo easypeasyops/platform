@@ -38,8 +38,8 @@ charts:
     digest: sha256:a89531ea07e7a910c953da676d7e3b2fca73819060333e2b39634a8bebed5948
   logCollector: # vlagent v1.53.0: sends every pod's log lines to VictoriaLogs
     repo: oci://ghcr.io/victoriametrics/helm-charts/victoria-logs-collector
-    version: 0.3.8
-    digest: sha256:ea4a285f5f4d47caf43d6540f9d840d4c047e101a7599d2e69ed40096f7394f7
+    version: 0.3.9
+    digest: sha256:c3403105e753070a545b5d414479f6336ac8d9ee55f5e3d0a517da73a3e35c04
   nodeExporter: # node-exporter v1.12.1: the node's CPU, memory and disk, for Prometheus
     repo: oci://ghcr.io/prometheus-community/charts/prometheus-node-exporter
     version: 5.1.0
