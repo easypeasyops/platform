@@ -93,6 +93,10 @@ notifications:
   enabled: false
 applicationSet:
   replicas: 1 # generates every app's Applications from the platform repo's apps/ (platform plan 3.3)
+  # Its metrics Service, scraped by the platform as the controller's is (below): with it
+  # down, a new app or environment never gets its Application, and nothing else says so.
+  metrics:
+    enabled: true
 
 controller:
   replicas: 1
@@ -114,6 +118,10 @@ server:
     limits: { memory: 256Mi }
 repoServer:
   replicas: 1
+  # Its metrics Service, scraped by the platform as the controller's is (above): its git
+  # failures are the one sign that it can't read GitHub (every Application stays Synced).
+  metrics:
+    enabled: true
   resources:
     requests: { cpu: 50m, memory: 128Mi }
     limits: { memory: 512Mi }

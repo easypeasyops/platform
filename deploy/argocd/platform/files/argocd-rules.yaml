@@ -1,8 +1,9 @@
 # Alerts on Argo CD itself. With GitOps a merged promotion IS the deploy: if Argo CD stops
 # syncing, nothing fails loudly, the merge just never lands. These make that loud.
 # Shipped as a PrometheusRule by the platform chart (templates/monitoring.yaml); tested by
-# deploy/prometheus/tests/alerts_test.yaml (promtool). Metrics: the application controller
-# (argocd_app_info, argocd_app_sync_total), scraped through templates/monitoring.yaml.
+# deploy/prometheus/tests/argocd_test.yaml (promtool). Metrics: the application controller
+# (argocd_app_info, argocd_app_sync_total) and the repo server (argocd_git_*), scraped
+# through templates/monitoring.yaml.
 groups:
   - name: argocd
     rules:
@@ -46,4 +47,21 @@ groups:
         annotations:
           summary: "Syncing {{ $labels.name }} failed in the last 15 minutes"
           description: Argo CD tried to apply git and the cluster refused (an admission policy, a bad manifest, a failed migration hook).
+          runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#argo-cd-alerts
+      - alert: ArgoCDCantReachGit
+        # The repo server failing to ls-remote or fetch: GitHub (or an app's repo) unreachable,
+        # or its credentials refused. Every Application stays Synced and Healthy at the last
+        # commit it saw, so nothing above fires. Summed over every repo: the failure
+        # counters' `repo` is the repo server's checkout path, not the URL, so it names
+        # nothing useful and can't be matched with argocd_git_request_total. A failure in
+        # every 10 minutes for an hour: a blip, or the laptop offline for less than about
+        # 50 minutes (a train ride), stays quiet. Quiet too while the repo server isn't
+        # scraped (no series).
+        expr: sum(increase({__name__=~"argocd_git_(lsremote|fetch)_fail_total"}[10m])) > 0
+        for: 1h
+        labels:
+          severity: ticket
+        annotations:
+          summary: Argo CD has failed to read git for an hour
+          description: Every Application stays Synced at the last commit Argo CD saw, so a merged change (a promotion included) never lands. Running workloads are unaffected.
           runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#argo-cd-alerts

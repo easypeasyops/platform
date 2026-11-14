@@ -66,6 +66,7 @@ platform's own. Rules: `deploy/argocd/platform/files/argocd-rules.yaml`.
 | `ArgoCDAppUnhealthy` | Degraded, Missing or Unknown for 10 minutes (a canary between steps is Suspended or Progressing, never this) | `kubectl -n argocd get application <name> -o jsonpath='{range .status.resources[?(@.health.status!="Healthy")]}{.kind}/{.namespace}/{.name}: {.health.message}{"\n"}{end}'` |
 | `ArgoCDSyncFailed` | A sync was refused in the last 15 minutes (admission policy, invalid manifest, failed hook), even if a retry worked | `kubectl -n argocd get application <name> -o jsonpath='{.status.operationState.message}'` |
 | `ArgoCDDown` | No application controller scraped for 10 minutes: nothing syncs, nothing self-heals, and the three above are blind | `kubectl -n argocd get pods`; `kubectl -n argocd logs statefulset/argocd-application-controller --tail=50` |
+| `ArgoCDCantReachGit` | The repo server's ls-remote or fetch has failed in every 10 minutes for an hour: GitHub (or an app's repo) unreachable, or its credentials refused. Every Application stays Synced at the last commit it saw, so nothing merged lands. The laptop offline for more than about 50 minutes raises it too; it clears within 10 minutes of being back online | `kubectl -n argocd logs deploy/argocd-repo-server --tail=50`; then "Synced, but to an older revision" below |
 
 Then the tables below, and the app's own runbook for its Application (aipostit: "API
 health check fails").
@@ -83,7 +84,7 @@ An app's Application (`<app>-<env>`):
 
 | What you see | Cause | Fix |
 | --- | --- | --- |
-| Synced, but to an older revision | Not polled yet (every 60 s), or the repo server can't reach GitHub | Wait a minute; `kubectl -n argocd annotate application <name> argocd.argoproj.io/refresh=normal --overwrite` forces a check; then the repo server's logs |
+| Synced, but to an older revision | Not polled yet (every 60 s), or the repo server can't reach GitHub (`ArgoCDCantReachGit` after an hour) | Wait a minute; `kubectl -n argocd annotate application <name> argocd.argoproj.io/refresh=normal --overwrite` forces a check; then the repo server's logs |
 | `ComparisonError` | The service chart doesn't render with the app's values (a typo, a bad value), or the env file here names a digest or a file that doesn't exist | The message names the template or the file; fix it in a PR. Nothing changed in the cluster. CI here (`apps` job) renders every env file, so the break is usually in the app's repo |
 | `<app>-<env>` missing | The ApplicationSet isn't running, or can't read `apps/` | `kubectl -n argocd get applicationset apps -o jsonpath='{.status.conditions}'` |
 | Sync failed, a webhook denied the request | An admission policy refused a Pod | Admission policy refuses pods, below |
