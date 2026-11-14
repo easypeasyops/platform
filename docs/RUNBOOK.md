@@ -678,16 +678,18 @@ bucket in another account, with versioning and object lock.
 
 ## CloudNativePG alerts
 
-Warnings, to the platform's channel whichever app the database belongs to. Neither breaks
+Warnings, to the platform's channel whichever app the database belongs to. None breaks
 what runs: the databases serve queries without the operator, and a missing backup is missed
-on the day of a restore. In `DatabaseBackupTooOld`, label `exported_namespace` is the
-database's namespace and `cluster` its Cluster (`<release>-db`). Rules:
+on the day of a restore. In the two `DatabaseBackup…` alerts, label `exported_namespace` is
+the database's namespace and `cluster` its Cluster (`<release>-db`). Rules:
 `deploy/argocd/platform/files/cloudnative-pg-rules.yaml`.
 
 | Alert | Means | First look |
 | --- | --- | --- |
 | `CloudNativePGOperatorDown` | The operator hasn't been scraped for 10 minutes: no failover, no scheduled backup, no change to a Cluster | `kubectl -n cnpg-system get pods`; `kubectl -n cnpg-system logs deploy/cloudnative-pg --tail=50` (add `--previous` after a crash) |
 | `DatabaseBackupTooOld` | A database's last successful base backup is more than 24 hours old, or it never had one | `kubectl -n <ns> get backups.postgresql.cnpg.io --sort-by=.metadata.creationTimestamp \| tail -5` (the last ones' phase); `kubectl -n <ns> describe backups.postgresql.cnpg.io <name>` (why it failed); `kubectl -n <ns> get scheduledbackup,objectstore` |
+| `DatabaseBackupNotWatched` | A Cluster has backups on (it names the Barman Cloud plugin), and for an hour no instance of it has reported its last backup's time: `DatabaseBackupTooOld` can't see this database | `kubectl -n <ns> get pods -l cnpg.io/cluster=<release>-db` (is an instance running?); `kubectl -n <ns> get podmonitor <release>-db` (none: the app's `monitoring.enabled` is off); Prometheus's Targets page, `<ns>/<release>-db` |
+| `BarmanCloudPluginDown` | The plugin's Deployment has had no available replica for 15 minutes (or is gone) while a database has backups on: base backups stop | `kubectl -n cnpg-system get deploy,pods`; `kubectl -n cnpg-system describe deploy plugin-barman-cloud`; `kubectl -n cnpg-system logs deploy/plugin-barman-cloud --tail=50` (add `--previous` after a crash) |
 
 | What you find | Cause | Fix |
 | --- | --- | --- |
@@ -695,6 +697,10 @@ database's namespace and `cluster` its Cluster (`<release>-db`). Rules:
 | No operator pod at all | The `cloudnative-pg` Application | `kubectl -n argocd get application cloudnative-pg`; An Application that won't sync, above |
 | No Backup objects since a certain time | The operator was down, or the laptop slept | The ScheduledBackup catches up at its next run; the alert clears with the next backup |
 | Backups there, phase `failed` | The bucket, its keys, or the plugin: the Backup's description names it | The backup bucket, above; `kubectl -n cnpg-system logs deploy/plugin-barman-cloud --tail=50`; an expired certificate between the two is cert-manager alerts, above |
+| `DatabaseBackupNotWatched`, no PodMonitor in the namespace | The app has `monitoring.enabled` off: the service chart renders the database's PodMonitor (and the network rule for the scrape) only with it | The app's values, in the app's repo: turn `monitoring.enabled` on. Until then the database's backups are watched by nobody |
+| `DatabaseBackupNotWatched`, the target is there and down | The scrape: the instance's metrics port (9187), or a NetworkPolicy between Prometheus and the database | The target's error on the Targets page; `kubectl -n <ns> get networkpolicy <release>-db -o yaml` |
+| The plugin's pod is there, not Ready or in a crash loop | Its logs say; an expired or missing certificate is cert-manager alerts, above; OOMKilled shows in `describe pod` (its limit is in `deploy/kind/barman-cloud-values.yaml`) | Propose `kubectl -n cnpg-system rollout restart deploy/plugin-barman-cloud` |
+| No plugin Deployment at all | The `barman-cloud` Application | `kubectl -n argocd get application barman-cloud`; An Application that won't sync, above |
 | Backups `completed`, and the alert stays | The ObjectStore's status isn't updated, which is what the metric reads | `kubectl -n <ns> get objectstore <release>-db -o jsonpath='{.status}'`; the plugin's sidecar in the instance: `kubectl -n <ns> logs <release>-db-1 -c plugin-barman-cloud --tail=50` |
 
 To take a backup now rather than wait for the schedule, propose
@@ -702,5 +708,7 @@ To take a backup now rather than wait for the schedule, propose
 (the `cnpg` kubectl plugin). `CloudNativePGOperatorDown` with the pod running and Ready is
 the scrape: Prometheus's Targets page (http://prometheus.localhost:8090/targets),
 `cloudnative-pg`. A database is watched only while Prometheus scrapes its instances
-(`<ns>/<release>-db` on the same page): that needs `monitoring.enabled` in the app's values,
-and an app whose database isn't scraped gets no backup alert.
+(`<ns>/<release>-db` on the same page): that needs `monitoring.enabled` in the app's values.
+A database with backups on that isn't scraped gets `DatabaseBackupNotWatched` instead of a
+backup alert: kube-state-metrics lists the Clusters themselves
+(`cnpg_cluster_plugin_info`, `deploy/kind/monitoring-values.yaml`).

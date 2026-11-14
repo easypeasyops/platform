@@ -1,11 +1,14 @@
-# Alerts on CloudNativePG: the operator, and every app database's base backups. Neither
-# failure breaks anything that runs: the databases serve queries without the operator, and
-# a backup that stops is missed only on the day a restore is needed.
+# Alerts on CloudNativePG: the operator, the Barman Cloud plugin, and every app database's
+# base backups. None of these failures breaks anything that runs: the databases serve
+# queries without the operator, and a backup that stops is missed only on the day a restore
+# is needed.
 # Shipped as a PrometheusRule by the platform chart (templates/monitoring.yaml); tested by
 # deploy/prometheus/tests/cloudnative_pg_test.yaml (promtool). Metrics: `up` for the
-# operator (the PodMonitor beside the rule), and the Barman Cloud plugin's, which each
+# operator (the PodMonitor beside the rule); the Barman Cloud plugin's, which each
 # database instance reports through the PodMonitor the service chart renders with its
-# Cluster (in the app's namespace, when the app has monitoring on).
+# Cluster (in the app's namespace, when the app has monitoring on); and kube-state-metrics'
+# (deploy/kind/monitoring-values.yaml): the plugin's Deployment, and one series per Cluster
+# with backups on, which is how a database that reports nothing is still seen.
 # Severity warning, namespace cnpg-system: what Alertmanager sends to the platform's channel
 # (deploy/kind/monitoring-values.yaml), whichever app the database belongs to; a warning in
 # an app's namespace would go nowhere. The channel's message is the description, so it
@@ -47,4 +50,50 @@ groups:
         annotations:
           summary: "Database {{ $labels.exported_namespace }}/{{ $labels.cluster }} has no base backup from the last 24 hours"
           description: "Database {{ $labels.exported_namespace }}/{{ $labels.cluster }} has no successful base backup from the last 24 hours (or none at all). A restore would have to replay every WAL file since the last one, and can't reach any moment once that backup passes its retention."
+          runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#cloudnativepg-alerts
+      - alert: DatabaseBackupNotWatched
+        # DatabaseBackupTooOld reads a series each instance reports: a database that isn't
+        # scraped (the app's monitoring off, the scrape or its network rule broken, no
+        # instance running) has none, and would stay quiet for ever. kube-state-metrics
+        # lists the Clusters themselves, with the labels the rule above gives a database:
+        # one series for each that names the plugin, which is what "backups on" renders to
+        # in the service chart.
+        # 1 hour: a new database's first instance, a Prometheus that restarted, a laptop
+        # that slept.
+        expr: |-
+          max by (exported_namespace, cluster) (
+            cnpg_cluster_plugin_info{job="kube-state-metrics", plugin="barman-cloud.cloudnative-pg.io"}
+          )
+          unless on (exported_namespace, cluster)
+          label_replace(
+            label_replace(barman_cloud_cloudnative_pg_io_last_available_backup_timestamp, "exported_namespace", "$1", "namespace", "(.+)"),
+            "cluster", "$1", "pod", "(.+)-[0-9]+"
+          )
+        for: 1h
+        labels:
+          severity: warning
+          namespace: cnpg-system
+        annotations:
+          summary: "Database {{ $labels.exported_namespace }}/{{ $labels.cluster }} has backups on, and nothing says how old its last one is"
+          description: "Database {{ $labels.exported_namespace }}/{{ $labels.cluster }} has backups on, but no instance of it has reported its last base backup's time for an hour: it isn't scraped, or none is running. Its backups may be fine, but DatabaseBackupTooOld can't see them stop."
+          runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#cloudnativepg-alerts
+      - alert: BarmanCloudPluginDown
+        # The plugin's Deployment (beside the operator) names no metrics port, so it has no
+        # `up`: its available replicas, from kube-state-metrics. absent(), so that a
+        # Deployment that is gone counts as one with no replica. Only while a database has
+        # backups on: a plugin with nothing to back up is not worth a message (and with
+        # kube-state-metrics itself down the right side is empty too, so this stays quiet
+        # and KubeStateMetricsDown speaks).
+        # 15 minutes: a rollout or a node restart takes a minute or two.
+        expr: |-
+          absent(kube_deployment_status_replicas_available{job="kube-state-metrics", namespace="cnpg-system", deployment="plugin-barman-cloud"} > 0)
+          and on ()
+          count(cnpg_cluster_plugin_info{job="kube-state-metrics", plugin="barman-cloud.cloudnative-pg.io"}) > 0
+        for: 15m
+        labels:
+          severity: warning
+          namespace: cnpg-system
+        annotations:
+          summary: The Barman Cloud plugin isn't running
+          description: The Barman Cloud plugin's Deployment (cnpg-system/plugin-barman-cloud) has had no available replica for 15 minutes. The operator can't reach it, so base backups stop for every database; DatabaseBackupTooOld would only say so a day later.
           runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#cloudnativepg-alerts

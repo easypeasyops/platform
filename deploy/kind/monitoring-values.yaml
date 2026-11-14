@@ -47,10 +47,21 @@ kube-state-metrics:
   # for True, 0 for False; the labels are the ones a route's Envoy series carry
   # (deploy/argocd/platform/templates/monitoring.yaml). The first parent's conditions only
   # (a path can't walk two lists): every route here attaches to the one Gateway.
+  #
+  # And every CloudNativePG Cluster's plugins: cnpg_cluster_plugin_info{exported_namespace,
+  # cluster, plugin} is 1 for each plugin a Cluster names (spec.plugins; the service chart
+  # names the Barman Cloud plugin when the database's backups are on). The one list of
+  # databases that doesn't come from the databases' own pods, so a database that isn't
+  # scraped is still seen (deploy/argocd/platform/files/cloudnative-pg-rules.yaml, whose
+  # DatabaseBackupTooOld gives a database the same two labels). A Cluster with no plugin
+  # has no series.
   rbac:
     extraRules:
       - apiGroups: [gateway.networking.k8s.io]
         resources: [httproutes]
+        verbs: [list, watch]
+      - apiGroups: [postgresql.cnpg.io]
+        resources: [clusters]
         verbs: [list, watch]
   customResourceState:
     enabled: true
@@ -72,6 +83,19 @@ kube-state-metrics:
                     path: [status, parents, "0", conditions]
                     labelsFromPath: { type: [type], reason: [reason] }
                     valueFrom: [status]
+          - groupVersionKind: { group: postgresql.cnpg.io, version: v1, kind: Cluster }
+            metricNamePrefix: cnpg_cluster
+            labelsFromPath:
+              exported_namespace: [metadata, namespace]
+              cluster: [metadata, name]
+            metrics:
+              - name: plugin_info
+                help: A plugin the Cluster names in spec.plugins (always 1)
+                each:
+                  type: Info
+                  info:
+                    path: [spec, plugins]
+                    labelsFromPath: { plugin: [name] }
 
 prometheus:
   prometheusSpec:

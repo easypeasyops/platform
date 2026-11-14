@@ -8,8 +8,8 @@ rule_files:
 evaluation_interval: 1m
 
 tests:
-  # The Barman Cloud plugin runs beside the operator, in a Deployment of its own, and isn't
-  # scraped: nothing stands in for the operator.
+  # The Barman Cloud plugin runs beside the operator, in a Deployment of its own (its alert
+  # is below): nothing stands in for the operator.
   - name: no operator scraped for 10 minutes warns, a restart doesn't
     interval: 1m
     input_series:
@@ -89,3 +89,94 @@ tests:
               summary: Database shortly-prod/shortly-db has no base backup from the last 24 hours
               description: "Database shortly-prod/shortly-db has no successful base backup from the last 24 hours (or none at all). A restore would have to replay every WAL file since the last one, and can't reach any moment once that backup passes its retention."
               runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#cloudnativepg-alerts
+
+  # kube-state-metrics' series for a Cluster with backups on, as it makes them (its own
+  # namespace is the scrape's; the Cluster's is exported_namespace). Prod's two instances
+  # are scraped and staging's one isn't (monitoring off); a third database is scraped again
+  # after 30 minutes without. A Cluster with backups off has no series, so nothing to show.
+  - name: a database with backups on that reports no backup time warns after an hour
+    interval: 1m
+    input_series:
+      - series: 'cnpg_cluster_plugin_info{job="kube-state-metrics",namespace="monitoring",customresource_group="postgresql.cnpg.io",customresource_kind="Cluster",customresource_version="v1",plugin="barman-cloud.cloudnative-pg.io",exported_namespace="aipostit-prod",cluster="aipostit-db"}'
+        values: '1x90'
+      - series: 'cnpg_cluster_plugin_info{job="kube-state-metrics",namespace="monitoring",customresource_group="postgresql.cnpg.io",customresource_kind="Cluster",customresource_version="v1",plugin="barman-cloud.cloudnative-pg.io",exported_namespace="aipostit-staging",cluster="aipostit-db"}'
+        values: '1x90'
+      - series: 'cnpg_cluster_plugin_info{job="kube-state-metrics",namespace="monitoring",customresource_group="postgresql.cnpg.io",customresource_kind="Cluster",customresource_version="v1",plugin="barman-cloud.cloudnative-pg.io",exported_namespace="shortly-prod",cluster="shortly-db"}'
+        values: '1x90'
+      - series: 'barman_cloud_cloudnative_pg_io_last_available_backup_timestamp{namespace="aipostit-prod",pod="aipostit-db-1",job="aipostit-prod/aipostit-db"}'
+        values: '0x90'
+      - series: 'barman_cloud_cloudnative_pg_io_last_available_backup_timestamp{namespace="aipostit-prod",pod="aipostit-db-2",job="aipostit-prod/aipostit-db"}'
+        values: '0x90'
+      - series: 'barman_cloud_cloudnative_pg_io_last_available_backup_timestamp{namespace="shortly-prod",pod="shortly-db-1",job="shortly-prod/shortly-db"}'
+        values: '0x10 _x30 0x50'
+    alert_rule_test:
+      - eval_time: 55m
+        alertname: DatabaseBackupNotWatched
+        exp_alerts: []
+      # Staging's only: prod's is scraped, and the third's gap was shorter than the hour.
+      - eval_time: 65m
+        alertname: DatabaseBackupNotWatched
+        exp_alerts:
+          - exp_labels: {namespace: cnpg-system, exported_namespace: aipostit-staging, cluster: aipostit-db, severity: warning}
+            exp_annotations:
+              summary: Database aipostit-staging/aipostit-db has backups on, and nothing says how old its last one is
+              description: "Database aipostit-staging/aipostit-db has backups on, but no instance of it has reported its last base backup's time for an hour: it isn't scraped, or none is running. Its backups may be fine, but DatabaseBackupTooOld can't see them stop."
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#cloudnativepg-alerts
+
+  # The plugin's Deployment has no available replica from minute 5; a rollout (minutes 2
+  # and 3) is over before anything is said.
+  - name: the plugin with no available replica for 15 minutes warns, a rollout doesn't
+    interval: 1m
+    input_series:
+      - series: 'kube_deployment_status_replicas_available{job="kube-state-metrics",namespace="cnpg-system",deployment="plugin-barman-cloud"}'
+        values: '1 1 0 0 1 0x30'
+      - series: 'cnpg_cluster_plugin_info{job="kube-state-metrics",namespace="monitoring",customresource_group="postgresql.cnpg.io",customresource_kind="Cluster",customresource_version="v1",plugin="barman-cloud.cloudnative-pg.io",exported_namespace="aipostit-prod",cluster="aipostit-db"}'
+        values: '1x35'
+    alert_rule_test:
+      - eval_time: 19m
+        alertname: BarmanCloudPluginDown
+        exp_alerts: []
+      - eval_time: 21m
+        alertname: BarmanCloudPluginDown
+        exp_alerts:
+          - exp_labels: {namespace: cnpg-system, severity: warning}
+            exp_annotations:
+              summary: The Barman Cloud plugin isn't running
+              description: The Barman Cloud plugin's Deployment (cnpg-system/plugin-barman-cloud) has had no available replica for 15 minutes. The operator can't reach it, so base backups stop for every database; DatabaseBackupTooOld would only say so a day later.
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#cloudnativepg-alerts
+
+  # A Deployment that is gone has no series at all: the same alert.
+  - name: the plugin's Deployment deleted warns as one with no replica
+    interval: 1m
+    input_series:
+      - series: 'kube_deployment_status_replicas_available{job="kube-state-metrics",namespace="cnpg-system",deployment="plugin-barman-cloud"}'
+        values: '1 1 _x30'
+      - series: 'cnpg_cluster_plugin_info{job="kube-state-metrics",namespace="monitoring",customresource_group="postgresql.cnpg.io",customresource_kind="Cluster",customresource_version="v1",plugin="barman-cloud.cloudnative-pg.io",exported_namespace="aipostit-prod",cluster="aipostit-db"}'
+        values: '1x35'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: BarmanCloudPluginDown
+        exp_alerts:
+          - exp_labels: {namespace: cnpg-system, severity: warning}
+            exp_annotations:
+              summary: The Barman Cloud plugin isn't running
+              description: The Barman Cloud plugin's Deployment (cnpg-system/plugin-barman-cloud) has had no available replica for 15 minutes. The operator can't reach it, so base backups stop for every database; DatabaseBackupTooOld would only say so a day later.
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#cloudnativepg-alerts
+
+  # Today's cluster: the plugin down and no database with backups on. And kube-state-metrics
+  # itself down, which takes both series away.
+  - name: the plugin down with no database to back up says nothing, nor does a missing kube-state-metrics
+    interval: 1m
+    input_series:
+      - series: 'kube_deployment_status_replicas_available{job="kube-state-metrics",namespace="cnpg-system",deployment="plugin-barman-cloud"}'
+        values: '0x30 _x30'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: BarmanCloudPluginDown
+        exp_alerts: []
+      - eval_time: 55m
+        alertname: BarmanCloudPluginDown
+        exp_alerts: []
+      - eval_time: 55m
+        alertname: DatabaseBackupNotWatched
+        exp_alerts: []

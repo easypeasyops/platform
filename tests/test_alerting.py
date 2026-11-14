@@ -98,6 +98,61 @@ def test_the_buffer_alert_knows_the_collectors_cap() -> None:
     assert "at 1 GiB" in rule["annotations"]["description"]
 
 
+def test_the_database_alerts_read_the_series_kube_state_metrics_is_told_to_make() -> None:
+    """A database that reports nothing is seen only through kube-state-metrics' list of
+    Clusters (custom resource state, deploy/kind/monitoring-values.yaml): it may read them,
+    names each as DatabaseBackupTooOld names a database, and the plugin the rules select is
+    the one the service chart puts in a Cluster with backups on. The plugin's Deployment is
+    named after its release."""
+    values = yaml.safe_load((ROOT / "deploy/kind/monitoring-values.yaml").read_text())
+    ksm = values["kube-state-metrics"]
+    cluster = {"group": "postgresql.cnpg.io", "version": "v1", "kind": "Cluster"}
+    (resource,) = [
+        r
+        for r in ksm["customResourceState"]["config"]["spec"]["resources"]
+        if r["groupVersionKind"] == cluster
+    ]
+    assert {
+        "apiGroups": ["postgresql.cnpg.io"],
+        "resources": ["clusters"],
+        "verbs": ["list", "watch"],
+    } in ksm["rbac"]["extraRules"]
+    assert resource["labelsFromPath"] == {
+        "exported_namespace": ["metadata", "namespace"],
+        "cluster": ["metadata", "name"],
+    }
+    (metric,) = resource["metrics"]
+    assert metric["each"]["type"] == "Info"
+    assert metric["each"]["info"] == {
+        "path": ["spec", "plugins"],
+        "labelsFromPath": {"plugin": ["name"]},
+    }
+    template = (ROOT / "charts/service/templates/database.yaml").read_text()
+    (plugin,) = re.findall(r'\$plugin := "([^"]+)"', template)
+    assert "- name: {{ $plugin }}" in template
+    series = (
+        f"{resource['metricNamePrefix']}_{metric['name']}"
+        f'{{job="kube-state-metrics", plugin="{plugin}"}}'
+    )
+    rules = {
+        rule["alert"]: rule
+        for group in yaml.safe_load(
+            (ROOT / "deploy/argocd/platform/files/cloudnative-pg-rules.yaml").read_text()
+        )["groups"]
+        for rule in group["rules"]
+    }
+    for alert in ("DatabaseBackupNotWatched", "BarmanCloudPluginDown"):
+        assert series in rules[alert]["expr"], alert
+    for alert in ("DatabaseBackupTooOld", "DatabaseBackupNotWatched"):
+        assert "(exported_namespace, cluster)" in rules[alert]["expr"], alert
+    applications = (ROOT / "deploy/argocd/platform/templates/applications.yaml").read_text()
+    assert '"release" "plugin-barman-cloud"' in applications
+    assert (
+        'namespace="cnpg-system", deployment="plugin-barman-cloud"}'
+        in rules["BarmanCloudPluginDown"]["expr"]
+    )
+
+
 @pytest.mark.integration
 def test_promtool_scenarios_pass() -> None:
     _docker()
