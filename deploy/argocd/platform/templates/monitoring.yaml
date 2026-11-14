@@ -125,6 +125,33 @@ spec:
   endpoints:
     - port: metrics
       interval: 30s
+{{- /* Each hostname on the front door (values.yaml, frontDoorProbes), asked for as a user
+would, every minute (deploy/kind/blackbox-exporter-values.yaml: through the proxies'
+Service, by hostname). In the root's own namespace, for the fresh cluster's dry run (as the
+PodMonitor above). job="front-door"; `hostname` and `listener` name what failed. */}}
+{{- range .Values.frontDoorProbes }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: front-door-{{ .hostname | replace "." "-" }}
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true # as above
+spec:
+  jobName: front-door
+  interval: 60s
+  module: front_door_{{ .listener }}
+  prober:
+    url: blackbox-exporter.monitoring.svc:9115
+  targets:
+    staticConfig:
+      static: [{{ printf "http://%s%s" .hostname .path | quote }}]
+      labels:
+        hostname: {{ .hostname | quote }}
+        listener: {{ .listener | quote }}
+{{- end }}
 ---
 # The front door's dashboard (files/front-door-dashboard.json, uid front-door): request
 # rate, error rate and latency per route, and what the proxy answered itself. Grafana's

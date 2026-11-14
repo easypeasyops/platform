@@ -6,7 +6,7 @@
     "front-door"
   ],
   "timezone": "browser",
-  "description": "What the Envoy proxies saw of every request to every app and tool, and the routes whose status says they have no backend; a blue mark where an Argo CD Application deployed a new revision (docs/RUNBOOK.md, The front door).",
+  "description": "What the Envoy proxies saw of every request to every app and tool, the routes whose status says they have no backend, and each hostname probed as a user would; a blue mark where an Argo CD Application deployed a new revision (docs/RUNBOOK.md, The front door).",
   "schemaVersion": 39,
   "version": 1,
   "editable": false,
@@ -911,6 +911,173 @@
       },
       "options": {
         "showHeader": true
+      }
+    },
+    {
+      "id": 19,
+      "type": "row",
+      "title": "Probes (each hostname asked for through the front door every minute, as a user would)",
+      "gridPos": {
+        "x": 0,
+        "y": 49,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 20,
+      "type": "table",
+      "title": "Probes failing now",
+      "description": "Hostnames whose last probe through the Gateway got no 2xx: the HTTP status the proxy or the app answered (0: no answer at all, e.g. a timeout). Empty: every hostname answers. Needs no traffic.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 50,
+        "w": 24,
+        "h": 6
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max by (hostname, listener) (probe_http_status_code{job=\"front-door\"}) and on (hostname, listener) (max by (hostname, listener) (probe_success{job=\"front-door\"}) == 0)",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value": "HTTP status"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      }
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Probe result",
+      "description": "1: the hostname answered 2xx through the Gateway; 0: it didn't. Per hostname, every minute.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 56,
+        "w": 12,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max by (hostname, listener) (probe_success{job=\"front-door\"})",
+          "legendFormat": "{{hostname}} ({{listener}})",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "fillOpacity": 10,
+            "showPoints": "never"
+          },
+          "min": 0,
+          "max": 1,
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "min"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Probe duration",
+      "description": "How long each probe took, through the proxy to the app and back.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 56,
+        "w": 12,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max by (hostname, listener) (probe_duration_seconds{job=\"front-door\"})",
+          "legendFormat": "{{hostname}} ({{listener}})",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "fillOpacity": 10,
+            "showPoints": "never"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "min"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       }
     }
   ]

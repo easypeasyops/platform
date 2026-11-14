@@ -207,7 +207,7 @@ def test_the_dashboard_reads_the_series_the_monitors_make() -> None:
         for target in panel.get("targets", [])
     }
     for title, expr in queries.items():
-        assert re.search(r'job="(envoy(-gateway)?|kube-state-metrics)"', expr), title
+        assert re.search(r'job="(envoy(-gateway)?|kube-state-metrics|front-door)"', expr), title
         for label in re.findall(r"\broute\w*", expr):
             assert label in route_labels, f"{title}: {label}"
     for title, metric in (
@@ -218,6 +218,10 @@ def test_the_dashboard_reads_the_series_the_monitors_make() -> None:
     ):
         assert metric in queries[title], title
         assert "by (route_namespace, route" in queries[title], title
+    # The probes (_probes): what each one answered, by the labels the Probes give them.
+    for title in ("Probes failing now", "Probe result"):
+        assert 'probe_success{job="front-door"}' in queries[title], title
+        assert "by (hostname, listener)" in queries[title], title
 
 
 def _route_status_series() -> str:
@@ -344,3 +348,40 @@ def test_the_probes_go_through_the_proxies_one_module_per_listener() -> None:
     assert "blackbox-exporter" not in {
         d["metadata"]["name"] for d in _platform("components.monitoring=false")
     }
+
+
+def _probes() -> dict[str, dict[str, Any]]:
+    return {d["metadata"]["name"]: d["spec"] for d in _platform() if d["kind"] == "Probe"}
+
+
+def test_every_hostname_on_the_front_door_is_probed_every_minute() -> None:
+    """One Probe per frontDoorProbes entry, through the module for its listener, at the
+    exporter's Service. The tool routes are all there, at the listener they attach to; the
+    apps' hostnames are checked against their rendered routes by scripts/check-apps.py."""
+    entries = yaml.safe_load((CHART / "values.yaml").read_text())["frontDoorProbes"]
+    probes = _probes()
+    assert len(probes) == len(entries)
+    exporter = yaml.safe_load((ROOT / "deploy/kind/blackbox-exporter-values.yaml").read_text())
+    for entry in entries:
+        probe = probes[f"front-door-{entry['hostname'].replace('.', '-')}"]
+        assert probe["jobName"] == "front-door"
+        assert probe["interval"] == "60s"
+        assert probe["module"] == f"front_door_{entry['listener']}"
+        assert probe["module"] in exporter["config"]["modules"]
+        assert probe["prober"]["url"] == f"{exporter['fullnameOverride']}.monitoring.svc:9115"
+        assert probe["targets"]["staticConfig"] == {
+            "static": [f"http://{entry['hostname']}{entry['path']}"],
+            "labels": {"hostname": entry["hostname"], "listener": entry["listener"]},
+        }
+    tools = {
+        hostname
+        for f in sorted((ROOT / "deploy/kind/tools").glob("*.yaml"))
+        for route in _docs(f)
+        for hostname in route["spec"]["hostnames"]
+    }
+    assert {e["hostname"] for e in entries if e["listener"] == "tools"} == tools
+    assert {e["listener"] for e in entries} == set(LISTENER_NAMESPACES)
+    assert not [d for d in _platform("components.monitoring=false") if d["kind"] == "Probe"]
+    # Prometheus picks up Probes from any release, as it does the monitors.
+    values = yaml.safe_load((ROOT / "deploy/kind/monitoring-values.yaml").read_text())
+    assert values["prometheus"]["prometheusSpec"]["probeSelectorNilUsesHelmValues"] is False
