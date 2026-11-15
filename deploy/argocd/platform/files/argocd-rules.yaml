@@ -50,8 +50,10 @@ groups:
           runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#argo-cd-alerts
       - alert: ArgoCDCantReachGit
         # The repo server failing to ls-remote or fetch: GitHub (or an app's repo) unreachable,
-        # or its credentials refused. Every Application stays Synced and Healthy at the last
-        # commit it saw, so nothing above fires. Summed over every repo: the failure
+        # or its credentials refused. Argo CD then can't compare: every Application goes
+        # Unknown with a ComparisonError (seen on kind-shortly, PT-23), so ArgoCDAppOutOfSync
+        # fires too, after 15 minutes, without the cause; this one names it. Summed over
+        # every repo: the failure
         # counters' `repo` is the repo server's checkout path, not the URL, so it names
         # nothing useful and can't be matched with argocd_git_request_total. A failure in
         # every 10 minutes for an hour: a blip, or the laptop offline for less than about
@@ -63,7 +65,7 @@ groups:
           severity: ticket
         annotations:
           summary: Argo CD has failed to read git for an hour
-          description: Every Application stays Synced at the last commit Argo CD saw, so a merged change (a promotion included) never lands. Running workloads are unaffected.
+          description: Argo CD can't compare git with the cluster, so every Application shows Unknown (ComparisonError) and a merged change (a promotion included) never lands. Running workloads are unaffected.
           runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#argo-cd-alerts
       - alert: ArgoCDRepoServerDown
         # No repo server scraped: no manifests rendered, so nothing new syncs, and
