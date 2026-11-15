@@ -95,14 +95,15 @@ tests:
               description: Nothing in git reaches the cluster while it is down, and drift goes uncorrected. Running workloads are unaffected.
               runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#argo-cd-alerts
 
-  # The repo server can't reach GitHub: ls-remote fails at every poll. Every Application
-  # stays Synced (nothing else fires); after an hour of failures, a ticket.
+  # The repo server can't reach GitHub: ls-remote fails at every poll, and every
+  # Application goes Unknown (ComparisonError, as seen on kind-shortly). ArgoCDAppOutOfSync
+  # fires after 15 minutes; after an hour of failures, this one names the cause.
   - name: git failing for an hour opens a ticket
     interval: 1m
     input_series:
       - series: 'argocd_git_lsremote_fail_total{job="argocd-repo-server-metrics",repo="/tmp/_argocd-repo/0b1c",revision="HEAD"}'
         values: '0+2x90'
-      - series: 'argocd_app_info{name="shortly-prod",project="shortly",sync_status="Synced",health_status="Healthy"}'
+      - series: 'argocd_app_info{name="shortly-prod",project="shortly",sync_status="Unknown",health_status="Healthy"}'
         values: '1x90'
     alert_rule_test:
       - eval_time: 55m
@@ -114,11 +115,16 @@ tests:
           - exp_labels: {severity: ticket}
             exp_annotations:
               summary: Argo CD has failed to read git for an hour
-              description: Every Application stays Synced at the last commit Argo CD saw, so a merged change (a promotion included) never lands. Running workloads are unaffected.
+              description: Argo CD can't compare git with the cluster, so every Application shows Unknown (ComparisonError) and a merged change (a promotion included) never lands. Running workloads are unaffected.
               runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#argo-cd-alerts
       - eval_time: 70m
         alertname: ArgoCDAppOutOfSync
-        exp_alerts: []
+        exp_alerts:
+          - exp_labels: {name: shortly-prod, project: shortly, severity: ticket}
+            exp_annotations:
+              summary: shortly-prod has differed from git for 15 minutes
+              description: What runs is not what git says. A merged promotion or platform change hasn't landed, or someone changed the cluster by hand and self-heal can't undo it.
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#argo-cd-alerts
 
   # The laptop offline for 45 minutes (a train ride), then back: git fails for 45 minutes
   # and recovers, and a single failed fetch later is a blip. Neither opens a ticket.
