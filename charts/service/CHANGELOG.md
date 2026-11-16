@@ -9,9 +9,16 @@ Release.
 
 ## 1.6.0
 
-A new optional value, for an app that shows what Prometheus watches (PT-52; the
+Two new optional values, for an app that shows what Prometheus watches (PT-52, PT-53; the
 ServiceMonitor page first). Additive: nothing renders differently from 1.5.0 for an app that
-doesn't set it (every existing golden is byte for byte the same).
+sets neither (every existing golden is byte for byte the same).
+
+- **`gateway.sectionName`** (default empty): the one listener of the Gateway the HTTPRoute
+  attaches to, as its parent's `sectionName`. Empty, as before: no `sectionName`, so every
+  listener that admits the namespace, which for an app's namespaces is `http`. An internal
+  tool sets `tools`. Needs a platform whose `tools` listener names the app's namespace
+  (`deploy/kind/gateway.yaml`): from any other namespace the route is not `Accepted` and
+  nothing serves the hostname.
 
 - **`rbac.clusterRead`** (default `false`): a ServiceAccount `<release>` the app's pods run
   as, with its token mounted, and a ClusterRole and ClusterRoleBinding

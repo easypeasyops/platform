@@ -1,0 +1,10 @@
+# An app that is an internal tool: its route names the Gateway's `tools` listener
+# (gateway.sectionName), so it is served beside Argo CD and Grafana and not to users.
+app:
+  name: demo
+image:
+  repository: ghcr.io/easypeasyops/example/demo
+gateway:
+  enabled: true
+  sectionName: tools
+  hostnames: ["demo.localhost"]

@@ -241,7 +241,9 @@ follows 50 minutes after the last run that passed.
 One Gateway, `front-door` in namespace `gateway` (Envoy Gateway, `deploy/kind/gateway.yaml`),
 routes by hostname on two listeners: `http` for the apps (the laptop's port 8080, e.g.
 http://aipostit.localhost:8080; each app's values name its hostnames) and `tools` for
-Argo CD, Grafana, Prometheus and Alertmanager (port 8090). Two small forwarder containers
+Argo CD, Grafana, Prometheus and Alertmanager (port 8090), and for an app that is a tool:
+its values set `gateway.sectionName: tools` and the listener names its namespace
+(`servicemonitor-ops` so far). Two small forwarder containers
 beside the kind node, `shortly-front-door-8080` and `-8090`, carry the laptop's ports to the
 Gateway's node ports; they restart with Docker, so there is no port-forward to keep alive.
 The `tools` listener has no login of its own: the forwarders listen on 127.0.0.1 only.
@@ -268,6 +270,7 @@ kubectl -n envoy-gateway-system logs deploy/envoy-gateway --tail=50
 | Nothing answers on 8080 or 8090 | A forwarder isn't running: usually its port was taken by an old `kubectl port-forward` | `scripts/cluster.sh up` recreates them, and says which process holds the port; stop that one |
 | Gateway not `Programmed` | The controller is down, or the EnvoyProxy/GatewayClass is invalid | The controller's logs; `kubectl get gatewayclass envoy -o yaml` |
 | Route not `Accepted`, `NotAllowedByListeners` | Its namespace lacks the `easypeasyops.github.io/app` label the `http` listener selects (a namespace Argo CD hasn't synced since the label was added) | `kubectl get ns -l easypeasyops.github.io/app`. Missing: sync the Application, which labels its namespace (`kubectl -n argocd patch application <app>-<env> --type merge -p '{"operation":{"sync":{}}}'`). The same missing label also takes the namespace out of the admission policies and the `backup-bucket` store |
+| Route with `sectionName: tools` not `Accepted`, `NotAllowedByListeners` | The `tools` listener admits namespaces by name, and this one isn't listed | Add the namespace to the listener's `values` in `deploy/kind/gateway.yaml` (and `TOOL_APP_NAMESPACES` in `tests/test_front_door.py`), in a PR |
 | Route not `Accepted` otherwise | Its `hostnames` conflict with another route's | One hostname per app and environment |
 | `ResolvedRefs: False` | The route points at a Service or port that doesn't exist | `kubectl -n <ns> get svc`; the route's `backendRefs` |
 | The Service answers in-cluster, through the Gateway it doesn't | The proxy can't reach the pods: the app's NetworkPolicy doesn't admit `envoy-gateway-system` | The app's `networkPolicy` values |

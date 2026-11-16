@@ -6,6 +6,7 @@ Its metrics (the platform chart's templates/monitoring.yaml): Prometheus must fi
 proxies and the controller where Envoy Gateway runs them.
 """
 
+import importlib.util
 import json
 import os
 import re
@@ -19,11 +20,20 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 # The app's listener admits every app's namespaces, by the label the apps ApplicationSet
-# gives them (platform plan 5.7); the tools' listener, its two namespaces by name.
+# gives them (platform plan 5.7); the tools' listener, namespaces by name: the tools' two
+# (deploy/kind/tools/) and those of the apps that are tools (their routes name the listener,
+# the service chart's gateway.sectionName).
 APP_NAMESPACES = {"key": "easypeasyops.github.io/app", "operator": "Exists"}
 TOOL_NAMESPACES = {"argocd", "monitoring"}
-LISTENER_NAMESPACES = {"http": APP_NAMESPACES, "tools": TOOL_NAMESPACES}
+TOOL_APP_NAMESPACES = {"servicemonitor-ops"}
+LISTENER_NAMESPACES = {"http": APP_NAMESPACES, "tools": TOOL_NAMESPACES | TOOL_APP_NAMESPACES}
 CHART = ROOT / "deploy/argocd/platform"
+
+_spec = importlib.util.spec_from_file_location("check_apps", ROOT / "scripts/check-apps.py")
+assert _spec
+assert _spec.loader
+check_apps = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(check_apps)
 
 
 def _docs(path: Path) -> list[dict[str, Any]]:
@@ -44,7 +54,7 @@ def test_each_listener_admits_only_its_namespaces() -> None:
         else:
             assert expr["key"] == "kubernetes.io/metadata.name"
             assert expr["operator"] == "In"
-            assert set(expr["values"]) == TOOL_NAMESPACES
+            assert set(expr["values"]) == LISTENER_NAMESPACES["tools"]
 
 
 def test_tool_routes_attach_to_the_tools_listener_only() -> None:
@@ -425,7 +435,8 @@ def _probes() -> dict[str, dict[str, Any]]:
 def test_every_hostname_on_the_front_door_is_probed_every_minute() -> None:
     """One Probe per frontDoorProbes entry, through the module for its listener, at the
     exporter's Service. The tool routes are all there, at the listener they attach to; the
-    apps' hostnames are checked against their rendered routes by scripts/check-apps.py."""
+    apps' hostnames, on either listener, are checked against their rendered routes by
+    scripts/check-apps.py (as is any other entry: one no route serves fails there)."""
     entries = yaml.safe_load((CHART / "values.yaml").read_text())["frontDoorProbes"]
     probes = _probes()
     assert len(probes) == len(entries)
@@ -447,7 +458,8 @@ def test_every_hostname_on_the_front_door_is_probed_every_minute() -> None:
         for route in _docs(f)
         for hostname in route["spec"]["hostnames"]
     }
-    assert {e["hostname"] for e in entries if e["listener"] == "tools"} == tools
+    assert tools <= {e["hostname"] for e in entries if e["listener"] == "tools"}
+    assert not tools & {e["hostname"] for e in entries if e["listener"] != "tools"}
     assert {e["listener"] for e in entries} == set(LISTENER_NAMESPACES)
     assert not [d for d in _platform("components.monitoring=false") if d["kind"] == "Probe"]
     # Prometheus picks up Probes from any release, as it does the monitors.
@@ -470,3 +482,33 @@ def test_the_probe_alert_ships_as_the_rules_file_says() -> None:
     assert 'max by (hostname, listener) (probe_success{job="front-door"})' in alert["expr"]
     assert "{{ $labels.hostname }}" in alert["annotations"]["summary"]
     assert {p["jobName"] for p in _probes().values()} == {"front-door"}
+
+
+def _check_probes(routes: dict[str, str], probes: dict[str, str]) -> list[str]:
+    """scripts/check-apps.py's errors for apps serving `routes` (hostname: listener) while
+    frontDoorProbes is `probes` (the same)."""
+    check_apps.errors.clear()
+    check_apps.hostnames.clear()
+    check_apps.hostnames.update({h: (ln, "apps/x/envs/ops.yaml") for h, ln in routes.items()})
+    check_apps.check_probes(
+        [{"hostname": h, "listener": ln, "path": "/healthz"} for h, ln in probes.items()]
+    )
+    errors = list(check_apps.errors)
+    check_apps.errors.clear()
+    check_apps.hostnames.clear()
+    return errors
+
+
+def test_an_apps_hostname_is_probed_on_the_listener_its_route_names() -> None:
+    """An app on the tools listener (gateway.sectionName) needs a `tools` probe: an `http`
+    one would ask the users' listener, which doesn't serve it. A probe no app's route serves
+    fails too, unless it is one of the tools' own routes (the test above holds those)."""
+    assert _check_probes({"x.localhost": "tools"}, {"x.localhost": "tools"}) == []
+    assert _check_probes({"x.localhost": "http"}, {"x.localhost": "http"}) == []
+    (error,) = _check_probes({"x.localhost": "tools"}, {"x.localhost": "http"})
+    assert "x.localhost (apps/x/envs/ops.yaml) is not in frontDoorProbes on listener tools" in error
+    (error,) = _check_probes({"x.localhost": "tools"}, {})
+    assert "is not in frontDoorProbes" in error
+    (error,) = _check_probes({}, {"x.localhost": "tools"})
+    assert "frontDoorProbes has x.localhost, which no app's route serves" in error
+    assert _check_probes({}, {"grafana.localhost": "tools"}) == []
