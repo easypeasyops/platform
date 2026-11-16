@@ -105,3 +105,74 @@ tests:
       - eval_time: 25m
         alertname: ArgoRolloutsControllerDown
         exp_alerts: []
+
+  # aipostit's prod canary pauses at 5m (its analysis ended Inconclusive) and is promoted at
+  # 50m; the controller restarts at 20m (a new pod label), which must not start the 30
+  # minutes again. shortly's four timed pause steps, 2 minutes each, read as one pause of 8.
+  - name: a canary paused for 30 minutes warns until it is resumed, timed pause steps don't
+    interval: 1m
+    input_series:
+      - series: 'rollout_info{job="argo-rollouts",namespace="argo-rollouts",pod="argo-rollouts-6d9f8b7c5-x2kqp",exported_namespace="aipostit-prod",name="aipostit",strategy="canary",phase="Progressing"}'
+        values: '1x4 stale'
+      - series: 'rollout_info{job="argo-rollouts",namespace="argo-rollouts",pod="argo-rollouts-6d9f8b7c5-x2kqp",exported_namespace="aipostit-prod",name="aipostit",strategy="canary",phase="Paused"}'
+        values: '_x5 1x14 stale'
+      - series: 'rollout_info{job="argo-rollouts",namespace="argo-rollouts",pod="argo-rollouts-6d9f8b7c5-r7tnd",exported_namespace="aipostit-prod",name="aipostit",strategy="canary",phase="Paused"}'
+        values: '_x20 1x29 stale'
+      - series: 'rollout_info{job="argo-rollouts",namespace="argo-rollouts",pod="argo-rollouts-6d9f8b7c5-r7tnd",exported_namespace="aipostit-prod",name="aipostit",strategy="canary",phase="Completed"}'
+        values: '_x50 1x9'
+      - series: 'rollout_info{job="argo-rollouts",namespace="argo-rollouts",pod="argo-rollouts-6d9f8b7c5-x2kqp",exported_namespace="shortly-prod",name="shortly",strategy="canary",phase="Paused"}'
+        values: '_x10 1x7 stale'
+      - series: 'rollout_info{job="argo-rollouts",namespace="argo-rollouts",pod="argo-rollouts-6d9f8b7c5-x2kqp",exported_namespace="shortly-prod",name="shortly",strategy="canary",phase="Completed"}'
+        values: '1x9 stale _x8 1x1 stale'
+    alert_rule_test:
+      - eval_time: 19m
+        alertname: CanaryPausedTooLong
+        exp_alerts: []
+      - eval_time: 34m
+        alertname: CanaryPausedTooLong
+        exp_alerts: []
+      - eval_time: 36m
+        alertname: CanaryPausedTooLong
+        exp_alerts:
+          - exp_labels: {namespace: argo-rollouts, exported_namespace: aipostit-prod, rollout: aipostit, severity: warning}
+            exp_annotations:
+              summary: "Canary of aipostit-prod/aipostit has been paused for 30 minutes"
+              description: "Rollout aipostit-prod/aipostit has been paused for 30 minutes, longer than its timed steps take: an analysis ended Inconclusive, or it was paused by hand. The release is part-way: some traffic on the new version, and it neither moves on nor aborts until someone promotes or aborts it."
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#argo-rollouts-alerts
+      - eval_time: 52m
+        alertname: CanaryPausedTooLong
+        exp_alerts: []
+
+  # api-v2 (no progressDeadlineAbort) times out at 3m and stays so. aipostit, from the
+  # service chart, shows Timeout for one scrape and is aborted in the controller's same pass:
+  # Argo CD's alert has that one. shortly's pods get ready 2 minutes after its deadline.
+  - name: a canary left timed out warns, one aborted or ready soon after its deadline doesn't
+    interval: 1m
+    input_series:
+      - series: 'rollout_info{job="argo-rollouts",namespace="argo-rollouts",exported_namespace="shortly-prod",name="api-v2",strategy="canary",phase="Progressing"}'
+        values: '1x2 stale'
+      - series: 'rollout_info{job="argo-rollouts",namespace="argo-rollouts",exported_namespace="shortly-prod",name="api-v2",strategy="canary",phase="Timeout"}'
+        values: '_x3 1x16'
+      - series: 'rollout_info{job="argo-rollouts",namespace="argo-rollouts",exported_namespace="aipostit-prod",name="aipostit",strategy="canary",phase="Timeout"}'
+        values: '_x3 1 stale'
+      - series: 'rollout_info{job="argo-rollouts",namespace="argo-rollouts",exported_namespace="aipostit-prod",name="aipostit",strategy="canary",phase="Abort"}'
+        values: '_x5 1x14'
+      - series: 'rollout_info{job="argo-rollouts",namespace="argo-rollouts",exported_namespace="shortly-prod",name="shortly",strategy="canary",phase="Timeout"}'
+        values: '_x3 1x1 stale'
+      - series: 'rollout_info{job="argo-rollouts",namespace="argo-rollouts",exported_namespace="shortly-prod",name="shortly",strategy="canary",phase="Progressing"}'
+        values: '1x2 stale _x2 1x14'
+    alert_rule_test:
+      - eval_time: 7m
+        alertname: CanaryTimedOut
+        exp_alerts: []
+      - eval_time: 9m
+        alertname: CanaryTimedOut
+        exp_alerts:
+          - exp_labels: {namespace: argo-rollouts, exported_namespace: shortly-prod, rollout: api-v2, severity: warning}
+            exp_annotations:
+              summary: "Canary of shortly-prod/api-v2 timed out: its new pods aren't ready"
+              description: "Rollout shortly-prod/api-v2 passed its progress deadline: the new version's pods didn't become ready in time, and it is not set to abort by itself. The release is stuck where it stopped until the pods get ready, or someone aborts or retries it."
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#argo-rollouts-alerts
+      - eval_time: 15m
+        alertname: CanaryPausedTooLong
+        exp_alerts: []

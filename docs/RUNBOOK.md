@@ -887,14 +887,18 @@ and an app whose database isn't scraped gets no backup alert.
 
 Warnings, to the platform's channel whichever app the Rollout belongs to: an analysis that
 errored is the platform's to fix, and the app's channel already hears of the aborted
-canary from Argo CD (`ArgoCDAppUnhealthy`). In `CanaryAnalysisErrored`, label
-`exported_namespace` is the Rollout's namespace, `rollout` its name and `analysisrun` the
-run that errored. Rules: `deploy/argocd/platform/files/argo-rollouts-rules.yaml`.
+canary from Argo CD (`ArgoCDAppUnhealthy`). A paused canary reaches nobody else: Argo CD
+shows it as Suspended, which that alert leaves out. In the `Canary...` alerts, label
+`exported_namespace` is the Rollout's namespace and `rollout` its name; in
+`CanaryAnalysisErrored`, `analysisrun` is the run that errored. Rules:
+`deploy/argocd/platform/files/argo-rollouts-rules.yaml`.
 
 | Alert | Means | First look |
 | --- | --- | --- |
 | `ArgoRolloutsControllerDown` | The controller hasn't been scraped for 10 minutes: no release to prod starts, a canary in flight neither moves on nor aborts | `kubectl -n argo-rollouts get pods`; `kubectl -n argo-rollouts logs deploy/argo-rollouts --tail=50` (add `--previous` after a crash) |
 | `CanaryAnalysisErrored` | A Rollout is aborted and one of its AnalysisRuns ended in `Error`: it couldn't measure, rather than measured a bad release (`Failed`, which is the app's and doesn't alert here) | Reading an aborted canary, below |
+| `CanaryPausedTooLong` | A Rollout has been paused for 30 minutes, longer than all its timed pause steps together (`canary.pauseWithoutAnalysis`, 60s a step; an app that sets pauses adding up to more will get this alert): an analysis ended `Inconclusive`, or someone paused it by hand. Part of the traffic is on the new version and nothing moves | `kubectl argo rollouts get rollout <rollout> -n <ns>`, or `kubectl -n <ns> get rollout <rollout> -o jsonpath='{.status.pauseConditions}{"\n"}{.spec.paused}{"\n"}'`: `InconclusiveRun` (read the run as below), or `spec.paused` true. Then it is the app's call: propose `kubectl argo rollouts promote <rollout> -n <ns>` or `abort` |
+| `CanaryTimedOut` | A Rollout has been past its progress deadline for 5 minutes: the new pods aren't ready, and it doesn't abort by itself. Not the service chart's Rollouts: they abort on the deadline (`progressDeadlineAbort`), which Argo CD reports as `ArgoCDAppUnhealthy` | `kubectl -n <ns> get pods -l rollouts-pod-template-hash` and `describe` the ones not Ready (image, probe, admission); `kubectl -n <ns> get rollout <rollout> -o jsonpath='{.status.message}{"\n"}'` |
 
 | What you find | Cause | Fix |
 | --- | --- | --- |
