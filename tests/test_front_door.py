@@ -63,6 +63,18 @@ def test_tool_routes_attach_to_the_tools_listener_only() -> None:
         assert route["spec"]["hostnames"] == [f"{route['metadata']['name']}.localhost"]
 
 
+def test_front_door_alias_points_at_the_proxies_service() -> None:
+    proxy = _gateway_docs()["EnvoyProxy"]
+    alias = _gateway_docs()["Service"]
+    assert alias["metadata"] == {"name": "front-door", "namespace": proxy["metadata"]["namespace"]}
+    service = proxy["spec"]["provider"]["kubernetes"]["envoyService"]["name"]
+    namespace = proxy["metadata"]["namespace"]
+    assert alias["spec"] == {
+        "type": "ExternalName",
+        "externalName": f"{service}.{namespace}.svc.cluster.local",
+    }
+
+
 def test_front_door_ports_match_the_pinned_node_ports() -> None:
     listeners = {
         listener["port"]: listener["name"]
