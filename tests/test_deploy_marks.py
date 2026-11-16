@@ -100,6 +100,19 @@ def test_the_slo_dashboard_marks_its_environments_deploys() -> None:
     assert "namespace" in variables
 
 
+def test_the_slo_dashboard_says_how_far_back_a_budget_looks() -> None:
+    # The rules' window is 30 days; Prometheus keeps fewer (RUNBOOK, Prometheus data), and a
+    # rate over 30 days is then a rate over the days there are. The dashboard shows them.
+    panels = {p["title"]: p for p in json.loads(SLO.read_text())["panels"]}
+    looks_back = panels["Budget looks back"]
+    assert [t["expr"] for t in looks_back["targets"]] == [
+        "clamp_max((time() - min(prometheus_tsdb_lowest_timestamp) / 1000) / 86400, 30)"
+    ]
+    assert looks_back["fieldConfig"]["defaults"]["unit"] == "d"
+    assert looks_back["title"] in panels["Error budget remaining"]["description"]
+    assert looks_back["title"] in (ROOT / "docs/RUNBOOK.md").read_text()
+
+
 def _series(name: str, app: str, revision: str) -> str:
     # As kube-state-metrics gives them, with its own pod's namespace.
     return (

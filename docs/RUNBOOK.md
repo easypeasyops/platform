@@ -615,9 +615,10 @@ Settings: `deploy/kind/monitoring-values.yaml`.
 - **An error budget looks back only this far.** The SLO rules' 30-day window
   (`slo:sli_error:ratio_rate30d`, the SLO dashboard's "Error budget remaining") is a rate
   over the data there is: today the last 10 days at most, less after a cap or a new volume.
-  An incident older than that no longer counts against the budget. Before trusting a
-  budget, check how far back the data goes:
-  `(time() - min(prometheus_tsdb_lowest_timestamp) / 1000) / 86400`, in days.
+  An incident older than that no longer counts against the budget. The SLO dashboard
+  shows how far back the data goes beside the budgets, "Budget looks back" (service chart
+  1.3.1 on): `(time() - min(prometheus_tsdb_lowest_timestamp) / 1000) / 86400`, in days,
+  30 at most.
 
 ## Prometheus misses rule evaluations
 

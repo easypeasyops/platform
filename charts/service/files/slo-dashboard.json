@@ -75,7 +75,7 @@
     {
       "id": 100,
       "type": "row",
-      "title": "Error budgets (30 days)",
+      "title": "Error budgets (30 days, or as far back as Prometheus keeps)",
       "gridPos": {
         "x": 0,
         "y": 0,
@@ -89,7 +89,7 @@
       "id": 1,
       "type": "stat",
       "title": "Error budget remaining",
-      "description": "Share of each SLO's 30-day error budget still unspent. 100% = untouched; below 0 = overspent (freeze features, fix reliability).",
+      "description": "Share of each SLO's error budget still unspent. 100% = untouched; below 0 = overspent (freeze features, fix reliability). The budget is for 30 days, counted over the days Prometheus has (\"Budget looks back\"): with fewer than 30, an older incident no longer counts against it.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -97,7 +97,7 @@
       "gridPos": {
         "x": 0,
         "y": 1,
-        "w": 24,
+        "w": 19,
         "h": 5
       },
       "targets": [
@@ -152,6 +152,65 @@
         "graphMode": "none",
         "textMode": "value_and_name",
         "orientation": "horizontal"
+      }
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "Budget looks back",
+      "description": "Days of data Prometheus has, 30 at most: the window the budgets on the left are really counted over. Under 30, Prometheus keeps less than the SLO window (its retention, a size cap or a new volume), and an incident older than this shows as budget restored.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 19,
+        "y": 1,
+        "w": 5,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "clamp_max((time() - min(prometheus_tsdb_lowest_timestamp) / 1000) / 86400, 30)",
+          "legendFormat": "days"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "orange",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 30
+              }
+            ]
+          },
+          "decimals": 1,
+          "unit": "d"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
       }
     },
     {

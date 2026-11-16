@@ -134,7 +134,9 @@ but a rule can only look back as far as Prometheus keeps: 10 days, or less once
 `slo:sli_error:ratio_rate30d`, and the "Error budget remaining" built on it, is the error
 ratio of the days Prometheus has, not of 30: an incident older than that has left the
 budget, which shows it restored. The burn-rate alerts are unaffected (their longest window
-is 3 days).
+is 3 days). The retention stays at 10 days (PT-27: 30 days of today's series are 17 to
+39 GB on the laptop, by how long it is awake), so the dashboard says what it shows instead:
+"Budget looks back" is the days of data there are, beside the budgets.
 
 ### Canary releases
 
