@@ -108,6 +108,12 @@ metadata:
   name: provenance-canary
   namespace: monitoring
   labels: { app.kubernetes.io/name: provenance-canary }
+  annotations:
+    # Argo CD calls a CronJob Degraded as soon as its last run failed, and with it this
+    # Application and the root: ArgoCDAppUnhealthy would speak after one failed run, where
+    # the canary's own alert waits for three. A failed run is the canary's finding, not a
+    # broken deploy.
+    argocd.argoproj.io/ignore-healthcheck: "true"
 spec:
   # Kyverno keeps a verified image for an hour (its image verify cache), so about one run
   # in four is checked against the registry and Sigstore; the others say the webhook

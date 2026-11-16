@@ -322,6 +322,10 @@ def test_the_provenance_canary_only_asks_as_a_dry_run() -> None:
     assert asked["spec"]["securityContext"]["runAsNonRoot"] is True
     assert asked["spec"]["securityContext"]["seccompProfile"] == {"type": "RuntimeDefault"}
 
+    # A failed run must not turn the Application, and the root, Degraded in Argo CD.
+    assert by_kind["CronJob"]["metadata"]["annotations"] == {
+        "argocd.argoproj.io/ignore-healthcheck": "true"
+    }
     cron = by_kind["CronJob"]["spec"]
     job = cron["jobTemplate"]["spec"]
     assert cron["concurrencyPolicy"] == "Forbid"
