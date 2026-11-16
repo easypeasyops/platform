@@ -63,6 +63,21 @@ def test_tool_routes_attach_to_the_tools_listener_only() -> None:
         assert route["spec"]["hostnames"] == [f"{route['metadata']['name']}.localhost"]
 
 
+def _wave(doc: dict[str, Any]) -> int:
+    annotations = doc["metadata"].get("annotations") or {}
+    return int(annotations.get("argocd.argoproj.io/sync-wave", "0"))
+
+
+def test_the_envoy_proxy_exists_before_its_gateway_class() -> None:
+    """A GatewayClass created before the EnvoyProxy it names is marked InvalidParameters,
+    and Envoy Gateway doesn't always re-check it: the gateway Application stays Degraded."""
+    docs = _gateway_docs()
+    ref = docs["GatewayClass"]["spec"]["parametersRef"]
+    proxy = docs["EnvoyProxy"]["metadata"]
+    assert (ref["name"], ref["namespace"]) == (proxy["name"], proxy["namespace"])
+    assert _wave(docs["EnvoyProxy"]) < _wave(docs["GatewayClass"])
+
+
 def test_service_chart_defaults_name_this_gateway() -> None:
     """An app that leaves the chart's defaults attaches to this Gateway, and its canary
     traffic goes to this Gateway's proxies."""
