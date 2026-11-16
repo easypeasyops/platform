@@ -33,8 +33,14 @@ FROM python:3.15-slim-trixie@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698a
 # Fixed, non-root UID/GID: predictable file ownership and Kubernetes `runAsNonRoot`.
 # The base image's pip, ensurepip's bundled wheels and Debian's apt go: nothing installs at
 # run time, so they are attack surface and scanner findings.
+# Temporary: zlib1g comes up to Debian's security fix (CVE-2026-85091) before apt goes,
+# because the base image isn't rebuilt with it yet. Drop the upgrade once Dependabot moves
+# the digest to an image that has 1:1.3.dfsg+really1.3.1-1+deb13u1.
 RUN groupadd --system --gid 10001 app \
  && useradd --system --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app \
+ && apt-get update \
+ && apt-get install --yes --no-install-recommends --only-upgrade zlib1g \
+ && rm -rf /var/lib/apt/lists/* \
  && python -m pip uninstall --yes --quiet pip \
  && rm -rf /usr/local/lib/python3.*/ensurepip \
  && dpkg --purge apt libapt-pkg7.0
