@@ -157,11 +157,11 @@ service:
   port: 80
 
 # Route users in through a Gateway API Gateway (the platform's deploy/kind/gateway.yaml in
-# kind; its Gateway is still named after the first app). Off by
+# kind; until its rename it is named shortly, and the route attaches to that too). Off by
 # default: the chart works without one, and a cluster without the Gateway API CRDs.
 gateway:
   enabled: false
-  name: shortly
+  name: front-door
   namespace: gateway
   hostnames: []
 
@@ -200,7 +200,7 @@ canary:
       enabled: true
       rate: 20
       image: grafana/k6:2.3.0
-      url: http://shortly-gateway.envoy-gateway-system.svc
+      url: http://front-door.envoy-gateway-system.svc
       # The k6 script (the app's: which routes, in what mix), run with BASE_URL, HOST, RATE
       # and DURATION in its environment. Required when syntheticTraffic is enabled.
       script: ""

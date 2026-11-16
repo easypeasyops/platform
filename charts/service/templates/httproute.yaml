@@ -12,6 +12,12 @@ spec:
   parentRefs:
     - name: {{ .Values.gateway.name }}
       namespace: {{ .Values.gateway.namespace }}
+    {{- if eq .Values.gateway.name "front-door" }}
+    # The platform's Gateway is still named shortly until its rename: attached to both, the
+    # route is served by whichever exists. Dropped in the release after the rename.
+    - name: shortly
+      namespace: {{ .Values.gateway.namespace }}
+    {{- end }}
   hostnames:
     {{- toYaml .Values.gateway.hostnames | nindent 4 }}
   rules:

@@ -1160,7 +1160,7 @@ spec:
                     image: grafana/k6:2.3.0
                     args: [run, --quiet, --no-color, --no-thresholds, /scripts/canary-traffic.js]
                     env:
-                      - { name: BASE_URL, value: "http://shortly-gateway.envoy-gateway-system.svc" }
+                      - { name: BASE_URL, value: "http://front-door.envoy-gateway-system.svc" }
                       - { name: HOST, value: "sho.rt.localhost" }
                       - { name: RATE, value: "20" }
                       - { name: DURATION, value: "160s" }
@@ -1208,6 +1208,10 @@ metadata:
     helm.sh/chart: service-<version>
 spec:
   parentRefs:
+    - name: front-door
+      namespace: gateway
+    # The platform's Gateway is still named shortly until its rename: attached to both, the
+    # route is served by whichever exists. Dropped in the release after the rename.
     - name: shortly
       namespace: gateway
   hostnames:

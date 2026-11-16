@@ -7,6 +7,20 @@ an app that doesn't set it) is a major version; a new optional value is a minor 
 that changes no render an app relies on is a patch. Each release's digest is in its GitHub
 Release.
 
+## 1.4.0
+
+The platform's Gateway gets its own name, `front-door`, in place of the first app's,
+`shortly` (the platform's rename, 2 of 5). Nothing for an app to set: an app that leaves
+`gateway.name` and `canary.analysis.syntheticTraffic.url` at their defaults gets both.
+
+- **`gateway.name`** defaults to `front-door`. While it is the default, the HTTPRoute also
+  names `shortly` as a parent, so the route is served before and after the platform renames
+  its Gateway. The release after the rename drops that parent.
+- **`canary.analysis.syntheticTraffic.url`** defaults to
+  `http://front-door.envoy-gateway-system.svc`, the platform's alias for the proxies'
+  Service since platform#156. Needs a platform at or after that commit: an app's
+  `platform.lock` (its kind e2e) older than it gets canary analysis with no traffic.
+
 ## 1.3.1
 
 The SLO dashboard says how far back an error budget really looks (PT-27). The rules' window
