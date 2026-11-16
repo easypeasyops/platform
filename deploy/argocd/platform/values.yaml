@@ -49,8 +49,8 @@ charts:
     digest: sha256:ea68b0aed72752c8c8aa8d948c62d8d6076a255c5e6238648769bf1b01137f21
   kubePrometheusStack: # Prometheus Operator, Prometheus, Alertmanager, Grafana
     repo: oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack
-    version: 91.9.0
-    digest: sha256:04047e500c803dc8d2bc284ecb43e9229bb32b5c36bd13fc89592c8a2f3cdc72
+    version: 93.3.0
+    digest: sha256:12b96b769049bbac5021d1bf544476ed3b1f42df7216d8eb7a70e98007a655a1
   victoriaLogs: # VictoriaLogs v1.53.0 (single node): where the pods' logs are kept
     repo: oci://ghcr.io/victoriametrics/helm-charts/victoria-logs-single
     version: 0.13.12
