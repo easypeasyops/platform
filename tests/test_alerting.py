@@ -101,6 +101,54 @@ def test_the_buffer_alert_knows_the_collectors_cap() -> None:
     assert "at 1 GiB" in rule["annotations"]["description"]
 
 
+def test_the_canary_alert_reads_the_owner_kube_state_metrics_exports() -> None:
+    """CanaryAnalysisErrored names the Rollout from the AnalysisRun's owner, a series only
+    kube-state-metrics' config makes: its name and labels are what the rule joins on."""
+    ksm = yaml.safe_load((ROOT / "deploy/kind/monitoring-values.yaml").read_text())[
+        "kube-state-metrics"
+    ]
+    assert {
+        "apiGroups": ["argoproj.io"],
+        "resources": ["analysisruns"],
+        "verbs": ["list", "watch"],
+    } in ksm["rbac"]["extraRules"]
+    (resource,) = [
+        r
+        for r in ksm["customResourceState"]["config"]["spec"]["resources"]
+        if r["groupVersionKind"]["kind"] == "AnalysisRun"
+    ]
+    assert resource["groupVersionKind"] == {
+        "group": "argoproj.io",
+        "version": "v1alpha1",
+        "kind": "AnalysisRun",
+    }
+    # The labels the controller's analysis_run_info is joined on, as the rule names them.
+    assert resource["labelsFromPath"] == {
+        "exported_namespace": ["metadata", "namespace"],
+        "analysisrun": ["metadata", "name"],
+    }
+    (metric,) = resource["metrics"]
+    assert metric["each"] == {
+        "type": "Info",
+        "info": {
+            "path": ["metadata", "ownerReferences"],
+            "labelsFromPath": {"owner_kind": ["kind"], "owner": ["name"]},
+        },
+    }
+    series = f"{resource['metricNamePrefix']}_{metric['name']}"
+    rules = yaml.safe_load(
+        (ROOT / "deploy/argocd/platform/files/argo-rollouts-rules.yaml").read_text()
+    )
+    (rule,) = [
+        rule
+        for group in rules["groups"]
+        for rule in group["rules"]
+        if rule["alert"] == "CanaryAnalysisErrored"
+    ]
+    assert f'{series}{{owner_kind="Rollout"}}, "rollout", "$1", "owner"' in rule["expr"]
+    assert "on (exported_namespace, analysisrun) group_left (rollout)" in rule["expr"]
+
+
 @pytest.mark.integration
 def test_promtool_scenarios_pass() -> None:
     _docker()
