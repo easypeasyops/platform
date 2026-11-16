@@ -102,6 +102,19 @@ to it (its name, image, env list, hostnames); the chart's defaults are productio
 | `cronJobs`, `workers` | A CronJob or a Deployment per entry from the release image, with the app's env; labelled apart, so the HPA and the PDB don't count them; a network policy of their own |
 | `redis` | A single Redis 8 with an append-only file, reachable only from the chart's own pods; no password: the network policy is the boundary |
 | `secretEnv` | An ExternalSecret copying the app's keys from its store into `<release>-env` |
+| `rbac.clusterRead` | A ServiceAccount the app's pods run as, with its token, and a ClusterRole and ClusterRoleBinding `<namespace>-cluster-read`: `get`, `list`, `watch` on ServiceMonitors, PodMonitors, Probes, PrometheusRules and namespaces, nothing else. Only for an app on the platform's list (below) |
+
+**Cluster-wide read access is the platform's to give.** `rbac.clusterRead` is a value in the
+app's repo, which changes without a PR here, so nothing in this repo's CI can be what stops
+an app from setting it. The app's AppProject is: Argo CD applies a cluster-scoped object
+only if `apps/<app>/project.yaml` lists it by name, and fails the whole sync otherwise, so
+an app that sets the value without being allowed keeps running what it ran. The list of
+apps that may is `CLUSTER_READ_APPS` in `scripts/check-apps.py`; `tests/test_cluster_read.py`
+holds every project to it (no cluster-scoped kind beside its namespaces unless the app is
+listed, then exactly those two objects per namespace), and check-apps reports an app that
+sets the value off the list, or without its project's entry, where its values are next
+rendered in CI. An admission policy would enforce the same list a second time; the project
+already does, with no new moving part.
 
 **The env list is the app's.** The chart renders `env` as it is, in order: which variables
 an app reads is not the chart's business. Each entry is a template, so it can read
@@ -185,7 +198,8 @@ app gets the same template.
   shortly's front door was down for 3 minutes).
 - **Least privilege per app.** `apps/<app>/project.yaml` is the app's AppProject: the
   service chart, its repo and this one as sources; its namespaces as destinations; and no
-  cluster-scoped kind except those namespaces, by name.
+  cluster-scoped kind except those namespaces, by name (and, for an app on the cluster-read
+  list, the two objects of `rbac.clusterRead`: The service chart, above).
 - **Auto-sync, prune and self-heal:** git is the only way in, a hand edit is reverted,
   and a revert of the PR is the rollback. The ApplicationSet leaves `syncPolicy` alone once
   an Application exists, so break glass (auto-sync off on one Application) still works.

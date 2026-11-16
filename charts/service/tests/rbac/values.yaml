@@ -1,0 +1,8 @@
+# An app that reads the cluster's monitoring objects (rbac.clusterRead): a ServiceAccount
+# its pods run as, and a ClusterRole and ClusterRoleBinding with exactly that read access.
+app:
+  name: demo
+image:
+  repository: ghcr.io/easypeasyops/example/demo
+rbac:
+  clusterRead: true

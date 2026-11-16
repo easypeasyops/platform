@@ -18,8 +18,11 @@ For each apps/<app>/envs/<env>.yaml (the ApplicationSet's input):
      platform's release workflow signed it (gh attestation verify, as the file asks);
   4. the chart at that digest renders with the app's values files, fetched from its repo at
      the named revision and layered in order, as Argo CD will render them. The renders are
-     written to --out for kubeconform.
-Then, across every app: 5. each hostname their HTTPRoutes serve is probed through the front
+     written to --out for kubeconform;
+  5. a render with the chart's rbac.clusterRead objects (a ClusterRole and its binding) is
+     from an app in CLUSTER_READ_APPS whose project allows them by name. Argo CD refuses to
+     sync any other: the project is what enforces the list, this says so before it does.
+Then, across every app: 6. each hostname their HTTPRoutes serve is probed through the front
 door, and nothing else is (frontDoorProbes, deploy/argocd/platform/values.yaml).
 """
 
@@ -38,6 +41,11 @@ ROOT = Path(__file__).resolve().parent.parent
 CHART = "oci://ghcr.io/easypeasyops/charts/service"
 PLATFORM = "https://github.com/easypeasyops/platform.git"  # deploy/app-namespace
 SIGNER = "easypeasyops/platform/.github/workflows/release-chart.yml"
+# The apps that may set the service chart's rbac.clusterRead: read access, in every
+# namespace, to the monitoring objects and to namespaces. Adding one is a review of what it
+# does with that; its project.yaml then lists cluster_read_objects() for each namespace.
+CLUSTER_READ_APPS = frozenset({"servicemonitor"})
+RBAC = "rbac.authorization.k8s.io"
 errors: list[str] = []
 hostnames: dict[str, str] = {}  # every app route's hostname: the env file that serves it
 
@@ -59,6 +67,26 @@ def raw_url(repo: str, revision: str, path: str) -> str:
             f"values.repoURL must be https://github.com/<owner>/<repo>.git, not {repo}"
         )
     return f"https://raw.githubusercontent.com/{repo[len(prefix) : -len('.git')]}/{revision}/{path}"
+
+
+def cluster_read_objects(namespace: str) -> list[dict[str, str]]:
+    """What rbac.clusterRead renders cluster-scoped in a namespace, as a project's
+    clusterResourceWhitelist names it (charts/service/templates/rbac.yaml)."""
+    name = f"{namespace}-cluster-read"
+    return [{"group": RBAC, "kind": k, "name": name} for k in ("ClusterRole", "ClusterRoleBinding")]
+
+
+def check_cluster_read(where: str, app: str, project: dict[str, Any], docs: list[Any]) -> None:
+    """5. Only an app on the list renders cluster-wide access, and its project allows it."""
+    allowed = project.get("clusterResourceWhitelist", [])
+    for doc in docs:
+        if doc["kind"] not in ("ClusterRole", "ClusterRoleBinding"):
+            continue
+        what = f"{doc['kind']} {doc['metadata']['name']}"
+        if app not in CLUSTER_READ_APPS:
+            fail(where, f"renders {what} (rbac.clusterRead), but {app} isn't in CLUSTER_READ_APPS")
+        elif {"group": RBAC, "kind": doc["kind"], "name": doc["metadata"]["name"]} not in allowed:
+            fail(where, f"project {app} doesn't allow {what}: Argo CD would refuse the sync")
 
 
 def check(env_file: Path, out: Path) -> None:
@@ -127,6 +155,7 @@ def check(env_file: Path, out: Path) -> None:
             return fail(where, f"doesn't render: {e.stderr.strip()}")
     (out / f"{namespace}.yaml").write_text(rendered)
     docs = [d for d in yaml.safe_load_all(rendered) if d]
+    check_cluster_read(where, app, project, docs)
     for route in (d for d in docs if d["kind"] == "HTTPRoute"):
         hostnames.update(dict.fromkeys(route["spec"].get("hostnames") or [], where))
     kinds = sorted({d["kind"] for d in docs})
@@ -149,7 +178,7 @@ def main() -> int:
 
 
 def check_probes() -> None:
-    """5. The front door's probes (the platform chart's Probes) and the apps' hostnames agree:
+    """6. The front door's probes (the platform chart's Probes) and the apps' hostnames agree:
     a hostname nobody probes is a broken route nobody hears about; a probe of a hostname no
     route serves fails for good. Only when every app rendered: otherwise the list is short."""
     if errors:

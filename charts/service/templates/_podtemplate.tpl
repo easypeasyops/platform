@@ -15,7 +15,12 @@ spec:
   imagePullSecrets:
     {{- toYaml . | nindent 4 }}
   {{- end }}
+  {{- if .Values.rbac.clusterRead }}
+  serviceAccountName: {{ include "service.fullname" . }} # templates/rbac.yaml
+  automountServiceAccountToken: true
+  {{- else }}
   automountServiceAccountToken: false # the app never talks to the Kubernetes API
+  {{- end }}
   terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
   securityContext:
     {{- include "service.podSecurityContext" . | nindent 4 }}

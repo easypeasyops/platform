@@ -1,0 +1,44 @@
+{{- if .Values.rbac.clusterRead }}
+# rbac.clusterRead: the app reads, in every namespace, what Prometheus is told to scrape and
+# alert on, and the namespaces themselves. Read only, and nothing else: no Secrets, no pods.
+# The app's pods run as this ServiceAccount, with its token (_podtemplate.tpl); workers,
+# scheduled jobs and the migration Job don't.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "service.fullname" . }}
+  labels:
+    {{- include "service.labels" . | nindent 4 }}
+---
+# Cluster-scoped, so named after the namespace: one per environment of the app. Argo CD
+# applies it only for an app whose project allows it by this name (the platform's
+# apps/<app>/project.yaml); for any other app the sync is refused.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Namespace }}-cluster-read
+  labels:
+    {{- include "service.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [monitoring.coreos.com]
+    resources: [servicemonitors, podmonitors, probes, prometheusrules]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Namespace }}-cluster-read
+  labels:
+    {{- include "service.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Namespace }}-cluster-read
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "service.fullname" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
