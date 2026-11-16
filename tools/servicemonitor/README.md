@@ -2,7 +2,8 @@
 
 A page that shows, at a glance, whether Prometheus sees every app and platform tool on the
 cluster: every ServiceMonitor, PodMonitor and Probe, its scrape targets, alerts and SLO
-error budget (PT-51). For now it serves a placeholder page.
+error budget (PT-51). For now it serves a placeholder page, and `/api/monitors`: every
+monitor joined with its scrape targets, as JSON.
 
 It lives in the platform repo, and is built, released, admitted and run like any other
 app: the image `ghcr.io/easypeasyops/platform/servicemonitor`, deployed with a released
@@ -16,6 +17,17 @@ From `tools/servicemonitor`:
 uv run pytest                 # tests, with coverage
 uv run ruff format --check . && uv run ruff check . && uv run mypy app tests
 docker build -t servicemonitor:dev . && scripts/smoke.sh
+```
+
+`/api/monitors` reads the Kubernetes API (`KUBERNETES_URL`, by default the cluster's own,
+with the pod's ServiceAccount) and Prometheus (`PROMETHEUS_URL`, by default
+`http://kps-prometheus.monitoring.svc:9090`). Against the laptop cluster, from outside it:
+
+```bash
+kubectl --context kind-shortly proxy &   # 127.0.0.1:8001, read with your own access
+KUBERNETES_URL=http://127.0.0.1:8001 \
+PROMETHEUS_URL=http://127.0.0.1:8001/api/v1/namespaces/monitoring/services/kps-prometheus:9090/proxy \
+  uv run uvicorn app.main:app --port 8000
 ```
 
 ## Release and deploy

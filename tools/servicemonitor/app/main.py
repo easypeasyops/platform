@@ -12,6 +12,7 @@ expects of an app:
 
 import os
 import time
+from typing import Any
 
 import uvicorn
 from fastapi import FastAPI
@@ -19,6 +20,8 @@ from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.routing import APIRoute
 from prometheus_client import Counter, Histogram, start_http_server
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+from app import monitors
 
 REQUESTS = Counter("http_requests_total", "Requests served", ["method", "route", "status"])
 # The default buckets; an SLO's latency threshold must be one of their edges
@@ -42,6 +45,11 @@ api = FastAPI(title="servicemonitor", openapi_url=None)
 @api.get("/", response_class=HTMLResponse)
 async def index() -> str:
     return PLACEHOLDER
+
+
+@api.get("/api/monitors")
+async def api_monitors() -> dict[str, Any]:
+    return await monitors.read()
 
 
 @api.get("/healthz", response_class=PlainTextResponse)
