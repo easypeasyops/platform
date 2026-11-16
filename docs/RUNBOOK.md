@@ -205,6 +205,23 @@ Kyverno counts a signature it couldn't check as a refusal (`result="fail"`). A r
 digest refused with `our images must be a release digest…` is that case: check
 Kyverno's log, and `scripts/verify-image.sh <ref>`, which passes for a release.
 
+**The provenance canary** asks that question every 15 minutes: CronJob `provenance-canary`
+in `monitoring` (`deploy/kind/provenance-canary.yaml`) asks the API server, as a server-side
+dry-run, to admit a Pod with a real release (links' shortly v0.7.2) in the namespace
+`provenance-canary`. Nothing is created, and that namespace refuses any Pod that isn't a
+dry-run. A run that fails has the API server's answer in its log; the Job is gone after 10
+minutes, its log stays in the logs:
+
+```sh
+kubectl -n monitoring get cronjob provenance-canary     # LAST SCHEDULE, and jobs below
+kubectl -n monitoring get jobs -l app.kubernetes.io/name=provenance-canary
+# In Explore (VictoriaLogs): every run's answer, admitted or refused
+{kubernetes.pod_namespace="monitoring", kubernetes.container_name="kubectl"}
+```
+
+Kyverno keeps a verified image for an hour, so a run can pass for up to an hour after
+Sigstore became unreachable, as a pod of an image verified in that hour would.
+
 ## The front door
 
 One Gateway, `shortly` in namespace `gateway` (Envoy Gateway, `deploy/kind/gateway.yaml`),

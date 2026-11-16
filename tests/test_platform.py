@@ -22,13 +22,16 @@ from typing import Any
 import pytest
 import yaml
 
+from tests import test_verify_image
+
 ROOT = Path(__file__).resolve().parent.parent
 CHART = ROOT / "deploy/argocd/platform"
 VALUES = yaml.safe_load((CHART / "values.yaml").read_text())
 NODE_EXPORTER = yaml.safe_load((ROOT / "deploy/kind/node-exporter-values.yaml").read_text())
 PROJECT = yaml.safe_load((ROOT / "deploy/argocd/platform-project.yaml").read_text())["spec"]
 REPO = "https://github.com/easypeasyops/platform.git"
-WAVE_1 = {"kyverno-policies"}  # needs Kyverno's webhook serving, not just its CRDs
+# Need Kyverno's webhook serving, not just its CRDs: the policies, and the canary that asks it.
+WAVE_1 = {"kyverno-policies", "provenance-canary"}
 WAVE_FIRST = {"platform-project"}  # wave -2: the AppProject the children are checked against
 WAVE_BEFORE = {"external-secrets", "cert-manager"}  # wave -1: wave 0 needs their Secrets
 
@@ -266,6 +269,92 @@ def test_the_log_collector_gets_less_than_its_namespace_allows() -> None:
             "verbs": ["get", "list", "watch"],
         }
     ]
+
+
+def test_the_provenance_canary_only_asks_as_a_dry_run() -> None:
+    """The provenance canary (PT-30): a CronJob that asks, as a server-side dry-run, for a
+    Pod with a real release to be admitted in a namespace of its own. It may create Pods
+    there and nothing else, and an admission policy refuses any create that isn't a
+    dry-run, so the namespace, which carries the apps' label, stays empty."""
+    docs = list(yaml.safe_load_all((ROOT / "deploy/kind/provenance-canary.yaml").read_text()))
+    by_kind = {d["kind"]: d for d in docs}
+    assert len(by_kind) == len(docs)  # one of each
+    assert set(by_kind) == {
+        *("ServiceAccount", "Role", "RoleBinding", "ConfigMap", "CronJob"),
+        *("ValidatingAdmissionPolicy", "ValidatingAdmissionPolicyBinding"),
+    }
+    asks_in = "provenance-canary"
+    namespaces = {kind: d["metadata"].get("namespace") for kind, d in by_kind.items()}
+    assert namespaces == {
+        **dict.fromkeys(("ServiceAccount", "ConfigMap", "CronJob"), "monitoring"),
+        **dict.fromkeys(("Role", "RoleBinding"), asks_in),
+        **dict.fromkeys(("ValidatingAdmissionPolicy", "ValidatingAdmissionPolicyBinding")),
+    }
+    assert by_kind["Role"]["rules"] == [
+        {"apiGroups": [""], "resources": ["pods"], "verbs": ["create"]}
+    ]
+    sa = by_kind["ServiceAccount"]["metadata"]["name"]
+    assert by_kind["RoleBinding"]["roleRef"]["name"] == by_kind["Role"]["metadata"]["name"]
+    assert by_kind["RoleBinding"]["subjects"] == [
+        {"kind": "ServiceAccount", "name": sa, "namespace": "monitoring"}
+    ]
+
+    # Dry-runs only, for every Pod create in that namespace and nowhere else.
+    policy = by_kind["ValidatingAdmissionPolicy"]["spec"]
+    assert policy["failurePolicy"] == "Fail"
+    (rule,) = policy["matchConstraints"]["resourceRules"]
+    assert (rule["resources"], rule["operations"]) == (["pods"], ["CREATE"])
+    assert [v["expression"] for v in policy["validations"]] == [
+        "has(request.dryRun) && request.dryRun"
+    ]
+    binding = by_kind["ValidatingAdmissionPolicyBinding"]["spec"]
+    assert binding["policyName"] == by_kind["ValidatingAdmissionPolicy"]["metadata"]["name"]
+    assert binding["validationActions"] == ["Deny"]
+    assert binding["matchResources"] == {
+        "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": asks_in}}
+    }
+
+    # What it asks for: the release CI verifies against the real registry, and nothing a
+    # "restricted" namespace would refuse for a reason of its own.
+    asked = yaml.safe_load(by_kind["ConfigMap"]["data"]["pod.yaml"])
+    assert asked["metadata"]["namespace"] == asks_in
+    assert [c["image"] for c in asked["spec"]["containers"]] == [test_verify_image.RELEASE]
+    assert asked["spec"]["securityContext"]["runAsNonRoot"] is True
+    assert asked["spec"]["securityContext"]["seccompProfile"] == {"type": "RuntimeDefault"}
+
+    cron = by_kind["CronJob"]["spec"]
+    job = cron["jobTemplate"]["spec"]
+    assert cron["concurrencyPolicy"] == "Forbid"
+    assert "startingDeadlineSeconds" not in cron  # a run missed asleep starts on waking
+    assert job["backoffLimit"] == 0
+    # Gone before the stack's KubeJobFailed (15 minutes) would speak for a failed run.
+    assert job["ttlSecondsAfterFinished"] < 15 * 60
+    pod = job["template"]["spec"]
+    assert pod["serviceAccountName"] == sa
+    assert pod["restartPolicy"] == "Never"
+    assert pod["securityContext"]["runAsNonRoot"] is True
+    (container,) = pod["containers"]
+    assert re.fullmatch(r"registry\.k8s\.io/kubectl@sha256:[0-9a-f]{64}", container["image"])
+    assert container["args"] == ["create", "--dry-run=server", "-f", "/canary/pod.yaml"]
+    assert container["securityContext"] == {
+        "allowPrivilegeEscalation": False,
+        "capabilities": {"drop": ["ALL"]},
+        "readOnlyRootFilesystem": True,
+    }
+    (volume,) = pod["volumes"]
+    assert volume["configMap"]["name"] == by_kind["ConfigMap"]["metadata"]["name"]
+
+    # Its Application: only with the policies and the monitoring stack; the namespace it
+    # asks in is "restricted" and labelled as the app whose image it asks for.
+    (app,) = [a for a in _render() if a["metadata"]["name"] == "provenance-canary"]
+    assert app["spec"]["destination"]["namespace"] == asks_in
+    assert app["spec"]["source"]["directory"] == {"include": "provenance-canary.yaml"}
+    assert app["spec"]["syncPolicy"]["managedNamespaceMetadata"]["labels"] == {
+        "pod-security.kubernetes.io/enforce": "restricted",
+        "easypeasyops.github.io/app": test_verify_image.RELEASE.split("@")[0].split("/")[-1],
+    }
+    for off in ("components.monitoring=false", "components.policies=false"):
+        assert "provenance-canary" not in {a["metadata"]["name"] for a in _render(off)}, off
 
 
 def test_the_event_exporter_reads_events_and_nothing_else() -> None:

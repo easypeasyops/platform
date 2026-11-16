@@ -1,0 +1,155 @@
+# The provenance canary (docs/RUNBOOK.md, Kyverno alerts): every 15 minutes, ask the API
+# server to admit a Pod that runs a released image, as a server-side dry-run. A dry-run goes
+# through admission, Kyverno's provenance policy included (deploy/policies/), and creates
+# nothing. Admitted: the Job succeeds. Refused, for whatever reason: it fails, and its log
+# has the API server's answer. A released image refused is the case no metric of Kyverno's
+# tells from an unreleased one: Kyverno counts a signature it couldn't check (Sigstore
+# unreachable) as a refusal.
+#
+# The Pod is asked for in `provenance-canary`, a namespace of its own that Argo CD creates
+# (deploy/argocd/platform/, the `provenance-canary` Application) with the label the policy
+# selects the apps' namespaces by. It stays empty: see the ValidatingAdmissionPolicy below.
+# The CronJob itself runs in `monitoring`, not there: its kubectl image is not an app's, and
+# the allowlist policy would report it.
+# tests/test_platform.py checks what it is allowed.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: provenance-canary
+  namespace: monitoring
+---
+# Create Pods in the canary's namespace, nothing else. RBAC can't tell a dry-run from a real
+# create: the policy below does.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: provenance-canary
+  namespace: provenance-canary
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: provenance-canary
+  namespace: provenance-canary
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: provenance-canary
+subjects:
+  - { kind: ServiceAccount, name: provenance-canary, namespace: monitoring }
+---
+# Dry-runs only: no Pod is ever created in the canary's namespace, by the canary's
+# ServiceAccount or by anyone. The namespace carries the apps' label, so a real pod there
+# would be among the apps' as far as the Gateway, the bucket store and the backups' network
+# policy can tell.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: provenance-canary-dry-run-only
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE]
+        resources: [pods]
+  validations:
+    - expression: has(request.dryRun) && request.dryRun
+      message: the provenance canary's namespace takes server-side dry-runs only
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: provenance-canary-dry-run-only
+spec:
+  policyName: provenance-canary-dry-run-only
+  validationActions: [Deny]
+  matchResources:
+    namespaceSelector:
+      matchLabels: { kubernetes.io/metadata.name: provenance-canary }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: provenance-canary
+  namespace: monitoring
+data:
+  # What the canary asks for. Shaped to pass Pod Security "restricted", so that only the
+  # provenance policy can refuse it. The image is links' shortly v0.7.2, the release
+  # tests/test_verify_image.py verifies against the real registry in CI (RELEASE): if that
+  # release ever stops verifying, CI says so too. The platform has no image of its own.
+  pod.yaml: |
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: provenance-canary
+      namespace: provenance-canary
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: released
+          image: ghcr.io/easypeasyops/links/shortly@sha256:656822ee670d160ebde14c40308a411c9b3d1f1aa18d0935fb6cc580ddafa950
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: provenance-canary
+  namespace: monitoring
+  labels: { app.kubernetes.io/name: provenance-canary }
+spec:
+  # Kyverno keeps a verified image for an hour (its image verify cache), so about one run
+  # in four is checked against the registry and Sigstore; the others say the webhook
+  # answers. No startingDeadlineSeconds: after the laptop's sleep the missed run starts at
+  # once.
+  schedule: "*/15 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    metadata:
+      labels: { app.kubernetes.io/name: provenance-canary }
+    spec:
+      backoffLimit: 0 # one try a run: the next run is the retry
+      activeDeadlineSeconds: 120 # the webhook's own timeout is 30s
+      # A failed Job is gone before the stack's KubeJobFailed (15 minutes) speaks for it:
+      # the canary's own alert does, and its log stays in VictoriaLogs.
+      ttlSecondsAfterFinished: 600
+      template:
+        metadata:
+          labels: { app.kubernetes.io/name: provenance-canary }
+        spec:
+          serviceAccountName: provenance-canary
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            seccompProfile: { type: RuntimeDefault }
+          containers:
+            - name: kubectl
+              image: registry.k8s.io/kubectl@sha256:5ed410ebac5dc976cc717098994dcdb29bbbd38f6bd65f582311f5be4ba719cf # v1.37.0
+              args: [create, --dry-run=server, -f, /canary/pod.yaml]
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities: { drop: [ALL] }
+                readOnlyRootFilesystem: true
+              resources:
+                requests: { cpu: 10m, memory: 32Mi }
+                limits: { memory: 128Mi }
+              volumeMounts:
+                - { name: canary, mountPath: /canary, readOnly: true }
+          volumes:
+            - name: canary
+              configMap: { name: provenance-canary }

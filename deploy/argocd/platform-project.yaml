@@ -36,6 +36,7 @@ spec:
     - { server: https://kubernetes.default.svc, namespace: node-exporter } # node-exporter, and nothing else
     - { server: https://kubernetes.default.svc, namespace: event-exporter } # Kubernetes events into the logs
     - { server: https://kubernetes.default.svc, namespace: kyverno }
+    - { server: https://kubernetes.default.svc, namespace: provenance-canary } # where the provenance canary asks, empty
     - { server: https://kubernetes.default.svc, namespace: backups }
     - { server: https://kubernetes.default.svc, namespace: external-secrets }
     - { server: https://kubernetes.default.svc, namespace: secret-store }
