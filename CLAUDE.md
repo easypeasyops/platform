@@ -81,3 +81,16 @@ version.
   is a PR that changes an `apps/<app>/envs/prod.yaml` (the chart prod runs): never
   auto-merge it, Emrah merges it.
 - Squash merges only: a PR's commits become one commit on `main`.
+
+## Finishing a ticket
+
+**End to end, without asking between steps** (Emrah, 2026-11-16). Once Emrah picks a PT
+ticket or a fix, carry it all the way: the ticket in the sprint and In Progress, a branch, the
+change, targeted tests, the PR with auto-merge, then after the merge check its "Done when"
+(CI times, cluster metrics), put the result on the PR and the ticket, move it to Done, and
+delete the branch. Stop to ask only for what is Emrah's call: a PR that changes an
+`apps/<app>/envs/prod.yaml`, a breaking change for apps, a real trade-off between
+approaches, or finding that the ticket's own plan is wrong.
+
+The platform is for learning best practices, not production: problems that only happen
+while the laptop sleeps rank low, and a fast loop (CI, cluster, deploys) ranks high.
