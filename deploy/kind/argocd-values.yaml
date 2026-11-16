@@ -111,6 +111,11 @@ controller:
   resources:
     requests: { cpu: 100m, memory: 512Mi }
     limits: { memory: 2Gi }
+  # Go lets the heap double before it collects, so a sync burst took it to 1.8 GiB for a live
+  # heap of at most 0.6 GiB: memory the kind node needs then (PT-50, docs/RUNBOOK.md, Node
+  # memory). A soft limit: past it the controller collects harder, it isn't killed.
+  env:
+    - { name: GOMEMLIMIT, value: 1GiB }
 server:
   replicas: 1
   resources:
