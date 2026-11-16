@@ -1,13 +1,19 @@
 // Renovate bumps the pins Dependabot can't read (dependabot.yaml has the rest): it opens a PR
 // when one of them has a new release, and CI decides whether it's safe to merge.
 //
-// Only the two regex managers below run. Renovate's own managers stay off, so the pinned
+// Only the regex managers below run. Renovate's own managers stay off, so the pinned
 // GitHub Actions keep one bumper (Dependabot), not two.
 //
-// Renovate never merges: a chart bump reaches the cluster, prod included, on merge, so a
-// person reads the upstream release notes first. A chart's comment in values.yaml names the
-// app version it ships (e.g. "Argo Rollouts v1.10.0"); Renovate can't see that, so update it
-// in the bump PR.
+// Upstream bumps never merge on their own: a chart bump reaches the cluster, prod included,
+// on merge, so a person reads the upstream release notes first. A chart's comment in
+// values.yaml names the app version it ships (e.g. "Argo Rollouts v1.10.0"); Renovate can't
+// see that, so update it in the bump PR.
+//
+// The apps' service chart pins (apps/<app>/envs/<env>.yaml) move on their own, one PR per
+// env file. A new service/vX.Y.Z release opens a PR for every non-prod env (staging, ops)
+// that auto-merges once CI, check-apps.py included, is green; a major version waits for a
+// person, since an app must react to it. Prod follows the app's staging pin on main, so its
+// PR opens only once staging runs that version, and it never auto-merges: Emrah merges it.
 {
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
   extends: ["config:recommended", "schedule:weekly"],
@@ -33,8 +39,59 @@
       ],
       datasourceTemplate: "docker",
     },
+    {
+      // An app's non-prod pins: the service chart's releases on GHCR, version and digest
+      // together (the digest is the one the release notes give). depName is the app and
+      // depType the env, so each env file gets its own PR.
+      customType: "regex",
+      managerFilePatterns: ["/^apps/[^/]+/envs/(?!prod\\.yaml$)[^/]+\\.yaml$/"],
+      matchStrings: [
+        "app: (?<depName>\\S+)\\nenv: (?<depType>\\S+)\\n[\\s\\S]*?chart:\\n\\s+version: (?<currentValue>\\S+)\\n\\s+digest: (?<currentDigest>sha256:[a-f0-9]{64})",
+      ],
+      packageNameTemplate: "ghcr.io/easypeasyops/charts/service",
+      datasourceTemplate: "docker",
+      versioningTemplate: "semver", // skips the sha256-… attestation tags
+    },
+    {
+      // An app's prod pin: whatever its staging pin is on main (custom.staging-pin).
+      customType: "regex",
+      managerFilePatterns: ["/^apps/[^/]+/envs/prod\\.yaml$/"],
+      matchStrings: [
+        "app: (?<depName>\\S+)\\nenv: (?<depType>\\S+)\\n[\\s\\S]*?chart:\\n\\s+version: (?<currentValue>\\S+)\\n\\s+digest: (?<currentDigest>sha256:[a-f0-9]{64})",
+      ],
+      datasourceTemplate: "custom.staging-pin",
+      versioningTemplate: "semver",
+    },
   ],
+  customDatasources: {
+    // The one release an app's prod may move to: its staging env file on main.
+    "staging-pin": {
+      defaultRegistryUrlTemplate: "https://raw.githubusercontent.com/easypeasyops/platform/main/apps/{{packageName}}/envs/staging.yaml",
+      format: "yaml",
+      transformTemplates: [
+        '{"releases": [{"version": chart.version, "digest": chart.digest}]}',
+      ],
+    },
+  },
   packageRules: [
+    {
+      // The apps' pins: checked whenever Renovate runs, not weekly; staging and ops auto-merge.
+      matchFileNames: ["apps/*/envs/*.yaml"],
+      schedule: ["at any time"],
+      branchTopic: "service-chart-{{{depName}}}-{{{depType}}}",
+      commitMessageTopic: "service chart for {{{depName}}} {{{depType}}}",
+      automerge: true,
+      automergeStrategy: "squash",
+    },
+    {
+      matchFileNames: ["apps/*/envs/*.yaml"],
+      matchUpdateTypes: ["major"],
+      automerge: false,
+    },
+    {
+      matchFileNames: ["apps/*/envs/prod.yaml"],
+      automerge: false,
+    },
     {
       // Envoy Gateway pushes every release under two tags (v1.9.2 and 1.9.2): stay on the v one.
       matchPackageNames: ["registry-1.docker.io/envoyproxy/gateway-helm"],

@@ -83,6 +83,10 @@ a time, staging first.
    `oci://ghcr.io/easypeasyops/charts/service`, pulls it back by digest, attests its
    provenance (Sigstore, keyless), verifies the attestation and creates a GitHub Release whose
    notes hold the digest. Apps pin that digest.
+4. Renovate moves the pins (`.github/renovate.json5`), one PR per `apps/<app>/envs/<env>.yaml`,
+   version and digest together, and CI's `check-apps.py` checks each one. Staging and other
+   non-prod envs auto-merge when green (a major version waits for a person). Prod's PR opens
+   once that app's staging pin is on `main`, and Emrah merges it.
 
 A published version is never replaced: a fix is a new version. CI rehearses the release on
 every PR against a throwaway registry (`chart release rehearsal`).
