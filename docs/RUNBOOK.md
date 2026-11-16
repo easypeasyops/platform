@@ -890,7 +890,9 @@ errored is the platform's to fix, and the app's channel already hears of the abo
 canary from Argo CD (`ArgoCDAppUnhealthy`). A paused canary reaches nobody else: Argo CD
 shows it as Suspended, which that alert leaves out. In the `Canary...` alerts, label
 `exported_namespace` is the Rollout's namespace and `rollout` its name; in
-`CanaryAnalysisErrored`, `analysisrun` is the run that errored. Rules:
+`CanaryAnalysisErrored`, `analysisrun` is the run that errored, and the Rollout is the
+run's owner as kube-state-metrics exports it (`argo_rollouts_analysisrun_owner_info`):
+while kube-state-metrics is down that alert can't fire. Rules:
 `deploy/argocd/platform/files/argo-rollouts-rules.yaml`.
 
 | Alert | Means | First look |

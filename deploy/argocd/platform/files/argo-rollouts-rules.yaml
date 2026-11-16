@@ -30,15 +30,18 @@ groups:
       - alert: CanaryAnalysisErrored
         # An AnalysisRun in Error, while its Rollout is aborted (rollout_info's phase "Abort";
         # a retry or a new release ends it). Its runs are kept after the abort, so the
-        # Rollout's state is what makes the alert end. The Rollout is the run's name without
-        # what the controller appends: -<pod hash>-<revision>, then -<step>, -pre or -post,
-        # then .<n> on a name collision. The hash's alphabet has no vowels, which is what
-        # keeps a Rollout named like "api-v2" whole.
+        # Rollout's state is what makes the alert end. The Rollout is the run's owner, which
+        # kube-state-metrics exports (argo_rollouts_analysisrun_owner_info,
+        # deploy/kind/monitoring-values.yaml): not read from the run's name
+        # (<rollout>-<pod hash>-<revision>...), which a Rollout named like "web-cdn-2" makes
+        # ambiguous. So no owner series (kube-state-metrics down), no alert. max by on the
+        # owner: two series for a run while kube-state-metrics restarts are still one owner.
         expr: |-
           max by (exported_namespace, rollout, analysisrun) (
-            label_replace(
-              label_replace(analysis_run_info{phase="Error"}, "analysisrun", "$1", "name", "(.+)"),
-              "rollout", "$1", "name", "(.+?)-[bcdfghjklmnpqrstvwxz2456789]+-[0-9]+(-[0-9]+|-pre|-post)?([.][0-9]+)?"
+            label_replace(analysis_run_info{phase="Error"}, "analysisrun", "$1", "name", "(.+)")
+            * on (exported_namespace, analysisrun) group_left (rollout)
+            max by (exported_namespace, analysisrun, rollout) (
+              label_replace(argo_rollouts_analysisrun_owner_info{owner_kind="Rollout"}, "rollout", "$1", "owner", "(.+)")
             )
           )
           and on (exported_namespace, rollout)

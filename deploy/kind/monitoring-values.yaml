@@ -65,6 +65,9 @@ kube-state-metrics:
       - apiGroups: [argoproj.io]
         resources: [applications]
         verbs: [list, watch]
+      - apiGroups: [argoproj.io]
+        resources: [analysisruns]
+        verbs: [list, watch]
   customResourceState:
     enabled: true
     config:
@@ -111,6 +114,25 @@ kube-state-metrics:
                   info:
                     path: [status, operationState, syncResult, revisions]
                     labelsFromPath: { revision: [] }
+          # Which Rollout each Argo Rollouts AnalysisRun belongs to, from its ownerReferences:
+          # the controller's own analysis_run_info carries the run's name only, and a name
+          # can't be split back into Rollout, pod hash and revision for sure.
+          # argo_rollouts_analysisrun_owner_info{exported_namespace, analysisrun, owner_kind,
+          # owner}, a series per owner; the first two are the labels CanaryAnalysisErrored
+          # joins on (deploy/argocd/platform/files/argo-rollouts-rules.yaml).
+          - groupVersionKind: { group: argoproj.io, version: v1alpha1, kind: AnalysisRun }
+            metricNamePrefix: argo_rollouts_analysisrun
+            labelsFromPath:
+              exported_namespace: [metadata, namespace]
+              analysisrun: [metadata, name]
+            metrics:
+              - name: owner_info
+                help: An owner of the AnalysisRun (its Rollout)
+                each:
+                  type: Info
+                  info:
+                    path: [metadata, ownerReferences]
+                    labelsFromPath: { owner_kind: [kind], owner: [name] }
           - groupVersionKind: { group: gateway.networking.k8s.io, version: v1, kind: Gateway }
             metricNamePrefix: gateway
             labelsFromPath:
