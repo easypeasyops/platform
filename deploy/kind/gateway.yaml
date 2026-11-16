@@ -79,6 +79,19 @@ spec:
             - type: File
               file: { path: /dev/stdout }
 ---
+# The proxies' Service under its coming name, front-door, while it is still shortly-gateway:
+# the service chart's canary traffic (canary.syntheticTraffic.url) moves to it first, so a
+# chart that uses it works on this platform and after the rename (DESIGN, Known limitations).
+# Removed when the EnvoyProxy above names its Service front-door.
+apiVersion: v1
+kind: Service
+metadata:
+  name: front-door
+  namespace: envoy-gateway-system
+spec:
+  type: ExternalName
+  externalName: shortly-gateway.envoy-gateway-system.svc.cluster.local
+---
 apiVersion: gateway.networking.k8s.io/v1
 kind: GatewayClass
 metadata:
