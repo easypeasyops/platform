@@ -85,8 +85,8 @@ charts:
     digest: sha256:d34ada2eedffaee9153c6ae31e0e5b93fd28765cc8fba7c5fb45d4ed6b60df1a
   kyverno: # Kyverno v1.19.1, the engine tests/test_admission_policies.py runs
     repo: oci://ghcr.io/kyverno/charts/kyverno
-    version: 3.9.1
-    digest: sha256:720542b97bdbc2633535c2297332690d21cfbb944053eb1ec1f0dbe8e3895444
+    version: 3.10.0
+    digest: sha256:290ff54d4b7d015ce2ffe5be84b60e2db5a59d8c5dcea772a8f6e32475c2eba2
 
 # Argo Rollouts' Gateway API traffic router. The controller downloads it when it starts and
 # refuses it unless the checksum matches. The project publishes no checksums: these were
