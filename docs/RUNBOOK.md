@@ -227,7 +227,7 @@ follows 50 minutes after the last run that passed.
 
 ## The front door
 
-One Gateway, `shortly` in namespace `gateway` (Envoy Gateway, `deploy/kind/gateway.yaml`),
+One Gateway, `front-door` in namespace `gateway` (Envoy Gateway, `deploy/kind/gateway.yaml`),
 routes by hostname on two listeners: `http` for the apps (the laptop's port 8080, e.g.
 http://aipostit.localhost:8080; each app's values name its hostnames) and `tools` for
 Argo CD, Grafana, Prometheus and Alertmanager (port 8090). Two small forwarder containers
@@ -245,7 +245,7 @@ through the proxies every minute as a user would
 
 ```sh
 docker ps --filter name=shortly-front-door                     # two, Up
-kubectl -n gateway get gateway shortly                         # PROGRAMMED must be True
+kubectl -n gateway get gateway front-door                      # PROGRAMMED must be True
 kubectl get httproute -A
 kubectl -n <ns> get httproute <app> -o jsonpath='{.status.parents[0].conditions}'   # Accepted, ResolvedRefs
 kubectl -n envoy-gateway-system get pods                       # envoy-gateway (controller) and the proxy
@@ -300,10 +300,10 @@ False; `deploy/kind/monitoring-values.yaml`).
 
 | Alert | Means | First look |
 | --- | --- | --- |
-| `FrontDoorDown` (critical) | No proxy (job `envoy`) scraped for 3 minutes: every app and tool is unreachable from outside | `kubectl -n envoy-gateway-system get deploy,pods -l app.kubernetes.io/component=proxy`; `kubectl -n envoy-gateway-system describe pod -l app.kubernetes.io/component=proxy` (OOMKilled? its limit is the EnvoyProxy's, `deploy/kind/gateway.yaml`); `kubectl -n gateway get gateway shortly` |
+| `FrontDoorDown` (critical) | No proxy (job `envoy`) scraped for 3 minutes: every app and tool is unreachable from outside | `kubectl -n envoy-gateway-system get deploy,pods -l app.kubernetes.io/component=proxy`; `kubectl -n envoy-gateway-system describe pod -l app.kubernetes.io/component=proxy` (OOMKilled? its limit is the EnvoyProxy's, `deploy/kind/gateway.yaml`); `kubectl -n gateway get gateway front-door` |
 | `FrontDoorControllerDown` (warning) | No controller (job `envoy-gateway`) scraped for 10 minutes: what runs keeps serving, but no Gateway or route change reaches the proxies, and a proxy that goes is not replaced | `kubectl -n envoy-gateway-system get pods`; `kubectl -n envoy-gateway-system logs deploy/envoy-gateway --tail=50` (add `--previous` after a crash) |
-| `FrontDoorGatewayNotProgrammed` (warning) | The Gateway (named, with the condition's reason) hasn't been `Accepted` or `Programmed` for 5 minutes: changes don't reach the proxies, or no proxy serves it (then `FrontDoorDown` fires too) | `kubectl -n gateway get gateway shortly -o jsonpath='{.status.conditions}'`; "Gateway not `Programmed`" in the table above |
-| `FrontDoorListenerNotAccepted` (warning) | A listener (named, with its reason) hasn't been `Accepted` for 5 minutes: no route attached to it is served | `kubectl -n gateway get gateway shortly -o jsonpath='{.status.listeners}'`; the listener in `deploy/kind/gateway.yaml`; the controller's logs |
+| `FrontDoorGatewayNotProgrammed` (warning) | The Gateway (named, with the condition's reason) hasn't been `Accepted` or `Programmed` for 5 minutes: changes don't reach the proxies, or no proxy serves it (then `FrontDoorDown` fires too) | `kubectl -n gateway get gateway front-door -o jsonpath='{.status.conditions}'`; "Gateway not `Programmed`" in the table above |
+| `FrontDoorListenerNotAccepted` (warning) | A listener (named, with its reason) hasn't been `Accepted` for 5 minutes: no route attached to it is served | `kubectl -n gateway get gateway front-door -o jsonpath='{.status.listeners}'`; the listener in `deploy/kind/gateway.yaml`; the controller's logs |
 
 The controller makes the proxy's Deployment: a proxy Deployment that is gone with the
 controller up comes back within seconds, so `FrontDoorDown` with no proxy Deployment

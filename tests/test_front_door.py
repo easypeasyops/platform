@@ -58,21 +58,25 @@ def test_tool_routes_attach_to_the_tools_listener_only() -> None:
     for route in routes:
         assert route["metadata"]["namespace"] in TOOL_NAMESPACES
         assert route["spec"]["parentRefs"] == [
-            {"name": "shortly", "namespace": "gateway", "sectionName": "tools"}
+            {"name": "front-door", "namespace": "gateway", "sectionName": "tools"}
         ]
         assert route["spec"]["hostnames"] == [f"{route['metadata']['name']}.localhost"]
 
 
-def test_front_door_alias_points_at_the_proxies_service() -> None:
-    proxy = _gateway_docs()["EnvoyProxy"]
-    alias = _gateway_docs()["Service"]
-    assert alias["metadata"] == {"name": "front-door", "namespace": proxy["metadata"]["namespace"]}
+def test_service_chart_defaults_name_this_gateway() -> None:
+    """An app that leaves the chart's defaults attaches to this Gateway, and its canary
+    traffic goes to this Gateway's proxies."""
+    docs = _gateway_docs()
+    chart = yaml.safe_load((ROOT / "charts/service/values.yaml").read_text())
+    gateway = docs["Gateway"]["metadata"]
+    assert (chart["gateway"]["name"], chart["gateway"]["namespace"]) == (
+        gateway["name"],
+        gateway["namespace"],
+    )
+    proxy = docs["EnvoyProxy"]
     service = proxy["spec"]["provider"]["kubernetes"]["envoyService"]["name"]
-    namespace = proxy["metadata"]["namespace"]
-    assert alias["spec"] == {
-        "type": "ExternalName",
-        "externalName": f"{service}.{namespace}.svc.cluster.local",
-    }
+    url = chart["canary"]["analysis"]["syntheticTraffic"]["url"]
+    assert url == f"http://{service}.{proxy['metadata']['namespace']}.svc"
 
 
 def test_front_door_ports_match_the_pinned_node_ports() -> None:

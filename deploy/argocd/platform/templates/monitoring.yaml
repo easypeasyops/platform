@@ -69,7 +69,7 @@ spec:
 # every request, the ones that never reached an app included. Here, in the root's own
 # namespace, and selecting across to envoy-gateway-system: Argo CD's dry run of a resource
 # in a namespace that doesn't exist yet would fail the root's first sync on a fresh cluster.
-# A PodMonitor, because the proxies' Service (shortly-gateway, deploy/kind/gateway.yaml)
+# A PodMonitor, because the proxies' Service (front-door, deploy/kind/gateway.yaml)
 # carries the listeners' ports only, not the metrics port.
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor

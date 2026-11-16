@@ -344,8 +344,8 @@ is in the app's repo, against the platform commit it pins.
 
 ## Known limitations
 
-- Local kind only. The values under `deploy/kind/` and several names (the Gateway
-  `shortly`, the cluster) still carry the first app's name.
+- Local kind only. The values under `deploy/kind/` and the cluster's name (`shortly`) still
+  carry the first app's name.
 - The allowlist policy is Audit in kind, so an unknown image in an app namespace is
   reported, not refused. Provenance is checked at admission: a policy change doesn't evict
   running pods.

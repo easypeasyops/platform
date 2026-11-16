@@ -164,7 +164,7 @@ json.dump(app, sys.stdout)' \
   for app in $children; do wait_synced "${app#*/}" 300 || exit 1; done
   kubectl -n argocd get applications -l app.kubernetes.io/part-of=platform
   # Argo CD's health says the pods run; these say they do their job.
-  kubectl -n gateway wait gateway/shortly --for=condition=Programmed --timeout=180s >/dev/null
+  kubectl -n gateway wait gateway/front-door --for=condition=Programmed --timeout=180s >/dev/null
   if on POLICIES; then
     # A policy only protects once Kyverno has compiled it and registered its webhook.
     for kind in imagevalidatingpolicy validatingpolicy; do

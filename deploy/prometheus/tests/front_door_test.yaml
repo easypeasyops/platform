@@ -74,7 +74,7 @@ tests:
   - name: no proxy scraped for three minutes says the front door is down
     interval: 1m
     input_series:
-      - series: 'up{job="envoy",namespace="envoy-gateway-system",pod="envoy-gateway-shortly-abc"}'
+      - series: 'up{job="envoy",namespace="envoy-gateway-system",pod="envoy-gateway-front-door-abc"}'
         values: '1x5 stale'
       - series: 'up{job="envoy-gateway",namespace="envoy-gateway-system"}'
         values: '1x5 stale'
@@ -107,9 +107,9 @@ tests:
   - name: a failing scrape is down, a replaced proxy is not
     interval: 1m
     input_series:
-      - series: 'up{job="envoy",namespace="envoy-gateway-system",pod="envoy-gateway-shortly-old"}'
+      - series: 'up{job="envoy",namespace="envoy-gateway-system",pod="envoy-gateway-front-door-old"}'
         values: '1x5 0 stale'
-      - series: 'up{job="envoy",namespace="envoy-gateway-system",pod="envoy-gateway-shortly-new"}'
+      - series: 'up{job="envoy",namespace="envoy-gateway-system",pod="envoy-gateway-front-door-new"}'
         values: '_x7 1x5 0x10'
       - series: 'up{job="envoy-gateway",namespace="envoy-gateway-system"}'
         values: '1x25'
@@ -134,11 +134,11 @@ tests:
   - name: a Gateway not Programmed for five minutes warns, and names it
     interval: 1m
     input_series:
-      - series: 'gateway_status_condition{job="kube-state-metrics",namespace="monitoring",gateway_namespace="gateway",gateway="shortly",type="Accepted",reason="Accepted"}'
+      - series: 'gateway_status_condition{job="kube-state-metrics",namespace="monitoring",gateway_namespace="gateway",gateway="front-door",type="Accepted",reason="Accepted"}'
         values: '1x25'
-      - series: 'gateway_status_condition{job="kube-state-metrics",namespace="monitoring",gateway_namespace="gateway",gateway="shortly",type="Programmed",reason="Programmed"}'
+      - series: 'gateway_status_condition{job="kube-state-metrics",namespace="monitoring",gateway_namespace="gateway",gateway="front-door",type="Programmed",reason="Programmed"}'
         values: '1x4 stale'
-      - series: 'gateway_status_condition{job="kube-state-metrics",namespace="monitoring",gateway_namespace="gateway",gateway="shortly",type="Programmed",reason="NoResources"}'
+      - series: 'gateway_status_condition{job="kube-state-metrics",namespace="monitoring",gateway_namespace="gateway",gateway="front-door",type="Programmed",reason="NoResources"}'
         values: '_x5 0x3 stale _x3 0x12'
     alert_rule_test:
       - eval_time: 11m # False from 5m to 8m, then back: quiet
@@ -147,21 +147,21 @@ tests:
       - eval_time: 20m # False again since 13m
         alertname: FrontDoorGatewayNotProgrammed
         exp_alerts:
-          - exp_labels: {gateway_namespace: gateway, gateway: shortly, type: Programmed, reason: NoResources, severity: warning}
+          - exp_labels: {gateway_namespace: gateway, gateway: front-door, type: Programmed, reason: NoResources, severity: warning}
             exp_annotations:
-              summary: "Gateway gateway/shortly isn't Programmed (NoResources)"
-              description: "Gateway gateway/shortly has not been Programmed for 5 minutes (NoResources): its routes' changes don't reach the proxies, or no proxy serves it."
+              summary: "Gateway gateway/front-door isn't Programmed (NoResources)"
+              description: "Gateway gateway/front-door has not been Programmed for 5 minutes (NoResources): its routes' changes don't reach the proxies, or no proxy serves it."
               runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#the-front-door-is-down
 
   # The tools' listener refused, the users' one fine: the alert names the listener.
   - name: a listener not Accepted for five minutes warns, and names it
     interval: 1m
     input_series:
-      - series: 'gateway_listener_accepted{job="kube-state-metrics",namespace="monitoring",gateway_namespace="gateway",gateway="shortly",listener="http",reason="Accepted"}'
+      - series: 'gateway_listener_accepted{job="kube-state-metrics",namespace="monitoring",gateway_namespace="gateway",gateway="front-door",listener="http",reason="Accepted"}'
         values: '1x15'
-      - series: 'gateway_listener_accepted{job="kube-state-metrics",namespace="monitoring",gateway_namespace="gateway",gateway="shortly",listener="tools",reason="PortUnavailable"}'
+      - series: 'gateway_listener_accepted{job="kube-state-metrics",namespace="monitoring",gateway_namespace="gateway",gateway="front-door",listener="tools",reason="PortUnavailable"}'
         values: '0x15'
-      - series: 'gateway_status_condition{job="kube-state-metrics",namespace="monitoring",gateway_namespace="gateway",gateway="shortly",type="Programmed",reason="Programmed"}'
+      - series: 'gateway_status_condition{job="kube-state-metrics",namespace="monitoring",gateway_namespace="gateway",gateway="front-door",type="Programmed",reason="Programmed"}'
         values: '1x15'
     alert_rule_test:
       - eval_time: 3m
@@ -170,10 +170,10 @@ tests:
       - eval_time: 10m
         alertname: FrontDoorListenerNotAccepted
         exp_alerts:
-          - exp_labels: {gateway_namespace: gateway, gateway: shortly, listener: tools, reason: PortUnavailable, severity: warning}
+          - exp_labels: {gateway_namespace: gateway, gateway: front-door, listener: tools, reason: PortUnavailable, severity: warning}
             exp_annotations:
-              summary: "Listener tools of Gateway gateway/shortly isn't Accepted (PortUnavailable)"
-              description: "Listener tools of Gateway gateway/shortly has not been Accepted for 5 minutes (PortUnavailable): no route attached to it is served."
+              summary: "Listener tools of Gateway gateway/front-door isn't Accepted (PortUnavailable)"
+              description: "Listener tools of Gateway gateway/front-door has not been Accepted for 5 minutes (PortUnavailable): no route attached to it is served."
               runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#the-front-door-is-down
       - eval_time: 10m
         alertname: FrontDoorGatewayNotProgrammed
