@@ -157,8 +157,8 @@ service:
   port: 80
 
 # Route users in through a Gateway API Gateway (the platform's deploy/kind/gateway.yaml in
-# kind; until its rename it is named shortly, and the route attaches to that too). Off by
-# default: the chart works without one, and a cluster without the Gateway API CRDs.
+# kind). Off by default: the chart works without one, and a cluster without the Gateway API
+# CRDs.
 gateway:
   enabled: false
   name: front-door

@@ -7,6 +7,13 @@ an app that doesn't set it) is a major version; a new optional value is a minor 
 that changes no render an app relies on is a patch. Each release's digest is in its GitHub
 Release.
 
+## 1.5.0
+
+The HTTPRoute names only `gateway.name` as its parent: 1.4.0's second parent, `shortly`, goes
+(the platform's front-door rename, 4 of 5). The platform's Gateway is `front-door` since
+platform#163, so an app that leaves the defaults is served as before. Nothing for an app to
+set; it needs a platform at or after platform#163, where no Gateway is named `shortly`.
+
 ## 1.4.0
 
 The platform's Gateway gets its own name, `front-door`, in place of the first app's,
