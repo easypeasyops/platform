@@ -1,0 +1,72 @@
+{
+  "rows": [
+    {
+      "week": "2026-11-16",
+      "commit": "5fc1f2a",
+      "axis": "Supply-chain security",
+      "score": 4.5,
+      "evidence": "Two layers enforce one rule: images by digest, with keyless SLSA provenance signed by the app's own release.yml at an app tag (verify-image.sh at deploy, Kyverno at admission). Both fail closed and refuse tags; test_admission_policies.py checks that they agree. Trivy scans every image, actions are pinned by SHA, and the chart is signed and pinned by digest.",
+      "gaps": "The allowlist policy is Audit in kind, so a foreign image in an app namespace is reported, not refused. The Argo Rollouts plugin checksums were computed here, not published upstream.",
+      "next": "Run app-allowed-images in Deny, with a named exception for local builds."
+    },
+    {
+      "week": "2026-11-16",
+      "commit": "5fc1f2a",
+      "axis": "Reliability and recovery",
+      "score": 2.5,
+      "evidence": "The chart's defaults are production-shaped: startup, liveness and readiness probes, maxUnavailable 0, a preStop sleep, PDB and HPA, and a canary that aborts on failed analysis. Postgres runs on CloudNativePG with WAL archiving and hourly base backups. cluster.sh up rebuilds the cluster in minutes.",
+      "gaps": "One kind node: every replica, every database and the backup bucket share one failure domain. Kyverno and each Argo CD component run one replica, so no app pod can start while Kyverno restarts. No restore drill runs from this repo: restores are in the apps' runbooks and nothing here proves they work.",
+      "next": "A scheduled restore drill into the restore-drill namespace, with an alert when it fails."
+    },
+    {
+      "week": "2026-11-16",
+      "commit": "5fc1f2a",
+      "axis": "Observability",
+      "score": 4.0,
+      "evidence": "Metrics, logs (VictoriaLogs) and Kubernetes events in one place. Blackbox probes hit every hostname through the front door. SLO rules are generated as multi-window burn-rate alerts. Every platform component has alerts, tested with promtool (10 test files) and routed to Slack by namespace. Dashboards show deploy marks.",
+      "gaps": "No trace backend: the chart has an otel endpoint, but nothing receives traces. The 30-day error budget looks back at most 10 days, because that's how long Prometheus keeps data.",
+      "next": "Run an OpenTelemetry collector and a trace store, and set otel.endpoint for every app."
+    },
+    {
+      "week": "2026-11-16",
+      "commit": "5fc1f2a",
+      "axis": "Delivery safety",
+      "score": 4.0,
+      "evidence": "One required ci gate covers kubeconform (the chart rendered three ways), golden renders, a release rehearsal, ruff, mypy, pytest, shellcheck and actionlint. Apps pin commits and chart digests; check-apps.py verifies each pin's provenance and render. Breaking changes go expand, migrate, contract. Dependabot and Renovate keep pins fresh.",
+      "gaps": "A merge to main reaches the cluster, prod included, within a minute, with auto-merge on. There is no staging for the platform itself: an app's e2e only catches a platform regression when the app moves its lock, after the change is already live.",
+      "next": "A kind e2e in this repo's CI that deploys a fixture app on the PR's commit."
+    },
+    {
+      "week": "2026-11-16",
+      "commit": "5fc1f2a",
+      "axis": "Developer experience",
+      "score": 3.0,
+      "evidence": "Onboarding is one folder in apps/. Two reusable workflows hold every app's checks. The service chart gives a database, Redis, workers, cron jobs, secrets and canaries from values. The docs explain why as well as how.",
+      "gaps": "Only two apps, both from one repo, have used the contract. A new app also needs its own release.yml for provenance, an SLO spec, layered values and digest pins, with no template or scaffold. Chart pins move by hand, one PR per environment. The README still says the platform is moving in.",
+      "next": "A template app repo with release.yml, values and an SLO spec ready to fill."
+    },
+    {
+      "week": "2026-11-16",
+      "commit": "5fc1f2a",
+      "axis": "Operability and automation",
+      "score": 4.0,
+      "evidence": "Everything except Argo CD itself is GitOps, with self-heal and prune. cluster.sh up is idempotent. Passwords are generated into immutable Secrets. Upstream charts are pinned by digest and bumped by bots. A 957-line runbook pairs each alert with a procedure, break-glass steps included.",
+      "gaps": "Slack webhooks and app keys are loaded by hand. After the laptop sleeps, cluster.sh wake is manual. Tools use the admin login with no SSO. A change to Argo CD's own values needs cluster.sh up by hand.",
+      "next": "Alert when a hand-loaded secret the platform expects is missing from the store."
+    }
+  ],
+  "meta": [
+    {
+      "label": "Method",
+      "value": "Claude reads the platform repo at the named commit (docs/DESIGN.md, docs/RUNBOOK.md, deploy/, charts/, tests/, ci.yml) and scores each axis 0-5 against the same rubric every week. The scores come from the repo, not from the live cluster."
+    },
+    {
+      "label": "Rubric",
+      "value": "0 absent · 1 ad hoc · 2 partly in place · 3 in place and tested · 4 enforced and covered by CI · 5 automated, enforced and proven under failure"
+    },
+    {
+      "label": "Repository",
+      "value": "easypeasyops/platform"
+    }
+  ]
+}
