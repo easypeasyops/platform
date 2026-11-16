@@ -40,27 +40,19 @@
       datasourceTemplate: "docker",
     },
     {
-      // An app's non-prod pins: the service chart's releases on GHCR, version and digest
-      // together (the digest is the one the release notes give). depName is the app and
-      // depType the env, so each env file gets its own PR.
+      // An app's pins, version and digest together; depName is the app and depType the env,
+      // so each env file gets its own PR. Non-prod (staging, ops) follows the service chart's
+      // releases on GHCR (the digest is the one the release notes give); prod follows its
+      // staging pin on main (custom.staging-pin). One manager, picking by env: Renovate's
+      // RE2 regexes have no lookahead, so a file pattern can't say "every env but prod".
       customType: "regex",
-      managerFilePatterns: ["/^apps/[^/]+/envs/(?!prod\\.yaml$)[^/]+\\.yaml$/"],
+      managerFilePatterns: ["/^apps/[^/]+/envs/[^/]+\\.yaml$/"],
       matchStrings: [
         "app: (?<depName>\\S+)\\nenv: (?<depType>\\S+)\\n[\\s\\S]*?chart:\\n\\s+version: (?<currentValue>\\S+)\\n\\s+digest: (?<currentDigest>sha256:[a-f0-9]{64})",
       ],
-      packageNameTemplate: "ghcr.io/easypeasyops/charts/service",
-      datasourceTemplate: "docker",
+      packageNameTemplate: "{{#if (equals depType 'prod')}}{{{depName}}}{{else}}ghcr.io/easypeasyops/charts/service{{/if}}",
+      datasourceTemplate: "{{#if (equals depType 'prod')}}custom.staging-pin{{else}}docker{{/if}}",
       versioningTemplate: "semver", // skips the sha256-… attestation tags
-    },
-    {
-      // An app's prod pin: whatever its staging pin is on main (custom.staging-pin).
-      customType: "regex",
-      managerFilePatterns: ["/^apps/[^/]+/envs/prod\\.yaml$/"],
-      matchStrings: [
-        "app: (?<depName>\\S+)\\nenv: (?<depType>\\S+)\\n[\\s\\S]*?chart:\\n\\s+version: (?<currentValue>\\S+)\\n\\s+digest: (?<currentDigest>sha256:[a-f0-9]{64})",
-      ],
-      datasourceTemplate: "custom.staging-pin",
-      versioningTemplate: "semver",
     },
   ],
   customDatasources: {
