@@ -29,6 +29,11 @@ kind: EnvoyProxy
 metadata:
   name: front-door
   namespace: envoy-gateway-system
+  annotations:
+    # Before the GatewayClass that names it. In one wave Argo CD applies these kinds in
+    # name order, so GatewayClass `envoy` went first; Envoy Gateway then marks the class
+    # InvalidParameters and, now and then, never looks again (links CI, 2026-11-16).
+    argocd.argoproj.io/sync-wave: "-1"
 spec:
   provider:
     type: Kubernetes
