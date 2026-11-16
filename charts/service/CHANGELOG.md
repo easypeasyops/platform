@@ -7,6 +7,17 @@ an app that doesn't set it) is a major version; a new optional value is a minor 
 that changes no render an app relies on is a patch. Each release's digest is in its GitHub
 Release.
 
+## 1.3.1
+
+The SLO dashboard says how far back an error budget really looks (PT-27). The rules' window
+is 30 days, but `slo:sli_error:ratio_rate30d` is a rate over the days Prometheus has, and
+the platform's keeps 10: the budget shown as a month's was those days', and an older
+incident showed as budget restored. A new panel beside "Error budget remaining", "Budget
+looks back", shows the days of data there are (`prometheus_tsdb_lowest_timestamp`, 30 at
+most; green only at 30), and the row's title and the budget's description say so. Nothing
+for an app to set or change: only the slo.json render differs from 1.3.0. The rules and
+`scripts/gen_slo_rules.py` are unchanged.
+
 ## 1.3.0
 
 The SLO dashboard marks its environment's deploys (PT-28): a "Deploys" annotation at the
