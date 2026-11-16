@@ -265,4 +265,27 @@ spec:
     path: deploy/policies
   destination: { server: {{ $dest }}, namespace: kyverno }
   {{- include "platform.syncPolicy" (dict) | nindent 2 }}
+{{- if $v.components.monitoring }}
+---
+# The provenance canary: a CronJob that asks, as a dry-run, for a Pod with a released image
+# to be admitted, so a provenance policy that refuses releases is noticed before a deploy
+# (deploy/kind/provenance-canary.yaml). Its CronJob runs in `monitoring`; the namespace
+# here is the one it asks in, empty, with the label the policies select the apps'
+# namespaces by. With the policies and the monitoring stack, or it would watch nothing for
+# nobody.
+{{ include "platform.meta" (dict "name" "provenance-canary" "wave" 1) }}
+spec:
+  project: platform
+  source:
+    repoURL: {{ $v.repoURL }}
+    targetRevision: {{ $v.revision }}
+    path: deploy/kind
+    directory: { include: provenance-canary.yaml }
+  destination:
+    server: {{ $dest }}
+    namespace: provenance-canary
+  {{- /* app "shortly": the app of the image the canary asks for, so the allowlist policy
+  (deploy/policies/allowed-images.yaml) has nothing to say about it. */}}
+  {{- include "platform.syncPolicy" (dict "labels" (dict "pod-security.kubernetes.io/enforce" "restricted" "easypeasyops.github.io/app" "shortly")) | nindent 2 }}
+{{- end }}
 {{- end }}
