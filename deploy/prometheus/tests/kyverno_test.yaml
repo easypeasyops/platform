@@ -163,3 +163,76 @@ tests:
       - eval_time: 40m
         alertname: KyvernoWebhookCallsFailing
         exp_alerts: []
+
+  # The canary's last success, as kube-state-metrics has it (a Unix time; the test's clock
+  # starts at 0). It passes at 0 and 15m, fails once at 30m, passes at 45m, then every run
+  # is refused (Sigstore unreachable) until one passes again at 100m.
+  - name: a released image refused for three runs warns, one failed run doesn't
+    interval: 1m
+    input_series:
+      - series: 'kube_cronjob_created{job="kube-state-metrics",namespace="monitoring",cronjob="provenance-canary"}'
+        values: '0x110'
+      - series: 'kube_cronjob_status_last_successful_time{job="kube-state-metrics",namespace="monitoring",cronjob="provenance-canary"}'
+        values: '0x14 900x29 2700x54 6000x10'
+    alert_rule_test:
+      # One run missed: 29 minutes since the last success at most.
+      - eval_time: 44m
+        alertname: ProvenanceCanaryFailing
+        exp_alerts: []
+      # 30 minutes without one from 76m: pending.
+      - eval_time: 95m
+        alertname: ProvenanceCanaryFailing
+        exp_alerts: []
+      - eval_time: 97m
+        alertname: ProvenanceCanaryFailing
+        exp_alerts:
+          - exp_labels: {namespace: kyverno, severity: warning}
+            exp_annotations:
+              summary: A released image hasn't been admitted for 50 minutes (the provenance canary)
+              description: "For 50 minutes no run of CronJob monitoring/provenance-canary has succeeded: it asks the API server every 15 minutes, as a dry-run, to admit a Pod with a released image. Either the provenance policy refuses releases (Kyverno can't reach Sigstore or the registry, or doesn't answer), and then every new Pod in the apps' namespaces is refused too; or the canary itself is broken. Its last run's log has the API server's answer."
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#kyverno-alerts
+      - eval_time: 101m
+        alertname: ProvenanceCanaryFailing
+        exp_alerts: []
+
+  # Unreleased images are refused in staging all along (result="fail", the policy working):
+  # the canary asks for a release only, and passes every 15 minutes.
+  - name: an unreleased image refused stays quiet while the canary passes
+    interval: 1m
+    input_series:
+      - series: 'kube_cronjob_created{job="kube-state-metrics",namespace="monitoring",cronjob="provenance-canary"}'
+        values: '0x110'
+      - series: 'kube_cronjob_status_last_successful_time{job="kube-state-metrics",namespace="monitoring",cronjob="provenance-canary"}'
+        values: '0x14 900x14 1800x14 2700x14 3600x14 4500x14 5400x19'
+      - series: 'kyverno_image_validating_policy_results_total{job="kyverno-svc-metrics",namespace="kyverno",policy_name="require-release-provenance",resource_namespace="aipostit-staging",result="fail"}'
+        values: '0+1x110'
+    alert_rule_test:
+      - eval_time: 60m
+        alertname: ProvenanceCanaryFailing
+        exp_alerts: []
+      - eval_time: 105m
+        alertname: ProvenanceCanaryFailing
+        exp_alerts: []
+      - eval_time: 105m
+        alertname: KyvernoProvenanceCheckErrors
+        exp_alerts: []
+
+  # Created and never admitted (its Role is missing, say): there is no last success to
+  # count from, so it counts from the CronJob's creation.
+  - name: a canary that never succeeded warns too
+    interval: 1m
+    input_series:
+      - series: 'kube_cronjob_created{job="kube-state-metrics",namespace="monitoring",cronjob="provenance-canary"}'
+        values: '0x60'
+    alert_rule_test:
+      - eval_time: 49m
+        alertname: ProvenanceCanaryFailing
+        exp_alerts: []
+      - eval_time: 52m
+        alertname: ProvenanceCanaryFailing
+        exp_alerts:
+          - exp_labels: {namespace: kyverno, severity: warning}
+            exp_annotations:
+              summary: A released image hasn't been admitted for 50 minutes (the provenance canary)
+              description: "For 50 minutes no run of CronJob monitoring/provenance-canary has succeeded: it asks the API server every 15 minutes, as a dry-run, to admit a Pod with a released image. Either the provenance policy refuses releases (Kyverno can't reach Sigstore or the registry, or doesn't answer), and then every new Pod in the apps' namespaces is refused too; or the canary itself is broken. Its last run's log has the API server's answer."
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#kyverno-alerts

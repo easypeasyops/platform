@@ -190,6 +190,7 @@ a scale-up, the replacement for a pod that crashed. What already runs keeps runn
 | `KyvernoReportsControllerDown` | The reports controller hasn't been scraped for 15 minutes: PolicyReports go stale (the allowlist's Audit results), admission still works | `kubectl -n kyverno get pods`; `kubectl -n kyverno logs deploy/kyverno-reports-controller --tail=50` |
 | `KyvernoProvenanceCheckErrors` | Kyverno is up but the provenance policy couldn't run for a request in `resource_namespace` (it errored, it didn't refuse): that Pod or rollout was refused. Usually `ghcr.io` unreachable from Kyverno; in one namespace only, maybe a digest that doesn't exist | `kubectl -n <resource_namespace> get events --sort-by=.lastTimestamp \| grep -i -E 'denied\|webhook' \| tail`; `kubectl -n kyverno logs deploy/kyverno-admission-controller --tail=50 \| grep -i -E 'imagedata\|error'`; `scripts/verify-image.sh <ref>` from the laptop |
 | `KyvernoWebhookCallsFailing` | The API server got no answer from the provenance webhook (a 30 s timeout, or Kyverno unreachable) and refused the request: no Pod can be created in an app's namespace. Fires beside `KyvernoAdmissionControllerDown` when the pod is down, and before it | As `KyvernoAdmissionControllerDown`; with the pod Ready, it is slow: `kubectl -n kyverno top pod`, and its log for registry or Rekor timeouts |
+| `ProvenanceCanaryFailing` | The provenance canary (below) hasn't had a released image admitted for 50 minutes, three runs in a row: the provenance policy is refusing releases, so every new Pod in the apps' namespaces is refused, or the canary itself is broken. The one alert that sees Sigstore (Rekor, TUF) unreachable | The last run's answer: `{kubernetes.pod_namespace="monitoring", kubernetes.container_name="kubectl"}` in Explore. `our images must be a release digest…`: Kyverno can't verify, `kubectl -n kyverno logs deploy/kyverno-admission-controller --tail=50`, and `scripts/verify-image.sh <ref>` from the laptop (it passing means the laptop reaches Sigstore and Kyverno doesn't: propose a restart, below). `failed calling webhook`: as `KyvernoWebhookCallsFailing`. `forbidden` or anything else: the canary's own Role or policy, `kubectl -n argocd get application provenance-canary` |
 
 A pod that is there and not Ready, or in a crash loop: propose
 `kubectl -n kyverno rollout restart deploy/kyverno-admission-controller` (or
@@ -200,10 +201,11 @@ pods, above. Either `…Down` alert with its pod running and Ready is the scrape
 page (http://prometheus.localhost:8090/targets), `kyverno-svc-metrics` and
 `kyverno-reports-controller-metrics`.
 
-Neither of the last two tells Sigstore (Rekor, TUF) unreachable from an unreleased image:
-Kyverno counts a signature it couldn't check as a refusal (`result="fail"`). A release
-digest refused with `our images must be a release digest…` is that case: check
-Kyverno's log, and `scripts/verify-image.sh <ref>`, which passes for a release.
+Neither `KyvernoProvenanceCheckErrors` nor `KyvernoWebhookCallsFailing` tells Sigstore
+(Rekor, TUF) unreachable from an unreleased image: Kyverno counts a signature it couldn't
+check as a refusal (`result="fail"`). A release digest refused with `our images must be a
+release digest…` is that case: check Kyverno's log, and `scripts/verify-image.sh <ref>`,
+which passes for a release. `ProvenanceCanaryFailing` is the alert for it.
 
 **The provenance canary** asks that question every 15 minutes: CronJob `provenance-canary`
 in `monitoring` (`deploy/kind/provenance-canary.yaml`) asks the API server, as a server-side
@@ -220,7 +222,8 @@ kubectl -n monitoring get jobs -l app.kubernetes.io/name=provenance-canary
 ```
 
 Kyverno keeps a verified image for an hour, so a run can pass for up to an hour after
-Sigstore became unreachable, as a pod of an image verified in that hour would.
+Sigstore became unreachable, as a pod of an image verified in that hour would. The alert
+follows 50 minutes after the last run that passed.
 
 ## The front door
 

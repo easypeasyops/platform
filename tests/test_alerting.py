@@ -215,6 +215,11 @@ def test_alertmanager_config_is_valid(alertmanager_config: Path) -> None:
         # The log pipeline's (files/logs-rules.yaml), by the namespace each carries.
         (["alertname=LogsNotArriving", "namespace=monitoring", "severity=warning"], "platform"),
         (["namespace=log-collector", "severity=critical"], "platform"),
+        # The provenance canary (files/kyverno-rules.yaml): Kyverno's, though it runs in monitoring.
+        (
+            ["alertname=ProvenanceCanaryFailing", "namespace=kyverno", "severity=warning"],
+            "platform",
+        ),
         (["namespace=monitoring", "severity=info"], "null"),
         (["alertname=InfoInhibitor", "severity=none"], "null"),
         (["namespace=aipostit-prod", "severity=critical"], "null"),
