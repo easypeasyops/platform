@@ -4,7 +4,8 @@
 # Shipped as a PrometheusRule by the platform chart (templates/monitoring.yaml); tested by
 # deploy/prometheus/tests/kyverno_test.yaml (promtool). Metrics: `up` for the two metrics
 # Services, scraped through the ServiceMonitor beside the rule; Kyverno's own results for the
-# provenance policy; the API server's count of the requests its webhook refused.
+# provenance policy; the API server's count of the requests its webhook refused; and
+# kube-state-metrics' record of the provenance canary's runs.
 # Severity warning, namespace kyverno: what Alertmanager sends to the platform's channel
 # (deploy/kind/monitoring-values.yaml). absent() has no labels to give, so each alert names
 # the namespace itself.
@@ -80,4 +81,30 @@ groups:
         annotations:
           summary: The API server couldn't call Kyverno's provenance webhook
           description: In the last 15 minutes the API server refused a request in an app's namespace because Kyverno's provenance webhook didn't answer (a timeout, or Kyverno unreachable). While that lasts no Pod can be created there.
+          runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#kyverno-alerts
+      # The provenance canary (deploy/kind/provenance-canary.yaml): a CronJob that asks every
+      # 15 minutes, as a dry-run, for a Pod with a released image to be admitted. What the two
+      # alerts above can't see: Kyverno counts a signature it couldn't check (Sigstore
+      # unreachable) as a refusal, result="fail", like an unreleased image's. The canary
+      # only ever asks for a release, so an unreleased image refused never touches it.
+      # 30 minutes without a success, for 20 minutes: three runs in a row failed. The `for`
+      # is also what keeps a laptop that just woke quiet: the time since the last success
+      # is the whole sleep, until the run that starts on waking (or the one after) passes.
+      # A canary that never succeeded counts from its creation. Kyverno answers from its
+      # cache for an hour after it verified the image, so add up to that. max(): two
+      # kube-state-metrics pods during its rollout are one canary.
+      - alert: ProvenanceCanaryFailing
+        expr: |
+          time() - max(
+            kube_cronjob_status_last_successful_time{namespace="monitoring",cronjob="provenance-canary"}
+            or
+            kube_cronjob_created{namespace="monitoring",cronjob="provenance-canary"}
+          ) > 30 * 60
+        for: 20m
+        labels:
+          severity: warning
+          namespace: kyverno
+        annotations:
+          summary: A released image hasn't been admitted for 50 minutes (the provenance canary)
+          description: "For 50 minutes no run of CronJob monitoring/provenance-canary has succeeded: it asks the API server every 15 minutes, as a dry-run, to admit a Pod with a released image. Either the provenance policy refuses releases (Kyverno can't reach Sigstore or the registry, or doesn't answer), and then every new Pod in the apps' namespaces is refused too; or the canary itself is broken. Its last run's log has the API server's answer."
           runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#kyverno-alerts
