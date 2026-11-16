@@ -246,6 +246,13 @@ admission policies.
   `tools/`, a workflow they use or the generator changed.
 - **No `platform.lock`.** The tool and the platform are one commit: the workflows are
   called locally, and a platform change that breaks the tool fails the same PR.
+- **Released from this repo.** `release.yml` builds, scans, pushes and attests the image
+  from an `<app>/vX.Y.Z` tag on a commit of `main` whose `tools/<app>/pyproject.toml` has
+  that version, then runs `scripts/verify-image.sh` on the digest. The admission policy
+  needs no entry for it: it accepts `ghcr.io/easypeasyops/<repo>/<app>` signed by
+  `<repo>`'s `release.yml` at `<app>`'s tag, and `platform` is one more repo. The chart
+  keeps `release-chart.yml` and its `service/v*` tags, which `release.yml` leaves out
+  (`tests/test_release_workflows.py`).
 
 ## The platform chart
 

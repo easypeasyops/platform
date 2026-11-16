@@ -18,6 +18,14 @@ uv run ruff format --check . && uv run ruff check . && uv run mypy app tests
 docker build -t servicemonitor:dev . && scripts/smoke.sh
 ```
 
+## Release and deploy
+
+Bump `version` in `pyproject.toml` (a PR), then Emrah tags the merge commit
+`servicemonitor/vX.Y.Z` and pushes the tag: `.github/workflows/release.yml` publishes
+`ghcr.io/easypeasyops/platform/servicemonitor` and puts its digest in the release's notes.
+Set it as `image.digest` in `deploy/envs/ops.yaml` (a PR): Argo CD
+(`apps/servicemonitor/envs/ops.yaml`) deploys what is on `main`.
+
 ## SLO burn-rate alerts
 
 The SLO alerts' runbook link points here until the app has a runbook of its own. An alert

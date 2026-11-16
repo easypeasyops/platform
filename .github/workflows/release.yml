@@ -1,0 +1,159 @@
+name: Release tool image
+
+# A tool that lives in this repo (tools/<app>/, docs/DESIGN.md) is released from an
+# <app>/vX.Y.Z tag as the image ghcr.io/easypeasyops/platform/<app>, which the deploy gate
+# (scripts/verify-image.sh) and the admission policy accept only with the provenance of the
+# image's own repo's .github/workflows/release.yml at that app's tag. Keep the file's name.
+# The service chart has its own workflow and tags (release-chart.yml, service/v*).
+# Cut one: bump `version` in tools/<app>/pyproject.toml (via PR), merge, then tag the merge
+# commit:
+#   git tag servicemonitor/v0.1.0 <sha> && git push origin servicemonitor/v0.1.0
+on:
+  push:
+    tags:
+      - "*/v[0-9]+.[0-9]+.[0-9]+" # `*` stops at `/`: exactly <app>/vX.Y.Z
+      - "!service/v[0-9]+.[0-9]+.[0-9]+" # the chart's: release-chart.yml
+
+permissions: {} # nothing by default; the job asks for exactly what it needs
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false # never cancel a half-finished release
+
+jobs:
+  release:
+    name: build, scan, publish, attest
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write # create the GitHub Release
+      packages: write # push the image to ghcr.io
+      id-token: write # OIDC identity for keyless Sigstore signing of the attestation
+      attestations: write # store the provenance attestation
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0 # the check below proves the tagged commit is on main
+
+      # The tag names the tool and its version. One source of truth for the version: a tag
+      # that disagrees with the tool's pyproject.toml is a mistake (tagged the wrong commit,
+      # forgot the bump), so stop before publishing. And only what was merged is released.
+      - name: Which tool, the tag must match its pyproject version, on main
+        id: app
+        run: |
+          app="${GITHUB_REF_NAME%%/v*}" tag="${GITHUB_REF_NAME##*/v}"
+          # An app name the admission policy accepts in a tag: lowercase, digits and dashes.
+          [[ "$app" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "::error::$app is not a valid app name"; exit 1; }
+          [[ -f "tools/$app/pyproject.toml" ]] || { echo "::error::no tool tools/$app/ for tag $GITHUB_REF_NAME"; exit 1; }
+          version=$(python3 -c 'import sys, tomllib; print(tomllib.load(open(sys.argv[1], "rb"))["project"]["version"])' "tools/$app/pyproject.toml")
+          if [[ "$tag" != "$version" ]]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match tools/$app/pyproject.toml version $version"
+            exit 1
+          fi
+          git fetch --quiet origin main
+          git merge-base --is-ancestor HEAD origin/main \
+            || { echo "::error::$GITHUB_REF_NAME is not a commit on main"; exit 1; }
+          echo "app=$app" >>"$GITHUB_OUTPUT"
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+          echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}/$app" >>"$GITHUB_ENV"
+
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # Gate: build and scan BEFORE anything is published. A release that fails the scan
+      # never reaches the registry.
+      - name: Build for scanning
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: tools/${{ steps.app.outputs.app }}
+          load: true
+          tags: ${{ steps.app.outputs.app }}:scan
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.app.outputs.app }}:scan
+          version: v0.70.0
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image tags and labels
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          # 0.2.0 and 0.2, no `latest`: deploys reference digests, and a moving `latest`
+          # makes "what's running?" unanswerable.
+          # The tag is <app>/vX.Y.Z, not a bare semver: give the version itself.
+          tags: |
+            type=semver,pattern={{version}},value=${{ steps.app.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ steps.app.outputs.version }}
+
+      # amd64 for CI, arm64 for the laptop cluster on Apple Silicon.
+      # SBOM + max provenance are attached to the image in the registry by BuildKit.
+      - name: Build and push (multi-arch)
+        id: push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: tools/${{ steps.app.outputs.app }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          sbom: true
+          provenance: mode=max
+          cache-from: type=gha
+
+      # Signed (Sigstore, keyless via this workflow's OIDC identity) statement of which
+      # repo, commit, and workflow produced this exact digest.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      # What the deploy gate will ask of this digest, asked here first.
+      - name: Verify the image as the deploy gate does
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: scripts/verify-image.sh "${IMAGE}@${DIGEST}"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+          APP: ${{ steps.app.outputs.app }}
+          VERSION: ${{ steps.app.outputs.version }}
+        run: |
+          {
+            echo "## Image"
+            echo
+            echo '```'
+            echo "${IMAGE}@${DIGEST}"
+            echo '```'
+            echo
+            echo "Deploy by digest (immutable): set \`image.digest\` to \`${DIGEST}\` in the"
+            echo "environment's file under tools/${APP}/deploy/envs/."
+            echo
+            echo "Verify provenance:"
+            echo
+            echo '```bash'
+            echo "scripts/verify-image.sh ${IMAGE}@${DIGEST}"
+            echo '```'
+          } > notes.md
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "$APP $VERSION" \
+            --notes-file notes.md --latest=false
