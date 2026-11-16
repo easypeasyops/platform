@@ -632,6 +632,11 @@ Settings: `deploy/kind/monitoring-values.yaml`.
 - How much it holds: `prometheus_tsdb_storage_blocks_bytes`. About 0.5 GB a day at today's
   load; past 12 GB the oldest blocks go first, whatever their age.
 - Deleting the PVC (or the kind cluster) loses the history; Prometheus starts empty.
+- **Some API server histograms have no buckets.** The API server's scrape drops the
+  `_bucket` series of ten histograms no rule or dashboard reads (`kubeApiServer` in the
+  values file lists them; they were a third of all series, PT-37). Their `_sum` and `_count`
+  are kept, so `rate(..._sum[5m]) / rate(..._count[5m])` still gives an average; for a
+  quantile, take the histogram off the list.
 - **An error budget looks back only this far.** The SLO rules' 30-day window
   (`slo:sli_error:ratio_rate30d`, the SLO dashboard's "Error budget remaining") is a rate
   over the data there is: today the last 10 days at most, less after a cap or a new volume.
