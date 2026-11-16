@@ -1,0 +1,12 @@
+# servicemonitor's one environment, namespace servicemonitor-ops on the laptop cluster: a
+# tool that shows the cluster's monitors, not a stage of a product, so no staging. The
+# release it runs: Argo CD deploys whatever is here on main, so changing the digest in a
+# merged PR IS the deploy. The digest is in the release's notes.
+environment: ops
+image:
+  digest: "" # no release deployed yet
+gateway:
+  hostnames: ["servicemonitor.localhost"]
+monitoring:
+  # The one release per cluster that ships the alert rules and the SLO dashboard.
+  clusterWide: true
