@@ -41,6 +41,16 @@ the secrets come from the store (Platform secrets, below), and each app's Applic
 creates its namespace. From then on git decides what runs: a merged change reaches the
 cluster within a minute.
 
+**Node memory.** Docker Desktop gives the VM 9.7 GiB, and the node needs about 3 GiB of it
+free: below that a burst (several charts syncing, a local test run) sends it into swap, etcd
+stalls and kube-scheduler and kube-controller-manager lose their leases and restart. The
+biggest holder is the API server, so `deploy/kind/cluster.yaml` caps its Go heap with
+`GOMEMLIMIT=1280MiB` (it held 1.8 GiB for a 0.8 GiB live heap). That applies when the cluster
+is created. To give an older cluster the same, let the kubelet restart the API server from its
+edited manifest (the API is away for under a minute):
+`docker exec shortly-control-plane sed -i '/^    image: registry.k8s.io\/kube-apiserver/i\    env:\n    - name: GOMEMLIMIT\n      value: 1280MiB' /etc/kubernetes/manifests/kube-apiserver.yaml`.
+How free the node is: `docker exec shortly-control-plane free -m` (`available`).
+
 Argo CD installs the platform from `deploy/argocd/platform/` in sync waves:
 
 - **Wave -2:** the platform's AppProject (`platform-project`): what the children may deploy.

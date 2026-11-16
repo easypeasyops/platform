@@ -7,3 +7,14 @@ nodes:
 networking:
   # Explicit, because deploy/envs/prod.yaml trusts this range as a proxy (forwardedAllowIps).
   podSubnet: "10.244.0.0/16"
+# The API server's live heap is about 0.8 GiB, but Go lets the heap double before it collects
+# and keeps what it freed, so it held 1.8 GiB of the node's 9.7 GiB (PT-50). GOMEMLIMIT makes it
+# collect and hand memory back near 1.25 GiB. A soft limit: a burst can still go past it.
+# Applied when the cluster is created; for an older cluster see docs/RUNBOOK.md (Node memory).
+kubeadmConfigPatches:
+  - |
+    kind: ClusterConfiguration
+    apiServer:
+      extraEnvs:
+        - name: GOMEMLIMIT
+          value: 1280MiB
