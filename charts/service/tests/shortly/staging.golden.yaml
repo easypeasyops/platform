@@ -362,6 +362,10 @@ metadata:
     helm.sh/chart: service-<version>
 spec:
   parentRefs:
+    - name: front-door
+      namespace: gateway
+    # The platform's Gateway is still named shortly until its rename: attached to both, the
+    # route is served by whichever exists. Dropped in the release after the rename.
     - name: shortly
       namespace: gateway
   hostnames:
