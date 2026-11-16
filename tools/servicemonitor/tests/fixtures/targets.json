@@ -1,0 +1,321 @@
+{
+  "status": "success",
+  "data": {
+    "activeTargets": [
+      {
+        "discoveredLabels": {
+          "__address__": "10.244.0.24:8080",
+          "__always_scrape_classic_histograms__": "false",
+          "__convert_classic_histograms_to_nhcb__": "false",
+          "__metrics_path__": "/metrics",
+          "__scheme__": "http",
+          "__scrape_interval__": "1m",
+          "__scrape_native_histograms__": "false",
+          "__scrape_timeout__": "10s",
+          "job": "podMonitor/argocd/cloudnative-pg/0"
+        },
+        "labels": {
+          "container": "manager",
+          "endpoint": "metrics",
+          "instance": "10.244.0.24:8080",
+          "job": "cloudnative-pg",
+          "namespace": "cnpg-system",
+          "pod": "cloudnative-pg-5d7cf7cfc-n4blp"
+        },
+        "scrapePool": "podMonitor/argocd/cloudnative-pg/0",
+        "scrapeUrl": "http://10.244.0.24:8080/metrics",
+        "globalUrl": "http://10.244.0.24:8080/metrics",
+        "lastError": "",
+        "lastScrape": "2026-11-16T22:04:35.588887345Z",
+        "lastScrapeDuration": 0.00473,
+        "health": "up",
+        "scrapeInterval": "1m",
+        "scrapeTimeout": "10s"
+      },
+      {
+        "discoveredLabels": {
+          "__address__": "http://aipostit.localhost/healthz",
+          "__always_scrape_classic_histograms__": "false",
+          "__convert_classic_histograms_to_nhcb__": "false",
+          "__metrics_path__": "/probe",
+          "__param_module": "front_door_http",
+          "__scheme__": "http",
+          "__scrape_interval__": "1m",
+          "__scrape_native_histograms__": "false",
+          "__scrape_timeout__": "10s",
+          "hostname": "aipostit.localhost",
+          "job": "probe/argocd/front-door-aipostit-localhost",
+          "listener": "http",
+          "namespace": "argocd"
+        },
+        "labels": {
+          "hostname": "aipostit.localhost",
+          "instance": "http://aipostit.localhost/healthz",
+          "job": "front-door",
+          "listener": "http",
+          "namespace": "argocd"
+        },
+        "scrapePool": "probe/argocd/front-door-aipostit-localhost",
+        "scrapeUrl": "http://blackbox-exporter.monitoring.svc:9115/probe?module=front_door_http&target=http%3A%2F%2Faipostit.localhost%2Fhealthz",
+        "globalUrl": "http://blackbox-exporter.monitoring.svc:9115/probe?module=front_door_http&target=http%3A%2F%2Faipostit.localhost%2Fhealthz",
+        "lastError": "",
+        "lastScrape": "2026-11-16T22:03:52.737712756Z",
+        "lastScrapeDuration": 0.009973458,
+        "health": "up",
+        "scrapeInterval": "1m",
+        "scrapeTimeout": "10s"
+      },
+      {
+        "discoveredLabels": {
+          "__address__": "http://grafana.localhost/api/health",
+          "__always_scrape_classic_histograms__": "false",
+          "__convert_classic_histograms_to_nhcb__": "false",
+          "__metrics_path__": "/probe",
+          "__param_module": "front_door_tools",
+          "__scheme__": "http",
+          "__scrape_interval__": "1m",
+          "__scrape_native_histograms__": "false",
+          "__scrape_timeout__": "10s",
+          "hostname": "grafana.localhost",
+          "job": "probe/argocd/front-door-grafana-localhost",
+          "listener": "tools",
+          "namespace": "argocd"
+        },
+        "labels": {
+          "hostname": "grafana.localhost",
+          "instance": "http://grafana.localhost/api/health",
+          "job": "front-door",
+          "listener": "tools",
+          "namespace": "argocd"
+        },
+        "scrapePool": "probe/argocd/front-door-grafana-localhost",
+        "scrapeUrl": "http://blackbox-exporter.monitoring.svc:9115/probe?module=front_door_tools&target=http%3A%2F%2Fgrafana.localhost%2Fapi%2Fhealth",
+        "globalUrl": "http://blackbox-exporter.monitoring.svc:9115/probe?module=front_door_tools&target=http%3A%2F%2Fgrafana.localhost%2Fapi%2Fhealth",
+        "lastError": "",
+        "lastScrape": "2026-11-16T22:04:18.15399017Z",
+        "lastScrapeDuration": 0.023331625,
+        "health": "up",
+        "scrapeInterval": "1m",
+        "scrapeTimeout": "10s"
+      },
+      {
+        "discoveredLabels": {
+          "__address__": "10.244.0.32:9100",
+          "__always_scrape_classic_histograms__": "false",
+          "__convert_classic_histograms_to_nhcb__": "false",
+          "__metrics_path__": "/metrics",
+          "__scheme__": "http",
+          "__scrape_interval__": "15s",
+          "__scrape_native_histograms__": "false",
+          "__scrape_timeout__": "10s",
+          "job": "serviceMonitor/aipostit-prod/aipostit/0"
+        },
+        "labels": {
+          "container": "app",
+          "endpoint": "metrics",
+          "instance": "10.244.0.32:9100",
+          "job": "aipostit",
+          "namespace": "aipostit-prod",
+          "pod": "aipostit-84f9bbb4-j8vsp",
+          "service": "aipostit"
+        },
+        "scrapePool": "serviceMonitor/aipostit-prod/aipostit/0",
+        "scrapeUrl": "http://10.244.0.32:9100/metrics",
+        "globalUrl": "http://10.244.0.32:9100/metrics",
+        "lastError": "",
+        "lastScrape": "2026-11-16T22:04:29.08962205Z",
+        "lastScrapeDuration": 0.007227333,
+        "health": "up",
+        "scrapeInterval": "15s",
+        "scrapeTimeout": "10s"
+      },
+      {
+        "discoveredLabels": {
+          "__address__": "10.244.0.8:9100",
+          "__always_scrape_classic_histograms__": "false",
+          "__convert_classic_histograms_to_nhcb__": "false",
+          "__metrics_path__": "/metrics",
+          "__scheme__": "http",
+          "__scrape_interval__": "15s",
+          "__scrape_native_histograms__": "false",
+          "__scrape_timeout__": "10s",
+          "job": "serviceMonitor/aipostit-prod/aipostit/0"
+        },
+        "labels": {
+          "container": "app",
+          "endpoint": "metrics",
+          "instance": "10.244.0.8:9100",
+          "job": "aipostit",
+          "namespace": "aipostit-prod",
+          "pod": "aipostit-84f9bbb4-tzw82",
+          "service": "aipostit"
+        },
+        "scrapePool": "serviceMonitor/aipostit-prod/aipostit/0",
+        "scrapeUrl": "http://10.244.0.8:9100/metrics",
+        "globalUrl": "http://10.244.0.8:9100/metrics",
+        "lastError": "",
+        "lastScrape": "2026-11-16T22:04:32.331323635Z",
+        "lastScrapeDuration": 0.003855583,
+        "health": "up",
+        "scrapeInterval": "15s",
+        "scrapeTimeout": "10s"
+      },
+      {
+        "discoveredLabels": {
+          "__address__": "10.244.0.56:8000",
+          "__always_scrape_classic_histograms__": "false",
+          "__convert_classic_histograms_to_nhcb__": "false",
+          "__metrics_path__": "/metrics",
+          "__scheme__": "http",
+          "__scrape_interval__": "30s",
+          "__scrape_native_histograms__": "false",
+          "__scrape_timeout__": "10s",
+          "job": "serviceMonitor/argocd/kyverno/0"
+        },
+        "labels": {
+          "container": "kyverno",
+          "endpoint": "metrics-port",
+          "instance": "10.244.0.56:8000",
+          "job": "kyverno-svc-metrics",
+          "namespace": "kyverno",
+          "pod": "kyverno-admission-controller-7c44b4f577-zjlvd",
+          "service": "kyverno-svc-metrics"
+        },
+        "scrapePool": "serviceMonitor/argocd/kyverno/0",
+        "scrapeUrl": "http://10.244.0.56:8000/metrics",
+        "globalUrl": "http://10.244.0.56:8000/metrics",
+        "lastError": "",
+        "lastScrape": "2026-11-16T22:04:34.010204136Z",
+        "lastScrapeDuration": 0.014133667,
+        "health": "up",
+        "scrapeInterval": "30s",
+        "scrapeTimeout": "10s"
+      },
+      {
+        "discoveredLabels": {
+          "__address__": "10.244.0.31:8000",
+          "__always_scrape_classic_histograms__": "false",
+          "__convert_classic_histograms_to_nhcb__": "false",
+          "__metrics_path__": "/metrics",
+          "__scheme__": "http",
+          "__scrape_interval__": "30s",
+          "__scrape_native_histograms__": "false",
+          "__scrape_timeout__": "10s",
+          "job": "serviceMonitor/argocd/kyverno/0"
+        },
+        "labels": {
+          "container": "controller",
+          "endpoint": "metrics-port",
+          "instance": "10.244.0.31:8000",
+          "job": "kyverno-reports-controller-metrics",
+          "namespace": "kyverno",
+          "pod": "kyverno-reports-controller-585c8dfbc8-jb5xt",
+          "service": "kyverno-reports-controller-metrics"
+        },
+        "scrapePool": "serviceMonitor/argocd/kyverno/0",
+        "scrapeUrl": "http://10.244.0.31:8000/metrics",
+        "globalUrl": "http://10.244.0.31:8000/metrics",
+        "lastError": "",
+        "lastScrape": "2026-11-16T22:04:21.74166188Z",
+        "lastScrapeDuration": 0.01132725,
+        "health": "up",
+        "scrapeInterval": "30s",
+        "scrapeTimeout": "10s"
+      },
+      {
+        "discoveredLabels": {
+          "__address__": "10.244.0.54:8000",
+          "__always_scrape_classic_histograms__": "false",
+          "__convert_classic_histograms_to_nhcb__": "false",
+          "__metrics_path__": "/metrics",
+          "__scheme__": "http",
+          "__scrape_interval__": "30s",
+          "__scrape_native_histograms__": "false",
+          "__scrape_timeout__": "10s",
+          "job": "serviceMonitor/argocd/kyverno/0"
+        },
+        "labels": {
+          "container": "kyverno",
+          "endpoint": "metrics-port",
+          "instance": "10.244.0.54:8000",
+          "job": "kyverno-svc-metrics",
+          "namespace": "kyverno",
+          "pod": "kyverno-admission-controller-7c44b4f577-d4slh",
+          "service": "kyverno-svc-metrics"
+        },
+        "scrapePool": "serviceMonitor/argocd/kyverno/0",
+        "scrapeUrl": "http://10.244.0.54:8000/metrics",
+        "globalUrl": "http://10.244.0.54:8000/metrics",
+        "lastError": "",
+        "lastScrape": "2026-11-16T22:04:24.232223173Z",
+        "lastScrapeDuration": 0.013412333,
+        "health": "up",
+        "scrapeInterval": "30s",
+        "scrapeTimeout": "10s"
+      },
+      {
+        "discoveredLabels": {
+          "__address__": "10.244.0.40:9093",
+          "__always_scrape_classic_histograms__": "false",
+          "__convert_classic_histograms_to_nhcb__": "false",
+          "__metrics_path__": "/metrics",
+          "__scheme__": "http",
+          "__scrape_interval__": "15s",
+          "__scrape_native_histograms__": "false",
+          "__scrape_timeout__": "10s",
+          "job": "serviceMonitor/monitoring/kps-alertmanager/0"
+        },
+        "labels": {
+          "container": "alertmanager",
+          "endpoint": "http-web",
+          "instance": "10.244.0.40:9093",
+          "job": "kps-alertmanager",
+          "namespace": "monitoring",
+          "pod": "alertmanager-kps-alertmanager-0",
+          "service": "kps-alertmanager"
+        },
+        "scrapePool": "serviceMonitor/monitoring/kps-alertmanager/0",
+        "scrapeUrl": "http://10.244.0.40:9093/metrics",
+        "globalUrl": "http://10.244.0.40:9093/metrics",
+        "lastError": "",
+        "lastScrape": "2026-11-16T22:04:31.784370927Z",
+        "lastScrapeDuration": 0.004940333,
+        "health": "up",
+        "scrapeInterval": "15s",
+        "scrapeTimeout": "10s"
+      },
+      {
+        "discoveredLabels": {
+          "__address__": "10.244.0.40:8080",
+          "__always_scrape_classic_histograms__": "false",
+          "__convert_classic_histograms_to_nhcb__": "false",
+          "__metrics_path__": "/metrics",
+          "__scheme__": "http",
+          "__scrape_interval__": "15s",
+          "__scrape_native_histograms__": "false",
+          "__scrape_timeout__": "10s",
+          "job": "serviceMonitor/monitoring/kps-alertmanager/1"
+        },
+        "labels": {
+          "container": "config-reloader",
+          "endpoint": "reloader-web",
+          "instance": "10.244.0.40:8080",
+          "job": "kps-alertmanager",
+          "namespace": "monitoring",
+          "pod": "alertmanager-kps-alertmanager-0",
+          "service": "kps-alertmanager"
+        },
+        "scrapePool": "serviceMonitor/monitoring/kps-alertmanager/1",
+        "scrapeUrl": "http://10.244.0.40:8080/metrics",
+        "globalUrl": "http://10.244.0.40:8080/metrics",
+        "lastError": "",
+        "lastScrape": "2026-11-16T22:04:30.475502551Z",
+        "lastScrapeDuration": 0.007296625,
+        "health": "up",
+        "scrapeInterval": "15s",
+        "scrapeTimeout": "10s"
+      }
+    ],
+    "droppedTargets": []
+  }
+}

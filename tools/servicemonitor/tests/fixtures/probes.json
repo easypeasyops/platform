@@ -1,0 +1,62 @@
+{
+  "apiVersion": "monitoring.coreos.com/v1",
+  "kind": "ProbeList",
+  "items": [
+    {
+      "apiVersion": "monitoring.coreos.com/v1",
+      "kind": "Probe",
+      "metadata": {
+        "name": "front-door-aipostit-localhost",
+        "namespace": "argocd"
+      },
+      "spec": {
+        "interval": "60s",
+        "jobName": "front-door",
+        "module": "front_door_http",
+        "prober": {
+          "path": "/probe",
+          "url": "blackbox-exporter.monitoring.svc:9115"
+        },
+        "targets": {
+          "staticConfig": {
+            "labels": {
+              "hostname": "aipostit.localhost",
+              "listener": "http"
+            },
+            "static": [
+              "http://aipostit.localhost/healthz"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "monitoring.coreos.com/v1",
+      "kind": "Probe",
+      "metadata": {
+        "name": "front-door-grafana-localhost",
+        "namespace": "argocd"
+      },
+      "spec": {
+        "interval": "60s",
+        "jobName": "front-door",
+        "module": "front_door_tools",
+        "prober": {
+          "path": "/probe",
+          "url": "blackbox-exporter.monitoring.svc:9115"
+        },
+        "targets": {
+          "staticConfig": {
+            "labels": {
+              "hostname": "grafana.localhost",
+              "listener": "tools"
+            },
+            "static": [
+              "http://grafana.localhost/api/health"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

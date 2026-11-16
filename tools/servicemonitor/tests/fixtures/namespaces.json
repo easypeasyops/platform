@@ -1,0 +1,54 @@
+{
+  "apiVersion": "v1",
+  "kind": "NamespaceList",
+  "items": [
+    {
+      "metadata": {
+        "name": "aipostit-prod",
+        "labels": {
+          "easypeasyops.github.io/app": "aipostit",
+          "easypeasyops.github.io/env": "prod",
+          "kubernetes.io/metadata.name": "aipostit-prod",
+          "pod-security.kubernetes.io/enforce": "restricted",
+          "pod-security.kubernetes.io/warn": "restricted"
+        }
+      }
+    },
+    {
+      "metadata": {
+        "name": "argocd",
+        "labels": {
+          "kubernetes.io/metadata.name": "argocd",
+          "pod-security.kubernetes.io/enforce": "restricted"
+        }
+      }
+    },
+    {
+      "metadata": {
+        "name": "cnpg-system",
+        "labels": {
+          "kubernetes.io/metadata.name": "cnpg-system",
+          "pod-security.kubernetes.io/enforce": "restricted"
+        }
+      }
+    },
+    {
+      "metadata": {
+        "name": "kyverno",
+        "labels": {
+          "kubernetes.io/metadata.name": "kyverno",
+          "pod-security.kubernetes.io/enforce": "restricted"
+        }
+      }
+    },
+    {
+      "metadata": {
+        "name": "monitoring",
+        "labels": {
+          "kubernetes.io/metadata.name": "monitoring",
+          "pod-security.kubernetes.io/enforce": "restricted"
+        }
+      }
+    }
+  ]
+}
