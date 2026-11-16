@@ -1,7 +1,8 @@
 # Alerts on Argo Rollouts, which runs prod's canary releases: the controller, a canary
 # aborted by an analysis that ended in Error (it couldn't measure: Prometheus didn't answer,
 # the k6 Job didn't run) rather than Failed (it measured, and the release was bad), and a
-# canary that stopped part-way without aborting: left paused, or timed out.
+# canary that stopped part-way without aborting: left paused, or timed out; and the
+# controller running but failing, pass after pass, on one Rollout or AnalysisRun.
 # Shipped as a PrometheusRule by the platform chart (templates/monitoring.yaml); tested by
 # deploy/prometheus/tests/argo_rollouts_test.yaml (promtool). Metrics: the controller's,
 # through the ServiceMonitor beside the rule; their own `namespace`, the Rollout's, is kept
@@ -88,4 +89,44 @@ groups:
         annotations:
           summary: "Canary of {{ $labels.exported_namespace }}/{{ $labels.rollout }} timed out: its new pods aren't ready"
           description: "Rollout {{ $labels.exported_namespace }}/{{ $labels.rollout }} passed its progress deadline: the new version's pods didn't become ready in time, and it is not set to abort by itself. The release is stuck where it stopped until the pods get ready, or someone aborts or retries it."
+          runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#argo-rollouts-alerts
+      - alert: ArgoRolloutsReconcileFailing
+        # rollout_reconcile_error counts every pass over a Rollout that returned an error (an API error, an object
+        # it can't patch, the Gateway API plugin refusing a route). The controller retries
+        # with a backoff of at most 10 seconds (its DefaultArgoRolloutsRateLimiter), so a
+        # failure that lasts shows in every 5 minutes, and one error, or a burst that a retry
+        # ends, is gone from the window 5 minutes later: 15 minutes of it is a failure that
+        # isn't going away. increase(), not the value: the counter starts at 0 with the
+        # controller, and is summed over its pods so a restart doesn't start the 15 minutes
+        # again.
+        expr: |-
+          sum by (exported_namespace, name) (increase(rollout_reconcile_error[5m])) > 0
+        for: 15m
+        labels:
+          severity: warning
+          namespace: argo-rollouts
+          kind: Rollout
+        annotations:
+          summary: "Argo Rollouts keeps failing to reconcile Rollout {{ $labels.exported_namespace }}/{{ $labels.name }}"
+          description: "The Argo Rollouts controller has failed every attempt to reconcile Rollout {{ $labels.exported_namespace }}/{{ $labels.name }} for 15 minutes. The controller itself is running; this Rollout's release doesn't move, and neither aborts nor finishes. Its log says why: kubectl -n argo-rollouts logs deploy/argo-rollouts | grep {{ $labels.name }}"
+          runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#argo-rollouts-alerts
+      - alert: ArgoRolloutsReconcileFailing
+        # analysis_run_reconcile_error counts every pass over an AnalysisRun that returned an error (an API error, an object
+        # it can't patch, the Gateway API plugin refusing a route). The controller retries
+        # with a backoff of at most 10 seconds (its DefaultArgoRolloutsRateLimiter), so a
+        # failure that lasts shows in every 5 minutes, and one error, or a burst that a retry
+        # ends, is gone from the window 5 minutes later: 15 minutes of it is a failure that
+        # isn't going away. increase(), not the value: the counter starts at 0 with the
+        # controller, and is summed over its pods so a restart doesn't start the 15 minutes
+        # again.
+        expr: |-
+          sum by (exported_namespace, name) (increase(analysis_run_reconcile_error[5m])) > 0
+        for: 15m
+        labels:
+          severity: warning
+          namespace: argo-rollouts
+          kind: AnalysisRun
+        annotations:
+          summary: "Argo Rollouts keeps failing to reconcile AnalysisRun {{ $labels.exported_namespace }}/{{ $labels.name }}"
+          description: "The Argo Rollouts controller has failed every attempt to reconcile AnalysisRun {{ $labels.exported_namespace }}/{{ $labels.name }} for 15 minutes. The controller itself is running; this run takes no measurements, so the canary waiting on it doesn't move. Its log says why: kubectl -n argo-rollouts logs deploy/argo-rollouts | grep {{ $labels.name }}"
           runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#argo-rollouts-alerts

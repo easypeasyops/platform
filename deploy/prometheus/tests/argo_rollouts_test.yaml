@@ -176,3 +176,49 @@ tests:
       - eval_time: 15m
         alertname: CanaryPausedTooLong
         exp_alerts: []
+
+  # aipostit's Rollout fails every pass from 5m on (a retry every 10 seconds: 6 a minute);
+  # the controller restarts at 12m, so its counter starts again from 0 under a new pod. Its
+  # AnalysisRun fails the same way. shortly's Rollout has one error at 3m; api-v2 a burst of
+  # 30 in two minutes (the API server away), which a retry then ends.
+  - name: a reconcile that keeps failing for 15 minutes warns, one error or a burst doesn't
+    interval: 1m
+    input_series:
+      - series: 'rollout_reconcile_error{job="argo-rollouts",namespace="argo-rollouts",pod="argo-rollouts-6d9f8b7c5-x2kqp",exported_namespace="aipostit-prod",name="aipostit"}'
+        values: '0x5 6+6x5 stale'
+      - series: 'rollout_reconcile_error{job="argo-rollouts",namespace="argo-rollouts",pod="argo-rollouts-6d9f8b7c5-r7tnd",exported_namespace="aipostit-prod",name="aipostit"}'
+        values: '_x12 0+6x17'
+      - series: 'analysis_run_reconcile_error{job="argo-rollouts",namespace="argo-rollouts",pod="argo-rollouts-6d9f8b7c5-r7tnd",exported_namespace="aipostit-prod",name="aipostit-6f9c8d7b5-4-1"}'
+        values: '_x12 0+6x17'
+      - series: 'rollout_reconcile_error{job="argo-rollouts",namespace="argo-rollouts",pod="argo-rollouts-6d9f8b7c5-x2kqp",exported_namespace="shortly-prod",name="shortly"}'
+        values: '0x2 1x8 stale'
+      - series: 'rollout_reconcile_error{job="argo-rollouts",namespace="argo-rollouts",pod="argo-rollouts-6d9f8b7c5-r7tnd",exported_namespace="shortly-prod",name="api-v2"}'
+        values: '_x12 0x2 15 30x13'
+    alert_rule_test:
+      - eval_time: 11m
+        alertname: ArgoRolloutsReconcileFailing
+        exp_alerts: []
+      - eval_time: 19m
+        alertname: ArgoRolloutsReconcileFailing
+        exp_alerts: []
+      - eval_time: 22m
+        alertname: ArgoRolloutsReconcileFailing
+        exp_alerts:
+          - exp_labels: {namespace: argo-rollouts, exported_namespace: aipostit-prod, name: aipostit, kind: Rollout, severity: warning}
+            exp_annotations:
+              summary: "Argo Rollouts keeps failing to reconcile Rollout aipostit-prod/aipostit"
+              description: "The Argo Rollouts controller has failed every attempt to reconcile Rollout aipostit-prod/aipostit for 15 minutes. The controller itself is running; this Rollout's release doesn't move, and neither aborts nor finishes. Its log says why: kubectl -n argo-rollouts logs deploy/argo-rollouts | grep aipostit"
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#argo-rollouts-alerts
+      - eval_time: 29m
+        alertname: ArgoRolloutsReconcileFailing
+        exp_alerts:
+          - exp_labels: {namespace: argo-rollouts, exported_namespace: aipostit-prod, name: aipostit, kind: Rollout, severity: warning}
+            exp_annotations:
+              summary: "Argo Rollouts keeps failing to reconcile Rollout aipostit-prod/aipostit"
+              description: "The Argo Rollouts controller has failed every attempt to reconcile Rollout aipostit-prod/aipostit for 15 minutes. The controller itself is running; this Rollout's release doesn't move, and neither aborts nor finishes. Its log says why: kubectl -n argo-rollouts logs deploy/argo-rollouts | grep aipostit"
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#argo-rollouts-alerts
+          - exp_labels: {namespace: argo-rollouts, exported_namespace: aipostit-prod, name: aipostit-6f9c8d7b5-4-1, kind: AnalysisRun, severity: warning}
+            exp_annotations:
+              summary: "Argo Rollouts keeps failing to reconcile AnalysisRun aipostit-prod/aipostit-6f9c8d7b5-4-1"
+              description: "The Argo Rollouts controller has failed every attempt to reconcile AnalysisRun aipostit-prod/aipostit-6f9c8d7b5-4-1 for 15 minutes. The controller itself is running; this run takes no measurements, so the canary waiting on it doesn't move. Its log says why: kubectl -n argo-rollouts logs deploy/argo-rollouts | grep aipostit-6f9c8d7b5-4-1"
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#argo-rollouts-alerts
