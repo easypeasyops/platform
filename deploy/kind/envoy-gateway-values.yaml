@@ -6,3 +6,11 @@ deployment:
     resources:
       requests: { cpu: 50m, memory: 128Mi }
       limits: { memory: 512Mi }
+    # 5 s for each probe to answer, not the chart's 1 s (merged into its probes: path, port
+    # and thresholds stay the chart's). On a laptop node busy with something else the
+    # controller answered too slowly, kubelet restarted it, and every restart cut the
+    # proxies' config stream: the front door stayed down until the load passed (2026-11-16).
+    # A hung controller still fails liveness: 3 misses, 20 s apart.
+    startupProbe: { timeoutSeconds: 5 }
+    livenessProbe: { timeoutSeconds: 5 }
+    readinessProbe: { timeoutSeconds: 5 }
