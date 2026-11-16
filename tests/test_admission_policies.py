@@ -190,6 +190,19 @@ def test_expensive_checks_stay_out_of_the_background() -> None:
     assert "cpu" in values["reportsController"]["resources"]["limits"]
 
 
+def test_one_admission_pod_restarting_blocks_no_app_pod() -> None:
+    """The provenance webhook fails closed: with one admission pod, its restart blocks every
+    new Pod in the apps' namespaces (PT-46). Two replicas, and a PDB keeps one through a drain.
+    """
+    admission = yaml.safe_load((ROOT / "deploy/kind/kyverno-values.yaml").read_text())[
+        "admissionController"
+    ]
+    assert admission["replicas"] >= 2
+    pdb = admission["podDisruptionBudget"]
+    assert pdb["enabled"] is True
+    assert pdb["minAvailable"] >= 1
+
+
 def test_no_legacy_policies_so_no_legacy_check() -> None:
     """Kyverno's legacy-policy check is off only while every policy here is a CEL one."""
     groups = {_load(p.name)["apiVersion"].split("/")[0] for p in POLICIES.glob("*.yaml")}

@@ -7,9 +7,14 @@ upgrade:
   legacyPolicyCheck:
     enabled: false
 admissionController:
-  # One replica is enough here. In a real cluster run 3: the provenance policy fails closed,
-  # so while no admission pod is ready, no Pod can start in staging or prod.
-  replicas: 1
+  # Two, so a restart of one doesn't block app pods: the provenance policy fails closed, so
+  # while no admission pod is ready, no Pod can start in staging or prod. The PDB keeps one
+  # through a drain; the chart's default anti-affinity spreads them across nodes when there
+  # is more than one. Each costs about 90Mi on the laptop (PT-46). In a real cluster run 3.
+  replicas: 2
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
   container:
     resources:
       requests: { cpu: 100m, memory: 128Mi }

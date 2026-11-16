@@ -179,10 +179,10 @@ kubectl get policyreport -A -o wide                  # FAIL > 0: an image outsid
 
 ## Kyverno alerts
 
-Warnings, to the platform's channel. Kyverno runs one admission pod and the provenance
-policy fails closed, so Kyverno down blocks every new Pod in the apps' namespaces: a deploy,
-a scale-up, the replacement for a pod that crashed. What already runs keeps running. Rules:
-`deploy/argocd/platform/files/kyverno-rules.yaml`.
+Warnings, to the platform's channel. Kyverno runs two admission pods and the provenance
+policy fails closed, so Kyverno down (both pods) blocks every new Pod in the apps'
+namespaces: a deploy, a scale-up, the replacement for a pod that crashed. What already runs
+keeps running. Rules: `deploy/argocd/platform/files/kyverno-rules.yaml`.
 
 | Alert | Means | First look |
 | --- | --- | --- |
