@@ -123,3 +123,20 @@ def test_each_apps_project_deploys_to_its_own_namespaces_only(project_file: Path
     ]
     assert "oci://ghcr.io/easypeasyops/charts/service" in spec["sourceRepos"]
     assert "https://github.com/easypeasyops/platform.git" in spec["sourceRepos"]
+
+
+def test_the_applicationset_reads_only_the_env_files() -> None:
+    """Argo CD's git file generator globs greedily (`*` crosses `/`; the new globbing is off
+    in the cluster), unlike check-apps.py and cluster.sh. So nothing but an
+    apps/<app>/envs/<env>.yaml may match the ApplicationSet's pattern: any other match, such
+    as an app's own deploy/envs/ops.yaml under apps/<app>/, would be read as an env file and
+    fail the generator for every app. That is why a tool's code lives in tools/."""
+    appset = yaml.safe_load((ROOT / "apps/applicationset.yaml").read_text())["spec"]
+    (pattern,) = (f["path"] for f in appset["generators"][0]["git"]["files"])
+    greedy = re.compile(re.escape(pattern).replace(r"\*", ".*"))
+    tracked = subprocess.run(
+        ["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True
+    ).stdout.splitlines()
+    assert sorted(f for f in tracked if greedy.fullmatch(f)) == sorted(
+        str(f.relative_to(ROOT)) for f in ROOT.glob(pattern)
+    )

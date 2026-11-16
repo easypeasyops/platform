@@ -209,6 +209,28 @@ Pull, not push: the cluster needs no credentials in CI, and drift is corrected, 
 avoided. Argo CD polls GitHub (a laptop can't receive a webhook), so a merge lands within
 about a minute.
 
+### Tools in this repo
+
+A tool the platform itself ships (servicemonitor, PT-51) is an app like any other, without
+a repo of its own: `tools/<app>/` holds what an app keeps in its domain repo's
+`apps/<app>/` (`app/`, `tests/`, `Dockerfile`, `pyproject.toml` and `uv.lock`,
+`deploy/service/values.yaml`, `deploy/envs/<env>.yaml`), and its image is
+`ghcr.io/easypeasyops/platform/<app>`. It still goes through the whole contract: its own
+checks in CI, a released service chart pinned by digest in `apps/<app>/envs/`, and the
+admission policies.
+
+- **Not under `apps/<app>/`.** Argo CD's git file generator globs greedily (`*` crosses
+  `/`), so `apps/servicemonitor/deploy/envs/ops.yaml` would match the ApplicationSet's
+  `apps/*/envs/*.yaml`, be read as an env file, and fail the generator for every app
+  (`tests/test_namespaces.py` keeps the pattern's matches to the env files).
+- **Its checks are its own.** The platform's ruff run excludes `tools/`; CI runs each
+  tool's lint, types and tests in its folder with its lock and its coverage floor, builds,
+  scans and smoke-tests its image, checks its SLO rules against this commit's generator and
+  renders its values with the released chart. On a pull request these run only when
+  `tools/`, a workflow they use or the generator changed.
+- **No `platform.lock`.** The tool and the platform are one commit: the workflows are
+  called locally, and a platform change that breaks the tool fails the same PR.
+
 ## The platform chart
 
 `deploy/argocd/platform/` is a Helm chart whose templates are Argo CD Applications

@@ -188,6 +188,109 @@ jobs:
       coverage-min: 0 # no package to cover: the tests check manifests and scripts
       helm-version: v4.3.1 # tests render the platform chart
 
+  # The tools that live in this repo (tools/<app>/, docs/DESIGN.md): their checks run only
+  # when a pull request changes them or what the checks use. The jobs below still run and
+  # report success when it doesn't (`run: false`), so `ci` never waits on a skipped job. A
+  # push to main runs everything.
+  tools-scope:
+    name: tools change scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      run: ${{ steps.scope.outputs.run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2 # the PR merge commit and its first parent
+      - name: Does this change touch the tools or their checks?
+        id: scope
+        run: |
+          run=true
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            changed=$(git diff --name-only HEAD^1 HEAD)
+            grep -qE '^(tools/|\.github/workflows/(ci|reusable-[a-z-]+)\.yml$|scripts/gen_slo_rules\.py$)' \
+              <<<"$changed" || run=false
+          fi
+          echo "run=$run" | tee -a "$GITHUB_OUTPUT"
+
+  # servicemonitor's own checks, with its own pyproject, lock and coverage floor (90).
+  servicemonitor-check:
+    needs: tools-scope
+    uses: ./.github/workflows/reusable-python-check.yml
+    with:
+      run: ${{ needs.tools-scope.outputs.run == 'true' }}
+      working-directory: tools/servicemonitor
+      typecheck-paths: app tests
+
+  servicemonitor-image:
+    needs: tools-scope
+    uses: ./.github/workflows/reusable-image.yml
+    with:
+      run: ${{ needs.tools-scope.outputs.run == 'true' }}
+      context: tools/servicemonitor
+      smoke-command: tools/servicemonitor/scripts/smoke.sh # reads $IMAGE
+
+  # Each tool's deploy values (tools/<app>/deploy/), as an app's own CI checks them: the SLO
+  # rules are what this commit's generator writes from their spec, and each environment
+  # renders with the released service chart, as Argo CD will, and passes the schemas. The
+  # chart is the release apps/<app>/envs/ pin: move CHART with them.
+  tools-deploy:
+    name: tools deploy values
+    needs: tools-scope
+    if: needs.tools-scope.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CHART: oci://ghcr.io/easypeasyops/charts/service@sha256:514c85572c0141e16fd1dc9d8a38505034e8dd27a1866c5794645cd6a4955584 # 1.5.0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
+        with:
+          version: v4.3.1
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+
+      - name: SLO rules match their spec
+        working-directory: tools
+        run: |
+          for spec in */deploy/prometheus/slos.yaml; do
+            (cd "${spec%%/*}" && uv run --script ../../scripts/gen_slo_rules.py --check \
+              --spec deploy/prometheus/slos.yaml \
+              --values --out deploy/service/slo-rules.values.yaml)
+          done
+
+      - name: Render each environment and validate it
+        working-directory: tools
+        run: |
+          # An env file without a release yet renders with a placeholder digest.
+          placeholder="sha256:$(printf '0%.0s' {1..64})"
+          mkdir -p "$RUNNER_TEMP/rendered"
+          for env_file in */deploy/envs/*.yaml; do
+            app=${env_file%%/*} env=$(basename "$env_file" .yaml)
+            digest=$(yq -r '.image.digest // ""' "$env_file")
+            # The cluster-wide environment ships the SLO rules (prod, or a tool's ops).
+            slo=()
+            if [[ "$env" =~ ^(ops|prod)$ && -f "$app/deploy/service/slo-rules.values.yaml" ]]; then
+              slo=(--values "$app/deploy/service/slo-rules.values.yaml")
+            fi
+            helm template "$app" "$CHART" --namespace "$app-$env" \
+              --values "$app/deploy/service/values.yaml" "${slo[@]}" --values "$env_file" \
+              --set "image.digest=${digest:-$placeholder}" \
+              --kube-version 1.37.0 \
+              --api-versions monitoring.coreos.com/v1/ServiceMonitor \
+              --api-versions monitoring.coreos.com/v1/PodMonitor \
+              --api-versions monitoring.coreos.com/v1/PrometheusRule >"$RUNNER_TEMP/rendered/$app-$env.yaml"
+            echo "$app $env: $(grep -c '^kind:' "$RUNNER_TEMP/rendered/$app-$env.yaml") objects"
+          done
+          docker run --rm -v "$RUNNER_TEMP/rendered:/r:ro" -w /r "$KUBECONFORM" -strict -summary \
+            -kubernetes-version 1.37.0 -schema-location default \
+            -schema-location "$CRDS/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" \
+            .
+
   scripts:
     name: scripts and workflows
     runs-on: ubuntu-latest
@@ -202,7 +305,7 @@ jobs:
       - name: shellcheck
         run: |
           shellcheck --version | sed -n 2p
-          shellcheck -x scripts/*.sh
+          shellcheck -x scripts/*.sh tools/*/scripts/*.sh
 
       # The reusable workflows are this repo's API for app repos; actionlint also runs
       # shellcheck on every `run:` block when shellcheck is on PATH (it is on the runner).
@@ -211,11 +314,23 @@ jobs:
 
   # The one required status check (ruleset main-rules requires `ci` only). It passes when
   # every job above passed, so jobs can be split, renamed or added without a ruleset change.
-  # Add a new job to `needs` or it isn't gating anything.
+  # Add a new job to `needs` or it isn't gating anything. One job may be skipped:
+  # tools-deploy, when tools-scope (which must itself pass) says the change doesn't touch
+  # the tools.
   gate:
     name: ci
     if: always()
-    needs: [manifests, chart, chart-release, apps, tests, scripts]
+    needs:
+      - manifests
+      - chart
+      - chart-release
+      - apps
+      - tests
+      - tools-scope
+      - servicemonitor-check
+      - servicemonitor-image
+      - tools-deploy
+      - scripts
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
@@ -224,4 +339,5 @@ jobs:
           NEEDS: ${{ toJSON(needs) }}
         run: |
           jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<<"$NEEDS"
-          jq -e 'all(.[]; .result == "success")' <<<"$NEEDS" >/dev/null
+          jq -e 'all(to_entries[]; .value.result == "success"
+            or (.key == "tools-deploy" and .value.result == "skipped"))' <<<"$NEEDS" >/dev/null

@@ -24,6 +24,8 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py314"
+# tools/<app>/ are projects of their own (pyproject, lock, checks): CI's tool jobs run theirs.
+extend-exclude = ["tools"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4", "RUF", "S", "PT", "TID252"]
