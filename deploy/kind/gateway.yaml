@@ -14,7 +14,8 @@
 # node (the "front door", RUNBOOK), so no `kubectl port-forward` to start or restart.
 #
 # Two listeners, so the app's routes and the tools' routes can't mix: only staging and
-# prod may attach to `http`, only argocd and monitoring to `tools` (deploy/kind/tools/).
+# prod may attach to `http`, only argocd and monitoring to `tools` (deploy/kind/tools/),
+# and the one app that is a tool, by its namespace's name (its route names the listener).
 # On a real cluster the tools would sit behind a separate, internal load balancer with SSO.
 #
 # The chart's HTTPRoute (deploy/helm/shortly/templates/httproute.yaml) attaches each release
@@ -127,4 +128,9 @@ spec:
           from: Selector
           selector:
             matchExpressions:
-              - { key: kubernetes.io/metadata.name, operator: In, values: [argocd, monitoring] }
+              # By name, never by a label an app's namespace could carry: the tools' own two,
+              # and servicemonitor-ops, an app served here (the service chart's
+              # gateway.sectionName).
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values: [argocd, monitoring, servicemonitor-ops]

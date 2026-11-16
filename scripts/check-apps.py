@@ -23,7 +23,8 @@ For each apps/<app>/envs/<env>.yaml (the ApplicationSet's input):
      from an app in CLUSTER_READ_APPS whose project allows them by name. Argo CD refuses to
      sync any other: the project is what enforces the list, this says so before it does.
 Then, across every app: 6. each hostname their HTTPRoutes serve is probed through the front
-door, and nothing else is (frontDoorProbes, deploy/argocd/platform/values.yaml).
+door, on the listener the route is on, and nothing else is but the tools' own routes
+(frontDoorProbes, deploy/argocd/platform/values.yaml).
 """
 
 import argparse
@@ -47,7 +48,8 @@ SIGNER = "easypeasyops/platform/.github/workflows/release-chart.yml"
 CLUSTER_READ_APPS = frozenset({"servicemonitor"})
 RBAC = "rbac.authorization.k8s.io"
 errors: list[str] = []
-hostnames: dict[str, str] = {}  # every app route's hostname: the env file that serves it
+# Every app route's hostname: the listener it is on, and the env file that serves it.
+hostnames: dict[str, tuple[str, str]] = {}
 
 
 def fail(where: str, msg: str) -> None:
@@ -157,7 +159,9 @@ def check(env_file: Path, out: Path) -> None:
     docs = [d for d in yaml.safe_load_all(rendered) if d]
     check_cluster_read(where, app, project, docs)
     for route in (d for d in docs if d["kind"] == "HTTPRoute"):
-        hostnames.update(dict.fromkeys(route["spec"].get("hostnames") or [], where))
+        # No sectionName: every listener that admits the namespace, for an app's the users'.
+        listener = route["spec"]["parentRefs"][0].get("sectionName", "http")
+        hostnames.update(dict.fromkeys(route["spec"].get("hostnames") or [], (listener, where)))
     kinds = sorted({d["kind"] for d in docs})
     print(f"ok {where}: service {version} renders {', '.join(kinds)}")
 
@@ -173,22 +177,32 @@ def main() -> int:
         return 1
     for env_file in env_files:
         check(env_file, args.out)
-    check_probes()
+    values = yaml.safe_load((ROOT / "deploy/argocd/platform/values.yaml").read_text())
+    check_probes(values["frontDoorProbes"])
     return 1 if errors else 0
 
 
-def check_probes() -> None:
-    """6. The front door's probes (the platform chart's Probes) and the apps' hostnames agree:
-    a hostname nobody probes is a broken route nobody hears about; a probe of a hostname no
-    route serves fails for good. Only when every app rendered: otherwise the list is short."""
+def check_probes(probes: list[dict[str, str]]) -> None:
+    """6. The front door's probes (the platform chart's Probes) and the apps' hostnames agree,
+    listener included: a hostname nobody probes is a broken route nobody hears about; a probe
+    of a hostname no route serves fails for good. The tools' own routes (deploy/kind/tools/)
+    aren't an app's: tests/test_front_door.py holds their probes. Only when every app
+    rendered: otherwise the list is short."""
     if errors:
         return
-    values = yaml.safe_load((ROOT / "deploy/argocd/platform/values.yaml").read_text())
-    probed = {p["hostname"] for p in values["frontDoorProbes"] if p["listener"] == "http"}
+    probed = {p["hostname"]: p["listener"] for p in probes}
+    tools = {
+        hostname
+        for f in sorted((ROOT / "deploy/kind/tools").glob("*.yaml"))
+        for route in yaml.safe_load_all(f.read_text())
+        if route
+        for hostname in route["spec"]["hostnames"]
+    }
     where = "deploy/argocd/platform/values.yaml"
-    for hostname in sorted(hostnames.keys() - probed):
-        fail(where, f"{hostname} ({hostnames[hostname]}) is not in frontDoorProbes")
-    for hostname in sorted(probed - hostnames.keys()):
+    for hostname, (listener, env_file) in sorted(hostnames.items()):
+        if probed.get(hostname) != listener:
+            fail(where, f"{hostname} ({env_file}) is not in frontDoorProbes on listener {listener}")
+    for hostname in sorted(probed.keys() - hostnames.keys() - tools):
         fail(where, f"frontDoorProbes has {hostname}, which no app's route serves")
 
 

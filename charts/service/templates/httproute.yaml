@@ -12,6 +12,9 @@ spec:
   parentRefs:
     - name: {{ .Values.gateway.name }}
       namespace: {{ .Values.gateway.namespace }}
+      {{- with .Values.gateway.sectionName }}
+      sectionName: {{ . }}
+      {{- end }}
   hostnames:
     {{- toYaml .Values.gateway.hostnames | nindent 4 }}
   rules:

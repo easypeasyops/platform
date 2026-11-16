@@ -163,6 +163,11 @@ gateway:
   enabled: false
   name: front-door
   namespace: gateway
+  # The one listener of the Gateway the route attaches to, by name. Empty: every listener
+  # that admits the namespace, which for an app's namespaces is the users' (`http`). An
+  # internal tool sets `tools`: that listener admits a namespace only by name (the
+  # platform's deploy/kind/gateway.yaml), so from any other the route is refused.
+  sectionName: ""
   hostnames: []
 
 # Canary releases with Argo Rollouts (links' docs/DESIGN.md, Canary releases). Needs the Argo

@@ -22,8 +22,9 @@ components:
 # What the blackbox exporter asks for through the front door, every minute, as a user would
 # (templates/monitoring.yaml: one Probe each; docs/RUNBOOK.md, The front door). A list in
 # git, since Prometheus can't discover an HTTPRoute: scripts/check-apps.py fails CI when
-# the `http` entries and the hostnames the apps' routes serve (their values, rendered as
-# Argo CD renders them) disagree; tests/test_front_door.py, the same for the tool routes.
+# the entries and the hostnames the apps' routes serve (their values, rendered as Argo CD
+# renders them), each on its listener, disagree; tests/test_front_door.py, the same for the
+# tool routes (deploy/kind/tools/).
 #   listener  the Gateway listener the hostname is on (a blackbox module per listener)
 #   path      a page that answers 200 without a login: /healthz for an app (the service
 #             chart's liveness probe, so the app contract), each tool's own health page

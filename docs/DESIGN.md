@@ -266,7 +266,9 @@ What the children are for:
   canary needs. Two listeners: `http` admits routes from app namespaces only, `tools`
   (Argo CD, Grafana, Prometheus, Alertmanager, on its own port) from `argocd` and
   `monitoring` only, so no namespace can capture another's hostname and no tool is reachable
-  on the users' listener. On the laptop, forwarder containers beside the kind node publish
+  on the users' listener. An app that is a tool (the ServiceMonitor page) is added to
+  `tools` by its namespace's name, never by a label, and its route names the listener (the
+  service chart's `gateway.sectionName`), so it isn't served on `http` as well. On the laptop, forwarder containers beside the kind node publish
   both on 127.0.0.1; they outlive releases and sleep, which a `kubectl port-forward` doesn't.
 - **Monitoring and logs.** kube-prometheus-stack: the operator's CRDs make scraping, rules
   and dashboards part of each app's chart. Alertmanager routes by namespace to Slack.
