@@ -310,8 +310,8 @@ at the door.
 ```
 # One request, at the door and in the app (any namespace)
 request_id:="<id>"
-# What the proxy answered 503 (a route with no backend, UH): which host and path
-{kubernetes.pod_namespace="envoy-gateway-system", kubernetes.container_name="envoy"} response_code:=503 | fields _time, authority, path, response_flags, route_name
+# What the proxy answered 503 (a route with no backend: direct_response, no flag): which host and path
+{kubernetes.pod_namespace="envoy-gateway-system", kubernetes.container_name="envoy"} response_code:=503 | fields _time, authority, path, response_flags, response_code_details, route_name
 # Hostnames no route matches (404, NR)
 {kubernetes.pod_namespace="envoy-gateway-system", kubernetes.container_name="envoy"} response_flags:=NR | stats by (authority) count() requests
 # The door's 5xx per route and why, over a day
@@ -320,7 +320,8 @@ _time:1d {kubernetes.pod_namespace="envoy-gateway-system", kubernetes.container_
 
 | Flag | Means |
 | --- | --- |
-| `UH` | No healthy upstream: the route's Service has no ready pod (503) |
+| `-`, with `response_code_details` `direct_response` | The proxy answered itself, no pod was tried: [a route with no backend](#a-route-with-no-backend) (503 when its Service has no ready pod) |
+| `UH` | No healthy upstream (503). Not what a Service with no ready pod gives: Envoy Gateway programs that route to answer directly, the row above |
 | `UF` | Connecting to the pod failed (503): the pod died, or its NetworkPolicy doesn't admit `envoy-gateway-system` |
 | `NR` | No route for this hostname or path (404) |
 | `UT` | The pod didn't answer within the route's timeout (504) |
