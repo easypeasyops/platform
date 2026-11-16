@@ -45,8 +45,8 @@ charts:
     digest: sha256:be034275b55deeddd6b7bc1f4da6eeb02b8efc418a4a29e2b1977851b24b1e63
   argoRollouts: # Argo Rollouts v1.10.0: prod's canary releases
     repo: oci://ghcr.io/argoproj/argo-helm/argo-rollouts
-    version: 2.43.6
-    digest: sha256:ea68b0aed72752c8c8aa8d948c62d8d6076a255c5e6238648769bf1b01137f21
+    version: 2.43.12
+    digest: sha256:87de4bac1be47355a92f388467ec7651e179e26177c103925d5e0245d46ead12
   kubePrometheusStack: # Prometheus Operator, Prometheus, Alertmanager, Grafana
     repo: oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack
     version: 91.9.0
