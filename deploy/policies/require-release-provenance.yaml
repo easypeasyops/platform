@@ -37,6 +37,17 @@ spec:
   failurePolicy: Fail # if verification can't run (Kyverno down, registry or Rekor unreachable): refuse
   webhookConfiguration:
     timeoutSeconds: 30 # registry + Rekor round trips; the API server's maximum
+  # Skip Argo CD's own dry runs: its server-side diff dry-runs every app's Deployments,
+  # StatefulSets... once a minute, and each one cost registry + Rekor round trips: 5.5 s
+  # median per call, API server writes at 4 s p99 (2026-11-15, PT-34). Nothing is stored by
+  # a dry run, and Argo CD's real sync is still checked: a bad image is refused when it
+  # lands, it just no longer shows up in Argo CD's diff. Every other dry run is still
+  # checked: the provenance canary (PT-30) and `kubectl --dry-run=server` rely on that.
+  matchConditions:
+    - name: not-argocd-diff
+      expression: >-
+        !(request.?dryRun.orValue(false) &&
+          request.userInfo.username == 'system:serviceaccount:argocd:argocd-application-controller')
   matchConstraints:
     namespaceSelector:
       matchExpressions:

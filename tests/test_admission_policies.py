@@ -190,6 +190,21 @@ def test_expensive_checks_stay_out_of_the_background() -> None:
     assert "cpu" in values["reportsController"]["resources"]["limits"]
 
 
+def test_provenance_skips_argocd_diff_dry_runs_only() -> None:
+    """Argo CD's server-side diff dry-runs every app once a minute; verifying those cost
+    registry and Rekor round trips each time (PT-34). Its real syncs, and every other dry
+    run (the provenance canary's, PT-30), are still checked."""
+    spec = _load("require-release-provenance.yaml")["spec"]
+    assert spec["matchConditions"] == [
+        {
+            "name": "not-argocd-diff",
+            "expression": "!(request.?dryRun.orValue(false) &&\n"
+            "  request.userInfo.username == "
+            "'system:serviceaccount:argocd:argocd-application-controller')",
+        }
+    ]
+
+
 def test_policies_cover_the_app_namespaces_only() -> None:
     """Every app's namespaces, by the label the apps ApplicationSet gives them (5.7)."""
     for name in ("require-release-provenance.yaml", "allowed-images.yaml"):
