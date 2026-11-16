@@ -180,8 +180,11 @@ prometheus:
     podMonitorSelectorNilUsesHelmValues: false
     probeSelectorNilUsesHelmValues: false # and Probes: the front door's (the platform chart)
     ruleSelectorNilUsesHelmValues: false
+    # Memory from 7 days of use (2026-11-16, PT-39): working set p95 970 MiB, peak RSS 907.
+    # The limit is about 1.5x the peak RSS; fewer series (PT-37) would lower all three.
     resources:
-      requests: { cpu: 100m, memory: 400Mi }
+      requests: { cpu: 100m, memory: 1Gi }
+      limits: { memory: 1536Mi }
 
 alertmanager:
   alertmanagerSpec:
@@ -396,8 +399,18 @@ grafana:
       url: http://victoria-logs.monitoring.svc:9428
   # Dashboards come from ConfigMaps labelled grafana_dashboard=1 in any namespace (the
   # chart's defaults); shortly's prod release ships the SLO dashboard that way.
+  # Memory from 7 days of use (2026-11-16, PT-39): the process peaked at 640 MiB RSS, typically
+  # about 320. Its working set reads higher (~575 MiB) because it counts page cache for the
+  # SQLite database and search index on the emptyDirs, which the kernel drops before an OOM
+  # kill. The limit is about 1.5x the peak RSS.
   resources:
-    requests: { cpu: 50m, memory: 128Mi }
+    requests: { cpu: 50m, memory: 384Mi }
+    limits: { memory: 1Gi }
+  # The dashboard and data source sidecars: about 75 MiB each, peak 87.
+  sidecar:
+    resources:
+      requests: { cpu: 5m, memory: 96Mi }
+      limits: { memory: 128Mi }
 
 # Grafana's plugin directory (grafana.extraVolumes). Deleting the claim only costs a
 # download at Grafana's next start.

@@ -24,8 +24,12 @@ server:
   persistentVolume:
     storageClassName: standard # kind's local-path provisioner
     size: 5Gi
+  # Memory from 7 days of use (2026-11-16, PT-39): usually about 100 MiB (working set p95
+  # 330), with short peaks to 816 MiB RSS during big queries or merges. The limit is about
+  # 1.5x that peak.
   resources:
-    requests: { cpu: 50m, memory: 128Mi }
+    requests: { cpu: 50m, memory: 256Mi }
+    limits: { memory: 1280Mi }
   # The namespace enforces Pod Security "restricted", and the chart's defaults miss one thing
   # it asks for, the seccomp profile. The other three are the chart's defaults, repeated
   # because a map given here replaces them.
