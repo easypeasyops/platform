@@ -249,6 +249,17 @@ monitoring:
     enabled: true
     runbookUrl: "" # required: where its Runbook link points (the SLO spec's runbook_url)
 
+# Access to the Kubernetes API. Off: the app's pods carry no ServiceAccount token.
+rbac:
+  # Read access across the cluster to what Prometheus watches (templates/rbac.yaml): get,
+  # list and watch on ServiceMonitors, PodMonitors, Probes and PrometheusRules, and on
+  # namespaces. Nothing else: no Secrets, no writes. On: a ServiceAccount <release> the app's
+  # pods run as, and a ClusterRole and ClusterRoleBinding <namespace>-cluster-read.
+  # Only for an app the platform allows: its project (the platform's apps/<app>/project.yaml)
+  # must list both by name, or Argo CD refuses the sync. The pods still need a way to the
+  # API server: an `extraEgress` rule to it (networkPolicy, below).
+  clusterRead: false
+
 nodeSelector: {}
 tolerations: []
 affinity: {}

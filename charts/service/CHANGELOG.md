@@ -7,6 +7,25 @@ an app that doesn't set it) is a major version; a new optional value is a minor 
 that changes no render an app relies on is a patch. Each release's digest is in its GitHub
 Release.
 
+## 1.6.0
+
+A new optional value, for an app that shows what Prometheus watches (PT-52; the
+ServiceMonitor page first). Additive: nothing renders differently from 1.5.0 for an app that
+doesn't set it (every existing golden is byte for byte the same).
+
+- **`rbac.clusterRead`** (default `false`): a ServiceAccount `<release>` the app's pods run
+  as, with its token mounted, and a ClusterRole and ClusterRoleBinding
+  `<namespace>-cluster-read` giving it `get`, `list` and `watch` on `servicemonitors`,
+  `podmonitors`, `probes` and `prometheusrules` (monitoring.coreos.com) and on `namespaces`.
+  Nothing else: no Secrets, no writes. Workers, scheduled jobs and the migration Job keep
+  running without a token.
+- **Only for an app the platform allows.** The two cluster-scoped objects are applied only
+  if the app's AppProject (the platform's `apps/<app>/project.yaml`) lists them by name; for
+  any other app Argo CD refuses the sync, so setting the value changes nothing in the
+  cluster. The platform's `scripts/check-apps.py` names the apps that may ask.
+- The chart adds no network rule: the app gives its pods a way to the API server with
+  `networkPolicy.extraEgress`.
+
 ## 1.5.0
 
 The HTTPRoute names only `gateway.name` as its parent: 1.4.0's second parent, `shortly`, goes

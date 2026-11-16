@@ -117,7 +117,8 @@ def test_each_apps_project_deploys_to_its_own_namespaces_only(project_file: Path
     assert want
     assert {d["namespace"] for d in spec["destinations"]} == want
     assert {d["server"] for d in spec["destinations"]} == {"https://kubernetes.default.svc"}
-    assert spec["clusterResourceWhitelist"] == [
+    # Its namespaces; what else an app on the cluster-read list has is test_cluster_read.py's.
+    assert [r for r in spec["clusterResourceWhitelist"] if r["kind"] == "Namespace"] == [
         {"group": "", "kind": "Namespace", "name": ns} for ns in sorted(want, reverse=True)
     ]
     assert "oci://ghcr.io/easypeasyops/charts/service" in spec["sourceRepos"]
