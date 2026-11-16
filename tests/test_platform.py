@@ -618,6 +618,48 @@ def test_the_stack_ships_node_rules_and_dashboards_but_no_exporter_of_its_own() 
     assert "NodeClockNotSynchronising" not in alerts  # never true on the Docker VM
 
 
+@pytest.mark.integration
+def test_no_rule_or_dashboard_reads_an_api_server_series_the_scrape_drops() -> None:
+    """The API server's scrape drops the buckets of histograms nothing reads (PT-37). A
+    stack bump, or a rule or dashboard of ours, that starts reading one must fail here, not
+    as a panel with no data or an alert that can never fire."""
+    monitoring = yaml.safe_load((ROOT / "deploy/kind/monitoring-values.yaml").read_text())
+    drop = monitoring["kubeApiServer"]["serviceMonitor"]["metricRelabelings"][-1]
+    assert drop["action"] == "drop"
+    assert drop["sourceLabels"] == ["__name__"]
+    assert len(drop["regex"].split("|")) == 10
+    dropped = re.compile(drop["regex"])
+    chart = VALUES["charts"]["kubePrometheusStack"]
+    _render()  # skips without helm
+    out = subprocess.run(
+        [
+            *("helm", "template", "monitoring", f"{chart['repo']}@{chart['digest']}"),
+            *("--namespace", "monitoring"),
+            *("--values", str(ROOT / "deploy/kind/monitoring-values.yaml")),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    docs = [d for d in yaml.safe_load_all(out) if d]
+    (monitor,) = [
+        d for d in docs if (d["kind"], d["metadata"]["name"]) == ("ServiceMonitor", "kps-apiserver")
+    ]
+    assert drop in monitor["spec"]["endpoints"][0]["metricRelabelings"]
+    readers = {
+        f"{d['kind']}/{d['metadata']['name']}": yaml.safe_dump(d.get("spec") or d.get("data"))
+        for d in docs
+        if d["kind"] in {"PrometheusRule", "ConfigMap"}
+    }
+    assert {
+        "PrometheusRule/kps-kube-apiserver-availability.rules",
+        "ConfigMap/kps-apiserver",
+    } <= set(readers)
+    for files in (CHART / "files", ROOT / "charts/service/files"):
+        readers |= {str(f.relative_to(ROOT)): f.read_text() for f in files.iterdir()}
+    assert {name: m.group() for name, text in readers.items() if (m := dropped.search(text))} == {}
+
+
 def test_grafana_reads_the_logs_from_the_store_that_admits_it() -> None:
     """Grafana's data source, the store's Service and the store's NetworkPolicy are three
     values files' worth of names: a rename on one side must fail here, not in Explore."""
