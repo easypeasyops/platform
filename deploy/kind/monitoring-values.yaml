@@ -10,7 +10,7 @@ kubeEtcd: { enabled: false }
 kubeControllerManager: { enabled: false }
 kubeScheduler: { enabled: false }
 kubeProxy: { enabled: false }
-# The API server's scrape was 57% of Prometheus's series (PT-37, 2026-11-16: 56.5k of 108k),
+# The API server's scrape was 52% of Prometheus's series (PT-37, 2026-11-16: 56.5k of 108k),
 # most of them buckets of ten histograms that no rule and no dashboard reads, the stack's
 # or the platform's (tests/test_platform.py checks). Those buckets are dropped as they are
 # scraped (37.9k series); each histogram's _sum and _count stay, so an average is still
