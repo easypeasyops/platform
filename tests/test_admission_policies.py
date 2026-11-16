@@ -190,6 +190,14 @@ def test_expensive_checks_stay_out_of_the_background() -> None:
     assert "cpu" in values["reportsController"]["resources"]["limits"]
 
 
+def test_no_legacy_policies_so_no_legacy_check() -> None:
+    """Kyverno's legacy-policy check is off only while every policy here is a CEL one."""
+    groups = {_load(p.name)["apiVersion"].split("/")[0] for p in POLICIES.glob("*.yaml")}
+    assert groups == {"policies.kyverno.io"}
+    values = yaml.safe_load((ROOT / "deploy/kind/kyverno-values.yaml").read_text())
+    assert values["upgrade"]["legacyPolicyCheck"]["enabled"] is False
+
+
 def test_provenance_skips_argocd_diff_dry_runs_only() -> None:
     """Argo CD's server-side diff dry-runs every app once a minute; verifying those cost
     registry and Rekor round trips each time (PT-34). Its real syncs, and every other dry

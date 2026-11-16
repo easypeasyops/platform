@@ -1,5 +1,11 @@
 # Kyverno for the kind cluster (Argo CD, deploy/argocd/platform/), sized for one laptop node.
 # The policies themselves live in deploy/policies/.
+# No PreSync Job checking for legacy kyverno.io policies: there are none
+# (tests/test_admission_policies.py), and on a busy node the Job missed its 120 s deadline
+# every time, so Argo CD retried the whole sync for an hour (2026-11-16, chart 3.10.0).
+upgrade:
+  legacyPolicyCheck:
+    enabled: false
 admissionController:
   # One replica is enough here. In a real cluster run 3: the provenance policy fails closed,
   # so while no admission pod is ready, no Pod can start in staging or prod.
