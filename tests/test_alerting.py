@@ -218,6 +218,15 @@ def test_alertmanager_config_is_valid(alertmanager_config: Path) -> None:
             ],
             "platform",
         ),
+        (
+            [
+                "alertname=CanaryPausedTooLong",
+                "namespace=argo-rollouts",
+                "exported_namespace=aipostit-prod",
+                "severity=warning",
+            ],
+            "platform",
+        ),
         # The front door's probes: by name, whichever app's hostname.
         (
             [
