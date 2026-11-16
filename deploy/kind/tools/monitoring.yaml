@@ -10,7 +10,7 @@ metadata:
   namespace: monitoring
 spec:
   parentRefs:
-    - { name: shortly, namespace: gateway, sectionName: tools }
+    - { name: front-door, namespace: gateway, sectionName: tools }
   hostnames: [grafana.localhost]
   rules:
     - backendRefs:
@@ -23,7 +23,7 @@ metadata:
   namespace: monitoring
 spec:
   parentRefs:
-    - { name: shortly, namespace: gateway, sectionName: tools }
+    - { name: front-door, namespace: gateway, sectionName: tools }
   hostnames: [prometheus.localhost]
   rules:
     - backendRefs:
@@ -36,7 +36,7 @@ metadata:
   namespace: monitoring
 spec:
   parentRefs:
-    - { name: shortly, namespace: gateway, sectionName: tools }
+    - { name: front-door, namespace: gateway, sectionName: tools }
   hostnames: [alertmanager.localhost]
   rules:
     - backendRefs:

@@ -10,7 +10,7 @@ metadata:
   namespace: argocd
 spec:
   parentRefs:
-    - { name: shortly, namespace: gateway, sectionName: tools }
+    - { name: front-door, namespace: gateway, sectionName: tools }
   hostnames: [argocd.localhost]
   rules:
     - backendRefs:

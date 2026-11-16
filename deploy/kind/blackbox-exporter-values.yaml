@@ -11,7 +11,7 @@ fullnameOverride: blackbox-exporter
 # ("GET http://<hostname>/<path>"): Envoy takes the Host from the URL, so the request takes
 # the listener, the route and the app's NetworkPolicy a user's request takes, and the
 # hostname is never looked up (`.localhost` names mean 127.0.0.1, the exporter's own pod).
-# One module per listener: the proxies' Service, shortly-gateway (deploy/kind/gateway.yaml),
+# One module per listener: the proxies' Service, front-door (deploy/kind/gateway.yaml),
 # serves `http` (the users') on 80 and `tools` on 8081. Only a 2xx passes, without
 # following redirects: a redirect is not the page.
 config:
@@ -20,7 +20,7 @@ config:
       prober: http
       timeout: 5s
       http:
-        proxy_url: http://shortly-gateway.envoy-gateway-system.svc:80
+        proxy_url: http://front-door.envoy-gateway-system.svc:80
         skip_resolve_phase_with_proxy: true
         follow_redirects: false
         preferred_ip_protocol: ip4
@@ -28,7 +28,7 @@ config:
       prober: http
       timeout: 5s
       http:
-        proxy_url: http://shortly-gateway.envoy-gateway-system.svc:8081
+        proxy_url: http://front-door.envoy-gateway-system.svc:8081
         skip_resolve_phase_with_proxy: true
         follow_redirects: false
         preferred_ip_protocol: ip4
