@@ -69,8 +69,8 @@ charts:
     digest: sha256:128e142cda55d0d4ca4cc84dde39c0d325b9805645ba87885e664fecbdfb1599
   externalSecrets: # External Secrets Operator v2.14.0: secrets from the store (deploy/secrets/)
     repo: oci://ghcr.io/external-secrets/charts/external-secrets
-    version: 2.14.0
-    digest: sha256:0e3d45f11522f2730ff55deef57bc43e0ff4aadc00bdab5557fa4d354b0c3ab7
+    version: 2.15.0
+    digest: sha256:839666a0c7dd395b4c6bdc616e31b3a839407afbedf33620696578ab6f2268cb
   certManager: # cert-manager v1.21.3: the certificates CloudNativePG and its plugin talk over
     repo: oci://quay.io/jetstack/charts/cert-manager
     version: v1.21.3
