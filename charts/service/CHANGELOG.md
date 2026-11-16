@@ -30,8 +30,14 @@ sets neither (every existing golden is byte for byte the same).
   if the app's AppProject (the platform's `apps/<app>/project.yaml`) lists them by name; for
   any other app Argo CD refuses the sync, so setting the value changes nothing in the
   cluster. The platform's `scripts/check-apps.py` names the apps that may ask.
-- The chart adds no network rule: the app gives its pods a way to the API server with
-  `networkPolicy.extraEgress`.
+- **With it, the app's NetworkPolicy lets its pods reach the API server**: one more egress
+  rule, to `networkPolicy.apiServerTo` on TCP `networkPolicy.apiServerPort`. The defaults are
+  the private ranges (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) and `6443`: the API
+  server is on a node's network, which no pod selector matches, and the chart can't know a
+  node's address. Not the internet and no other port; it does admit any private address on
+  6443. Narrowing it for a cluster is the platform's to do; an app sets neither value. Only the app's own policy gets the rule (the pods with the
+  token, and the migration Job, which shares their labels): workers' and scheduled jobs'
+  policies don't.
 
 ## 1.5.0
 

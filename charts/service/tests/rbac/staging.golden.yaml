@@ -47,6 +47,18 @@ spec:
               app: postgres
       ports:
         - { port: 5432, protocol: TCP }
+    # rbac.clusterRead: the API server. It runs on the node's network, where no pod selector
+    # reaches, so by address; and at its own port, not the `kubernetes` Service's 443: the
+    # policy sees the connection after the Service has rewritten its destination.
+    - to:
+        - ipBlock:
+            cidr: 10.0.0.0/8
+        - ipBlock:
+            cidr: 172.16.0.0/12
+        - ipBlock:
+            cidr: 192.168.0.0/16
+      ports:
+        - { port: 6443, protocol: TCP }
 
 ---
 # Source: service/templates/pdb.yaml

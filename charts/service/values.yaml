@@ -261,8 +261,8 @@ rbac:
   # namespaces. Nothing else: no Secrets, no writes. On: a ServiceAccount <release> the app's
   # pods run as, and a ClusterRole and ClusterRoleBinding <namespace>-cluster-read.
   # Only for an app the platform allows: its project (the platform's apps/<app>/project.yaml)
-  # must list both by name, or Argo CD refuses the sync. The pods still need a way to the
-  # API server: an `extraEgress` rule to it (networkPolicy, below).
+  # must list both by name, or Argo CD refuses the sync. The app's NetworkPolicy then lets
+  # its pods reach the API server (networkPolicy.apiServerTo, below).
   clusterRead: false
 
 nodeSelector: {}
@@ -310,5 +310,17 @@ networkPolicy:
     - podSelector:
         matchLabels: { app: postgres }
   databasePort: 5432
+  # Where the API server answers, for the egress rule rbac.clusterRead adds (not rendered
+  # without it). The API server runs on a node's network, so no pod selector matches it, and
+  # a node's address differs per cluster: the default is every private address, at the port
+  # the API server itself listens on (6443 with kubeadm and kind; the policy sees the
+  # connection after the `kubernetes` Service's 443 has been rewritten to it). That keeps
+  # the internet and every other port closed, but admits any private address on that port.
+  # Narrowing it for a cluster is the platform's to do; an app doesn't set it.
+  apiServerTo:
+    - ipBlock: { cidr: 10.0.0.0/8 }
+    - ipBlock: { cidr: 172.16.0.0/12 }
+    - ipBlock: { cidr: 192.168.0.0/16 }
+  apiServerPort: 6443
   # More egress rules, e.g. to an OpenTelemetry collector when otel.endpoint is set.
   extraEgress: []

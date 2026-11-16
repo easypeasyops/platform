@@ -59,6 +59,26 @@ def test_it_binds_the_apps_own_service_account_which_its_pods_run_as() -> None:
     assert (pod["serviceAccountName"], pod["automountServiceAccountToken"]) == (account, True)
 
 
+def test_its_pods_may_reach_the_api_server_and_the_default_app_may_not() -> None:
+    """The app's own NetworkPolicy gets one more egress rule: TCP 6443 to the private ranges
+    (the API server is on a node's network, so by address). An app without the value has no
+    such rule: the minimal fixture's egress is the rest of this one's."""
+    (policy,) = [d for d in _docs() if d["kind"] == "NetworkPolicy"]
+    *rest, api_server = policy["spec"]["egress"]
+    assert api_server == {
+        "to": [
+            {"ipBlock": {"cidr": cidr}}
+            for cidr in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+        ],
+        "ports": [{"port": 6443, "protocol": "TCP"}],
+    }
+    minimal = ROOT / "charts/service/tests/minimal/staging.golden.yaml"
+    (default,) = [
+        d for d in yaml.safe_load_all(minimal.read_text()) if d and d["kind"] == "NetworkPolicy"
+    ]
+    assert default["spec"]["egress"] == rest
+
+
 def test_a_project_can_list_what_it_renders_by_name() -> None:
     """The names a project.yaml lists are the ones the chart renders: one pair per namespace."""
     rendered = [

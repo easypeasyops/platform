@@ -102,7 +102,7 @@ to it (its name, image, env list, hostnames); the chart's defaults are productio
 | `cronJobs`, `workers` | A CronJob or a Deployment per entry from the release image, with the app's env; labelled apart, so the HPA and the PDB don't count them; a network policy of their own |
 | `redis` | A single Redis 8 with an append-only file, reachable only from the chart's own pods; no password: the network policy is the boundary |
 | `secretEnv` | An ExternalSecret copying the app's keys from its store into `<release>-env` |
-| `rbac.clusterRead` | A ServiceAccount the app's pods run as, with its token, and a ClusterRole and ClusterRoleBinding `<namespace>-cluster-read`: `get`, `list`, `watch` on ServiceMonitors, PodMonitors, Probes, PrometheusRules and namespaces, nothing else. Only for an app on the platform's list (below) |
+| `rbac.clusterRead` | A ServiceAccount the app's pods run as, with its token, and a ClusterRole and ClusterRoleBinding `<namespace>-cluster-read`: `get`, `list`, `watch` on ServiceMonitors, PodMonitors, Probes, PrometheusRules and namespaces, nothing else. With it, the app's NetworkPolicy allows egress to the API server: `networkPolicy.apiServerTo` (default: the private ranges) on TCP `networkPolicy.apiServerPort` (6443). Only for an app on the platform's list (below) |
 
 **Cluster-wide read access is the platform's to give.** `rbac.clusterRead` is a value in the
 app's repo, which changes without a PR here, so nothing in this repo's CI can be what stops
@@ -115,6 +115,22 @@ listed, then exactly those two objects per namespace), and check-apps reports an
 sets the value off the list, or without its project's entry, where its values are next
 rendered in CI. An admission policy would enforce the same list a second time; the project
 already does, with no new moving part.
+
+**The way to the API server is by address.** With `rbac.clusterRead` the chart adds the
+egress rule itself, so an app's values never carry a cluster's addresses. The API server is
+a host-network endpoint (on kind the control-plane node, port 6443, behind the `kubernetes`
+Service's 10.96.0.1:443), so no pod or namespace selector matches it; only an `ipBlock`
+does. And the rule names 6443, not 443: kindnet's policy engine (kube-network-policies)
+judges a pod's connection to the node in the `input` hook, after kube-proxy's DNAT, so what
+it sees is the node's address and port (`nft list table inet kindnet-network-policies` on
+the node; Kubernetes leaves before-or-after-rewrite to the implementation). The node's
+address is Docker's to assign and differs per laptop, so the default is the three private
+ranges: it closes the internet and every other port, and admits any private address on
+6443 (a pod listening there, if its own policy lets the app in). No other policy in the
+platform restricts egress, so there was no rule to copy. Narrower, for kind, would be
+Docker's address pools (`172.16.0.0/12`, `192.168.0.0/16`), which leave out the pod and
+Service ranges; that needs a value the platform sets for every app (the ApplicationSet),
+which it doesn't do yet.
 
 **The env list is the app's.** The chart renders `env` as it is, in order: which variables
 an app reads is not the chart's business. Each entry is a template, so it can read

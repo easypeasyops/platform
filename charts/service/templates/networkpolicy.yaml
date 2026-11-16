@@ -32,6 +32,15 @@ spec:
         {{- required "networkPolicy.metricsFrom must name the scraper" .Values.networkPolicy.metricsFrom | toYaml | nindent 8 }}
   egress:
     {{- include "service.egress" . | nindent 4 }}
+    {{- if .Values.rbac.clusterRead }}
+    # rbac.clusterRead: the API server. It runs on the node's network, where no pod selector
+    # reaches, so by address; and at its own port, not the `kubernetes` Service's 443: the
+    # policy sees the connection after the Service has rewritten its destination.
+    - to:
+        {{- toYaml .Values.networkPolicy.apiServerTo | nindent 8 }}
+      ports:
+        - { port: {{ .Values.networkPolicy.apiServerPort }}, protocol: TCP }
+    {{- end }}
 {{- range $name, $job := .Values.cronJobs }}
 {{- if $job }}
 ---
