@@ -2,7 +2,7 @@
 # components.yaml is the upstream v0.9.0 release manifest, vendored byte for byte and
 # checked against SHA256SUMS (recorded when it was first pinned) by tests/test_platform.py:
 # a manifest fetched at deploy time would be code you run with cluster-admin, unreviewed.
-# The one change is the patch below.
+# The changes are the patches below.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
@@ -14,3 +14,11 @@ patches:
       - op: add
         path: /spec/template/spec/containers/0/args/-
         value: --kubelet-insecure-tls
+  # Upstream asks for 100m; it uses at most 7m on the one-node laptop cluster (5-minute
+  # rate, a day of use, 2026-11-17). 20m fits the CI node's CPU budget (PT-71,
+  # docs/RUNBOOK.md, The CI node's CPU budget).
+  - target: { kind: Deployment, name: metrics-server, namespace: kube-system }
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: 20m

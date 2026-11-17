@@ -51,6 +51,24 @@ edited manifest (the API is away for under a minute):
 `docker exec shortly-control-plane sed -i '/^    image: registry.k8s.io\/kube-apiserver/i\    env:\n    - name: GOMEMLIMIT\n      value: 1280MiB' /etc/kubernetes/manifests/kube-apiserver.yaml`.
 How free the node is: `docker exec shortly-control-plane free -m` (`available`).
 
+**The CI node's CPU budget.** An app's kind e2e (links' "kind e2e (platform)") runs the
+whole platform and the app on one GitHub runner: 4000m CPU allocatable. The scheduler places
+a pod only where its CPU *request* fits, and prod's canary needs room for 2 old and 2 new
+pods at 500m each. So the platform may request 755m in all: 4000m, less kind's own pods
+(950m: the API server, controller manager, scheduler, etcd, kindnet, CoreDNS), less shortly at
+its canary's peak (2045m), less 250m left free. `tests/test_cpu_budget.py` renders what the
+e2e installs and fails a PR that goes over, with each component's request in the message
+(PT-71; the ticket aims for 500m free, which needs more than the platform's own requests).
+To stay inside it, don't raise the budget: set a request to the component's peak use plus a
+margin, or lower another to make room. Peak use, a 5-minute rate over the last day, from
+Prometheus on the laptop:
+`max_over_time(sum by (namespace, container) (rate(container_cpu_usage_seconds_total{container!=""}[5m]))[1d:1m])`.
+A request reserves CPU for scheduling; it doesn't cap use (there are no CPU limits, except
+on Kyverno's reports controller): a lower one throttles nothing, and only shrinks the pod's
+share when the node's CPU is busy. Without the room the e2e fails on the app's lock PR, not
+here: the canary's last pod stays Pending, `0/1 nodes are available: 1 Insufficient cpu`
+(links #169, 10m free).
+
 Argo CD installs the platform from `deploy/argocd/platform/` in sync waves:
 
 - **Wave -2:** the platform's AppProject (`platform-project`): what the children may deploy.

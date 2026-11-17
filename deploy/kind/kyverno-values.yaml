@@ -17,9 +17,10 @@ admissionController:
     minAvailable: 1
   container:
     resources:
-      # 50m each, so the two together reserve what one did. The CI node had no CPU left to
-      # schedule the canary's pod at 2 × 100m (links #169); each one uses about 10m on the laptop.
-      requests: { cpu: 50m, memory: 128Mi }
+      # The CI node had no CPU left to schedule the canary's pod at 2 × 100m (links #169).
+      # The two together peak at 29m on the laptop (5-minute rate, a day of use, 2026-11-17):
+      # 30m each is about twice one's share, and fits the CI node's CPU budget (PT-71).
+      requests: { cpu: 30m, memory: 128Mi }
       limits: { memory: 384Mi }
 # We only validate. The background controller (generate/mutate-existing) and the cleanup
 # controller aren't used; the reports controller turns Audit results into PolicyReports.
@@ -33,5 +34,5 @@ reportsController:
   # limit throttles a latency-sensitive process even on an idle node). Without one, its
   # scans took up to 9 of the node's cores and slowed every request (DESIGN, issues).
   resources:
-    requests: { cpu: 50m, memory: 64Mi }
+    requests: { cpu: 25m, memory: 64Mi } # peak 17m on the laptop (as above; PT-71)
     limits: { cpu: 500m, memory: 256Mi }
