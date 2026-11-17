@@ -116,6 +116,13 @@ wait_synced() {
   done
   echo "FAIL: Argo CD application $app is ${state:-missing} after ${timeout}s:" >&2
   kubectl -n argocd get application "$app" -o jsonpath='{range .status.resources[?(@.status!="Synced")]}  out of sync: {.kind}/{.name}{"\n"}{end}{range .status.resources[?(@.health.status!="Healthy")]}  {.health.status}: {.kind}/{.name} {.health.message}{"\n"}{end}{range .status.conditions[*]}  {.type}: {.message}{"\n"}{end}{.status.operationState.message}{"\n"}' >&2 || true
+  # The API server's view of each resource Argo CD calls unhealthy: conditions there that
+  # Argo CD doesn't show mean its cached copy is stale (argocd-values.yaml).
+  local kind ns name
+  while IFS='|' read -r kind ns name; do
+    echo "  API server, ${kind%.}/$name: $(kubectl get "${kind%.}" "$name" ${ns:+-n "$ns"} \
+      -o jsonpath='{range .status.conditions[*]}{.type}={.status} {end}' 2>&1)" >&2
+  done < <(kubectl -n argocd get application "$app" -o jsonpath='{range .status.resources[?(@.health.status!="Healthy")]}{.kind}.{.group}|{.namespace}|{.name}{"\n"}{end}' 2>/dev/null)
   return 1
 }
 
