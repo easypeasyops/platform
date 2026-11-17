@@ -18,7 +18,7 @@
 # and the one app that is a tool, by its namespace's name (its route names the listener).
 # On a real cluster the tools would sit behind a separate, internal load balancer with SSO.
 #
-# The chart's HTTPRoute (deploy/helm/shortly/templates/httproute.yaml) attaches each release
+# The service chart's HTTPRoute (charts/service/templates/httproute.yaml) attaches each release
 # to this Gateway. In prod, Argo Rollouts shifts that route's weights during a canary.
 ---
 # How Envoy Gateway runs the proxy for this class: a NodePort Service with a fixed name and
