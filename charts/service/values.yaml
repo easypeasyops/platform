@@ -1,5 +1,6 @@
 # The platform's chart for an HTTP service. Defaults are production-shaped; an app supplies
 # its values (app, image, env...) and each environment's file overrides them.
+# values.schema.json refuses a value it doesn't list: a new value goes in both files.
 
 # The app this chart deploys. `name` is its app.kubernetes.io/name label (and so its pods'
 # selector); `partOf` is app.kubernetes.io/part-of on every pod of the chart, which the

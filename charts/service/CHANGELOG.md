@@ -7,6 +7,29 @@ an app that doesn't set it) is a major version; a new optional value is a minor 
 that changes no render an app relies on is a patch. Each release's digest is in its GitHub
 Release.
 
+## 1.7.0
+
+A values schema (`values.schema.json`, PT-73): a value the chart doesn't know now fails the
+render, naming it, where before Helm ignored it and rendered the chart without it. A typo
+such as `autoscalling:` or `gateway.hostname:` used to pass every check and quietly turn a
+feature off; now `helm template`, `helm lint`, CI and Argo CD's sync all refuse it:
+
+    at '/gateway': additional properties 'hostname' not allowed
+
+What it refuses: an unknown key in any object the chart defines (`app`, `image`,
+`autoscaling`, `database` and `database.cluster`, `redis`, `secretEnv`, `migrations`,
+`gateway`, `canary` and its `analysis`, `monitoring`, `networkPolicy`, each `workers` and
+`cronJobs` entry, each `env` entry and `canary.analysis.latencyChecks` entry), and a value
+of the wrong type there (a string where a number or a list goes, an `image.digest` that
+isn't `sha256:` and 64 hex digits). What it leaves open: `config` (an app's own settings go
+there too) and the Kubernetes objects passed through as they are (`resources`, `affinity`,
+`tolerations`, network policy peers, `autoscaling.behavior`, `database.cluster.bootstrap`):
+kubeconform checks those once rendered.
+
+A minor version: every app's values on the cluster (aipostit staging and prod, deploybot
+ops, servicemonitor ops) and app-template's render with it unchanged, and every golden is
+byte for byte the same. An app whose values carry a key the chart never read must remove it.
+
 ## 1.6.0
 
 Two new optional values, for an app that shows what Prometheus watches (PT-52, PT-53; the

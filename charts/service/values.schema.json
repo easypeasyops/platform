@@ -1,0 +1,285 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$comment": "The service chart's values (values.yaml documents each one). Every object an app sets refuses keys it doesn't know, so a misspelled value fails the render instead of being ignored. Kubernetes objects passed through as they are (resources, affinity, network policy peers...) stay open here: kubeconform checks them once rendered. `config` stays open: an app's own settings go there too. tests/test_service_values_schema.py keeps this file and values.yaml in step.",
+  "type": "object",
+  "additionalProperties": false,
+  "definitions": {
+    "object": { "type": "object" },
+    "objects": { "type": "array", "items": { "type": "object" } },
+    "strings": { "type": "array", "items": { "type": "string" } },
+    "seconds": { "type": "integer", "minimum": 0 },
+    "env": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" },
+          "value": {},
+          "when": {},
+          "secret": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "key"],
+            "properties": { "name": { "type": "string" }, "key": { "type": "string" } }
+          }
+        }
+      }
+    }
+  },
+  "properties": {
+    "app": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "name": { "type": "string" }, "partOf": { "type": "string" } }
+    },
+    "environment": { "type": "string" },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repository": { "type": "string" },
+        "digest": { "type": "string", "pattern": "^(sha256:[a-f0-9]{64})?$" },
+        "tag": { "type": "string" },
+        "pullPolicy": { "enum": ["Always", "IfNotPresent", "Never"] }
+      }
+    },
+    "imagePullSecrets": { "$ref": "#/definitions/objects" },
+    "replicaCount": { "type": "integer", "minimum": 0 },
+    "autoscaling": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "minReplicas": { "type": "integer", "minimum": 1 },
+        "maxReplicas": { "type": "integer", "minimum": 1 },
+        "targetCPUUtilizationPercentage": { "type": "integer", "minimum": 1 },
+        "maxDbConnections": { "type": "integer", "minimum": 0 },
+        "behavior": { "$ref": "#/definitions/object" }
+      }
+    },
+    "config": {
+      "type": "object",
+      "properties": {
+        "metricsPort": { "type": "integer" },
+        "dbPoolSize": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "database": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "existingSecret": { "type": "string" },
+        "secretKey": { "type": "string" },
+        "cluster": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "instances": { "type": "integer", "minimum": 1 },
+            "imageName": { "type": "string" },
+            "storage": { "type": "string" },
+            "resources": { "$ref": "#/definitions/object" },
+            "bootstrap": { "$ref": "#/definitions/object" },
+            "externalClusters": { "$ref": "#/definitions/objects" },
+            "backup": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "schedule": { "type": "string" },
+                "retention": { "type": "string" },
+                "endpointURL": { "type": "string" },
+                "destinationPath": { "type": "string" },
+                "secretStore": { "type": "string" },
+                "remoteSecret": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "redis": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "image": { "type": "string" },
+        "storage": { "type": "string" },
+        "maxMemory": { "type": "string" },
+        "resources": { "$ref": "#/definitions/object" }
+      }
+    },
+    "otel": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "endpoint": { "type": "string" } }
+    },
+    "env": { "$ref": "#/definitions/env" },
+    "secretEnv": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "store": { "type": "string" },
+        "remoteKey": { "type": "string" },
+        "refreshInterval": { "type": "string" }
+      }
+    },
+    "migrations": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "backoffLimit": { "type": "integer", "minimum": 0 },
+        "activeDeadlineSeconds": { "$ref": "#/definitions/seconds" },
+        "command": { "$ref": "#/definitions/strings" },
+        "resources": { "$ref": "#/definitions/object" }
+      }
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "enum": ["ClusterIP", "NodePort", "LoadBalancer"] },
+        "port": { "type": "integer" }
+      }
+    },
+    "gateway": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "name": { "type": "string" },
+        "namespace": { "type": "string" },
+        "sectionName": { "type": "string" },
+        "hostnames": { "$ref": "#/definitions/strings" }
+      }
+    },
+    "canary": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "weights": { "type": "array", "items": { "type": "integer", "minimum": 1, "maximum": 99 } },
+        "progressDeadlineSeconds": { "$ref": "#/definitions/seconds" },
+        "rollbackWindow": { "type": "integer", "minimum": 0 },
+        "pauseWithoutAnalysis": { "type": "string" },
+        "analysis": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "prometheusUrl": { "type": "string" },
+            "initialDelay": { "type": "string" },
+            "interval": { "type": "string" },
+            "count": { "type": "integer", "minimum": 1 },
+            "minRequestRate": { "type": "number" },
+            "maxErrorRatio": { "type": "number" },
+            "latencyChecks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "selector", "maxP99Seconds"],
+                "properties": {
+                  "name": { "type": "string" },
+                  "selector": { "type": "string" },
+                  "maxP99Seconds": { "type": "number" },
+                  "failureLimit": { "type": "integer", "minimum": 0 }
+                }
+              }
+            },
+            "syntheticTraffic": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "rate": { "type": "number" },
+                "image": { "type": "string" },
+                "url": { "type": "string" },
+                "script": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "resources": { "$ref": "#/definitions/object" },
+    "preStopSleepSeconds": { "$ref": "#/definitions/seconds" },
+    "terminationGracePeriodSeconds": { "$ref": "#/definitions/seconds" },
+    "podDisruptionBudget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "minAvailable": { "type": ["integer", "string"] }
+      }
+    },
+    "monitoring": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "scrapeInterval": { "type": "string" },
+        "clusterWide": { "type": "boolean" },
+        "rules": { "type": "object", "additionalProperties": { "type": "string" } },
+        "dashboards": { "type": "object", "additionalProperties": { "type": "string" } },
+        "sloDashboard": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "enabled": { "type": "boolean" }, "runbookUrl": { "type": "string" } }
+        }
+      }
+    },
+    "rbac": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "clusterRead": { "type": "boolean" } }
+    },
+    "nodeSelector": { "$ref": "#/definitions/object" },
+    "tolerations": { "$ref": "#/definitions/objects" },
+    "affinity": { "$ref": "#/definitions/object" },
+    "cronJobs": {
+      "type": "object",
+      "additionalProperties": {
+        "type": ["object", "null"],
+        "additionalProperties": false,
+        "properties": {
+          "schedule": { "type": "string" },
+          "command": { "$ref": "#/definitions/strings" },
+          "activeDeadlineSeconds": { "$ref": "#/definitions/seconds" },
+          "resources": { "$ref": "#/definitions/object" },
+          "env": { "$ref": "#/definitions/env" }
+        }
+      }
+    },
+    "workers": {
+      "type": "object",
+      "additionalProperties": {
+        "type": ["object", "null"],
+        "additionalProperties": false,
+        "properties": {
+          "command": { "$ref": "#/definitions/strings" },
+          "replicas": { "type": "integer", "minimum": 0 },
+          "resources": { "$ref": "#/definitions/object" },
+          "terminationGracePeriodSeconds": { "$ref": "#/definitions/seconds" },
+          "env": { "$ref": "#/definitions/env" }
+        }
+      }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "httpFrom": { "$ref": "#/definitions/objects" },
+        "metricsFrom": { "$ref": "#/definitions/objects" },
+        "databaseTo": { "$ref": "#/definitions/objects" },
+        "databasePort": { "type": "integer" },
+        "apiServerTo": { "$ref": "#/definitions/objects" },
+        "apiServerPort": { "type": "integer" },
+        "extraEgress": { "$ref": "#/definitions/objects" }
+      }
+    }
+  }
+}
