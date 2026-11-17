@@ -67,7 +67,7 @@ def test_the_first_week_is_drawn_with_nothing_to_compare(github: GitHub) -> None
         ("Operability and automation", "4.0", False),
         ("Supply-chain security", "4.5", False),
     ]
-    assert "first week, nothing to compare yet" in panel()
+    assert "first scoring, nothing to compare yet" in panel()
 
 
 def test_the_newest_week_is_drawn_over_last_week_s_dashed_shape(github: GitHub) -> None:
@@ -83,8 +83,8 @@ def test_the_newest_week_is_drawn_over_last_week_s_dashed_shape(github: GitHub) 
     assert view["axes"][1]["last"] == "2.5"
     text = panel()
     assert '<polygon class="last" points="' in text
-    assert "Platform Radar · week of 2026-11-23 · commit abc1234" in text
-    assert "week of 2026-11-16: 3.67 (grey dashed shape)" in text
+    assert "Platform Radar · scored 2026-11-23 · commit abc1234" in text
+    assert "scored 2026-11-16: 3.67 (grey dashed shape)" in text
 
 
 def test_a_week_before_without_every_axis_is_not_drawn(github: GitHub) -> None:
@@ -101,10 +101,10 @@ def test_a_screen_reader_gets_the_list_not_the_drawing(github: GitHub) -> None:
     assert re.search(r'<svg [^>]*aria-hidden="true"', text)
     items = [text_of(li) for li in re.findall(r"<li>.*?</li>", text)]
     assert items[:2] == [
-        "Developer experience 3.0 below 4 , the week before: 3.0",
-        "Reliability and recovery 3.5 below 4 , the week before: 2.5",
+        "Developer experience 3.0 below 4 , the scoring before: 3.0",
+        "Reliability and recovery 3.5 below 4 , the scoring before: 2.5",
     ]
-    assert items[-1] == "Supply-chain security 4.5 at target , the week before: 4.5"
+    assert items[-1] == "Supply-chain security 4.5 at target , the scoring before: 4.5"
     assert 'href="https://claude.ai/artifact/VemWi4hrxxuzhJf1L9rLuL">Full radar ↗</a>' in text
 
 

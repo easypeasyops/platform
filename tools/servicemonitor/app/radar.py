@@ -2,7 +2,7 @@
 measures, read from docs/radar/scores.json on `main` (docs/radar/README.md), so a week
 merged there shows here within the hour, without a release.
 
-The newest week is drawn as a radar over the target ring at 4, with the week before it
+The newest scoring is drawn as a radar over the target ring at 4, with the one before it
 dashed, and listed weakest first, each axis at target or below 4. The list is what a screen
 reader gets; the drawing, the same numbers, is hidden from it.
 
