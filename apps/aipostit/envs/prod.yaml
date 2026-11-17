@@ -6,8 +6,8 @@ env: prod
 # only to a released digest whose provenance verifies (the release's notes say how); move
 # staging's first. 1.2.1 is the first with workers, redis and secretEnv.
 chart:
-  version: 1.6.0
-  digest: sha256:df51161143266cc5d10dc92148e1baae931d5c65adfa7a46ecba8e5ef866f8ff
+  version: 1.7.1
+  digest: sha256:11a7ca25f34cd7a16bf2fbd4a5ad86e3bbc556f19f9ab236e1c2b05f50fb6a7f
 # aipostit's values, from hotel_social_posts at this revision, layered in this order.
 values:
   repoURL: https://github.com/easypeasyops/hotel_social_posts.git
