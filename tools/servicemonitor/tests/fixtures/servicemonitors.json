@@ -6,6 +6,9 @@
       "apiVersion": "monitoring.coreos.com/v1",
       "kind": "ServiceMonitor",
       "metadata": {
+        "annotations": {
+          "argocd.argoproj.io/tracking-id": "aipostit-prod:monitoring.coreos.com/ServiceMonitor:aipostit-prod/aipostit"
+        },
         "name": "aipostit",
         "namespace": "aipostit-prod"
       },
@@ -32,6 +35,9 @@
       "apiVersion": "monitoring.coreos.com/v1",
       "kind": "ServiceMonitor",
       "metadata": {
+        "annotations": {
+          "argocd.argoproj.io/tracking-id": "platform:monitoring.coreos.com/ServiceMonitor:argocd/kyverno"
+        },
         "name": "kyverno",
         "namespace": "argocd"
       },
@@ -59,6 +65,9 @@
       "apiVersion": "monitoring.coreos.com/v1",
       "kind": "ServiceMonitor",
       "metadata": {
+        "annotations": {
+          "argocd.argoproj.io/tracking-id": "monitoring:monitoring.coreos.com/ServiceMonitor:monitoring/kps-alertmanager"
+        },
         "name": "kps-alertmanager",
         "namespace": "monitoring"
       },

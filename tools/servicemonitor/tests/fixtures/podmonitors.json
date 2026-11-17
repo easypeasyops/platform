@@ -6,6 +6,9 @@
       "apiVersion": "monitoring.coreos.com/v1",
       "kind": "PodMonitor",
       "metadata": {
+        "annotations": {
+          "argocd.argoproj.io/tracking-id": "platform:monitoring.coreos.com/PodMonitor:argocd/cloudnative-pg"
+        },
         "name": "cloudnative-pg",
         "namespace": "argocd"
       },
