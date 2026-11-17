@@ -1,6 +1,6 @@
 [project]
 name = "servicemonitor"
-version = "0.2.1"
+version = "0.3.0"
 description = "Shows whether Prometheus sees every app and platform tool"
 requires-python = ">=3.15,<3.16"
 dependencies = [
