@@ -1,0 +1,113 @@
+# The Overview's platform components: one line each, in this order (app/components.py
+# loads and checks this file at startup; a mistake stops the app with what is wrong).
+#
+# name       What the line says.
+# monitors   Its monitors, as Kind/namespace/name; `*` matches any run of characters
+#            (the front door gets a Probe per hostname). One that matches nothing shows
+#            "monitor not found" and marks the line Down.
+# alerts     Its alerts, by alert name; `*` as above. The platform's rule files
+#            (deploy/argocd/platform/files/*-rules.yaml) and kube-prometheus-stack's own.
+# dashboard  A Grafana dashboard's UID, if it has one (under GRAFANA_LINK_URL).
+# queries    PromQL, each answering one number (one series), by a name `signal` uses.
+# signal     The line's key signal: a Python format string over the queries' numbers.
+# empty      What the line says when a query answers no series because there is
+#            nothing to measure. Without it, no series is unknown.
+
+[[component]]
+name = "Argo CD"
+monitors = [
+    "ServiceMonitor/argocd/argocd-application-controller",
+    "ServiceMonitor/argocd/argocd-applicationset-controller",
+    "ServiceMonitor/argocd/argocd-repo-server",
+]
+alerts = ["ArgoCD*"]
+signal = "{out_of_sync:.0f} of {applications:.0f} Applications out of sync"
+[component.queries]
+out_of_sync = 'count(argocd_app_info{sync_status!="Synced"}) or vector(0)'
+applications = 'count(argocd_app_info)'
+
+[[component]]
+name = "Front door"
+monitors = [
+    "ServiceMonitor/argocd/envoy-gateway",
+    "PodMonitor/argocd/envoy-proxy",
+    "Probe/argocd/front-door-*",
+]
+alerts = ["FrontDoor*"]
+dashboard = "front-door"
+signal = "{answering:.0f}/{hostnames:.0f} hostnames answer through it"
+[component.queries]
+# The dashboard's "Probe result" panel, now: 1 for a hostname that answers.
+answering = 'sum(max by (hostname, listener) (probe_success{job="front-door"}))'
+hostnames = 'count(max by (hostname, listener) (probe_success{job="front-door"}))'
+
+[[component]]
+name = "Kyverno"
+monitors = ["ServiceMonitor/argocd/kyverno"]
+alerts = ["Kyverno*", "ProvenanceCanaryFailing"]
+signal = "{checked:.0f} images checked for provenance in 1 h, {refused:.0f} refused or errored"
+[component.queries]
+checked = 'sum(increase(kyverno_image_validating_policy_results_total{policy_name="require-release-provenance"}[1h]))'
+refused = 'sum(increase(kyverno_image_validating_policy_results_total{policy_name="require-release-provenance",result!="pass"}[1h])) or vector(0)'
+
+[[component]]
+name = "CloudNativePG"
+monitors = ["PodMonitor/argocd/cloudnative-pg"]
+alerts = ["CloudNativePGOperatorDown", "DatabaseBackupTooOld"]
+signal = "newest database backup {hours:.0f} h old"
+empty = "no databases"
+[component.queries]
+# Exported by a database's backup plugin: none until an app runs a database.
+hours = '(time() - max(barman_cloud_cloudnative_pg_io_last_available_backup_timestamp)) / 3600'
+
+[[component]]
+name = "Argo Rollouts"
+monitors = ["ServiceMonitor/argocd/argo-rollouts"]
+alerts = ["ArgoRollouts*", "Canary*"]
+signal = "{healthy:.0f}/{rollouts:.0f} Rollouts healthy"
+empty = "no Rollouts"
+[component.queries]
+healthy = 'count(rollout_info{phase="Healthy"}) or vector(0)'
+rollouts = 'count(rollout_info)'
+
+[[component]]
+name = "cert-manager"
+monitors = ["ServiceMonitor/cert-manager/cert-manager"]
+alerts = ["CertManagerDown", "Certificate*"]
+signal = "{ready:.0f}/{certificates:.0f} certificates ready"
+[component.queries]
+ready = 'sum(certmanager_certificate_ready_status{condition="True"})'
+certificates = 'count(certmanager_certificate_ready_status{condition="True"})'
+
+[[component]]
+name = "External Secrets"
+monitors = ["ServiceMonitor/external-secrets/external-secrets-*"]
+alerts = ["ExternalSecret*"]
+signal = "{ready:.0f}/{secrets:.0f} ExternalSecrets synced"
+[component.queries]
+ready = 'sum(externalsecret_status_condition{condition="Ready",status="True"})'
+secrets = 'count(externalsecret_status_condition{condition="Ready",status="True"})'
+
+[[component]]
+name = "Prometheus stack"
+monitors = [
+    "ServiceMonitor/monitoring/kps-prometheus",
+    "ServiceMonitor/monitoring/kps-alertmanager",
+    "ServiceMonitor/monitoring/kps-operator",
+    "ServiceMonitor/monitoring/kube-state-metrics",
+]
+# Prometheus* has PrometheusOperator* and the platform's PrometheusMissingRuleEvaluations.
+alerts = ["Prometheus*", "Alertmanager*", "KubeStateMetrics*", "ConfigReloaderSidecarErrors"]
+dashboard = "9fa0d141-d019-4ad7-8bc5-42196ee308bd" # Prometheus / Overview
+signal = "{failed:.0f} rule evaluations failed in 15 min"
+[component.queries]
+failed = 'sum(increase(prometheus_rule_evaluation_failures_total{job="kps-prometheus"}[15m]))'
+
+[[component]]
+name = "Grafana"
+monitors = ["ServiceMonitor/monitoring/grafana"]
+alerts = [] # no rule is about Grafana; its hostname's probe is the front door's
+dashboard = "6be0s85Mk" # Grafana Overview
+signal = "{dashboards:.0f} dashboards"
+[component.queries]
+dashboards = 'max(grafana_stat_totals_dashboard{job="grafana"})'

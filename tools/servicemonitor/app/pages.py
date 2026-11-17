@@ -7,12 +7,14 @@ A monitor has a problem when it has a target that isn't up, no target at all, or
 nobody knows (Prometheus never answered): unknown is never shown as healthy. So does one
 with an alert firing on a job it scrapes, or an SLO with no error budget left. An alert
 that is only in a namespace it scrapes is shown, dimmed, and is not the monitor's problem.
-The Overview's tiles are marked by the same rules, over each namespace's rows.
+The Overview's tiles are marked by the same rules, over each namespace's rows, and so are
+its platform components' lines, over their monitors' rows and their own alerts.
 """
 
 import json
 import os
 from datetime import datetime
+from fnmatch import fnmatchcase
 from typing import Any
 from urllib.parse import quote, urlencode
 
@@ -284,20 +286,29 @@ def view(
     }
 
 
+def _mark(down: bool, alerting: bool, known: bool) -> tuple[str, str]:
+    """A tile's or a component's word and tone: Down wins over Alert, Alert over Unknown,
+    and Healthy only when everything is known."""
+    if down:
+        return "Down", "down"
+    if alerting:
+        return "Alert", "warn"
+    if not known:
+        return "Unknown", "unknown"
+    return "Healthy", "ok"
+
+
 def _tile(ns: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any]:
     """A namespace on the Overview: its tile, marked by its worst monitor, and a square for
     each of its targets. What the page doesn't know is unknown, never healthy."""
     targets_known = all(row["tone"] != "unknown" for row in rows)
     alerts_known = all(row["alerts"] is not None for row in rows)
     budgets_known = all(row["slo"] is not None for row in rows)
-    if any(row["tone"] in ("down", "warn") for row in rows):  # a target down, or none
-        word, tone = "Down", "down"
-    elif any(row["alerting"] for row in rows):
-        word, tone = "Alert", "warn"
-    elif not (targets_known and alerts_known and budgets_known):
-        word, tone = "Unknown", "unknown"
-    else:
-        word, tone = "Healthy", "ok"
+    word, tone = _mark(
+        any(row["tone"] in ("down", "warn") for row in rows),  # a target down, or none
+        any(row["alerting"] for row in rows),
+        targets_known and alerts_known and budgets_known,
+    )
 
     targets = [t for row in rows for t in row["targets"]]
     facts = ["targets unknown"]
@@ -343,11 +354,63 @@ def _tile(ns: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def overview(model: dict[str, Any], status: dict[str, Any], now: datetime) -> dict[str, Any]:
-    """The Overview tab: every namespace as a tile and as a row of squares."""
-    namespaces = _namespaces(model, status, now)
+def _component(
+    component: dict[str, Any], rows: list[dict[str, Any]], firing: list[dict[str, Any]] | None
+) -> dict[str, Any]:
+    """A platform component's line (app/components.py): its monitors' rows by their
+    Kind/namespace/name, the firing alerts with one of its names, and its signal."""
+    mine = [row for row in rows if any(fnmatchcase(row["id"], m) for m in component["monitors"])]
+    missing = [
+        m for m in component["monitors"] if not any(fnmatchcase(row["id"], m) for row in rows)
+    ]
+    alerts = firing and [
+        {"name": alert["name"], "href": PROMETHEUS + alert["prometheus_path"]}
+        for alert in firing
+        if any(fnmatchcase(alert["name"], name) for name in component["alerts"])
+    ]
+    targets_known = all(row["tone"] != "unknown" for row in mine)
+    reading = component["reading"]
+    word, tone = _mark(
+        bool(missing) or any(row["tone"] in ("down", "warn") for row in mine),
+        bool(alerts),
+        targets_known and alerts is not None and reading["error"] is None,
+    )
+    targets = [t for row in mine for t in row["targets"]]
     return {
-        **_shell(model, status, [row for _, rows in namespaces for row in rows]),
+        "name": component["name"],
+        "word": word,
+        "tone": tone,
+        "targets": f"{sum(t['health'] == 'up' for t in targets)}/{len(targets)} up"
+        if targets_known
+        else "targets unknown",
+        "missing": missing,
+        "alerts": alerts,
+        "signal": reading["text"],
+        "error": reading["error"],
+        "dashboard": f"{GRAFANA}/d/{component['dashboard']}" if "dashboard" in component else None,
+    }
+
+
+def overview(
+    model: dict[str, Any],
+    status: dict[str, Any],
+    components: list[dict[str, Any]],
+    now: datetime,
+) -> dict[str, Any]:
+    """The Overview tab: every namespace as a tile and as a row of squares, and each
+    platform component as a line."""
+    namespaces = _namespaces(model, status, now)
+    every = [row for _, rows in namespaces for row in rows]
+    # Every alert firing, once: the monitors' rows share the ones of their namespace.
+    firing = None
+    if status["unattached"] is not None:
+        alerts = [a for ns in status["namespaces"] for m in ns["monitors"] for a in m["alerts"]]
+        firing = list(
+            {tuple(sorted(a["labels"].items())): a for a in alerts + status["unattached"]}.values()
+        )
+    return {
+        **_shell(model, status, every),
         "tab": "overview",
         "namespaces": [_tile(ns, rows) for ns, rows in namespaces],
+        "components": [_component(c, every, firing) for c in components],
     }

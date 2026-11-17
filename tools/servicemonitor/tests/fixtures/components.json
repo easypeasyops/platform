@@ -1,0 +1,2309 @@
+{
+ "namespaces": {
+  "items": [
+   {
+    "metadata": {
+     "name": "aipostit-prod",
+     "labels": {
+      "easypeasyops.github.io/app": "aipostit",
+      "easypeasyops.github.io/env": "prod"
+     }
+    }
+   },
+   {
+    "metadata": {
+     "name": "aipostit-staging",
+     "labels": {
+      "easypeasyops.github.io/app": "aipostit",
+      "easypeasyops.github.io/env": "staging"
+     }
+    }
+   },
+   {
+    "metadata": {
+     "name": "argo-rollouts",
+     "labels": {}
+    }
+   },
+   {
+    "metadata": {
+     "name": "argocd",
+     "labels": {}
+    }
+   },
+   {
+    "metadata": {
+     "name": "backups",
+     "labels": {}
+    }
+   },
+   {
+    "metadata": {
+     "name": "cert-manager",
+     "labels": {}
+    }
+   },
+   {
+    "metadata": {
+     "name": "cnpg-system",
+     "labels": {}
+    }
+   },
+   {
+    "metadata": {
+     "name": "default",
+     "labels": {}
+    }
+   },
+   {
+    "metadata": {
+     "name": "deploybot-ops",
+     "labels": {
+      "easypeasyops.github.io/app": "deploybot",
+      "easypeasyops.github.io/env": "ops"
+     }
+    }
+   },
+   {
+    "metadata": {
+     "name": "envoy-gateway-system",
+     "labels": {}
+    }
+   },
+   {
+    "metadata": {
+     "name": "event-exporter",
+     "labels": {}
+    }
+   },
+   {
+    "metadata": {
+     "name": "external-secrets",
+     "labels": {}
+    }
+   },
+   {
+    "metadata": {
+     "name": "gateway",
+     "annotations": {
+      "argocd.argoproj.io/tracking-id": "gateway:/Namespace:gateway/gateway"
+     },
+     "labels": {}
+    }
+   },
+   {
+    "metadata": {
+     "name": "kube-node-lease",
+     "labels": {}
+    }
+   },
+   {
+    "metadata": {
+     "name": "kube-public",
+     "labels": {}
+    }
+   },
+   {
+    "metadata": {
+     "name": "kube-system",
+     "labels": {}
+    }
+   },
+   {
+    "metadata": {
+     "name": "kyverno",
+     "labels": {}
+    }
+   },
+   {
+    "metadata": {
+     "name": "local-path-storage",
+     "labels": {}
+    }
+   },
+   {
+    "metadata": {
+     "name": "log-collector",
+     "labels": {}
+    }
+   },
+   {
+    "metadata": {
+     "name": "monitoring",
+     "labels": {}
+    }
+   },
+   {
+    "metadata": {
+     "name": "node-exporter",
+     "labels": {}
+    }
+   },
+   {
+    "metadata": {
+     "name": "provenance-canary",
+     "labels": {
+      "easypeasyops.github.io/app": "shortly"
+     }
+    }
+   },
+   {
+    "metadata": {
+     "name": "secret-store",
+     "labels": {}
+    }
+   },
+   {
+    "metadata": {
+     "name": "servicemonitor-ops",
+     "labels": {
+      "easypeasyops.github.io/app": "servicemonitor",
+      "easypeasyops.github.io/env": "ops"
+     }
+    }
+   }
+  ]
+ },
+ "servicemonitors": {
+  "items": [
+   {
+    "metadata": {
+     "name": "aipostit",
+     "namespace": "aipostit-prod",
+     "annotations": {
+      "argocd.argoproj.io/tracking-id": "aipostit-prod:monitoring.coreos.com/ServiceMonitor:aipostit-prod/aipostit"
+     }
+    },
+    "spec": {
+     "endpoints": [
+      {
+       "interval": "15s",
+       "path": "/metrics",
+       "port": "metrics"
+      }
+     ],
+     "podTargetLabels": [
+      "rollouts-pod-template-hash"
+     ],
+     "selector": {
+      "matchLabels": {
+       "app.kubernetes.io/instance": "aipostit",
+       "app.kubernetes.io/name": "aipostit"
+      }
+     }
+    }
+   },
+   {
+    "metadata": {
+     "name": "aipostit",
+     "namespace": "aipostit-staging",
+     "annotations": {
+      "argocd.argoproj.io/tracking-id": "aipostit-staging:monitoring.coreos.com/ServiceMonitor:aipostit-staging/aipostit"
+     }
+    },
+    "spec": {
+     "endpoints": [
+      {
+       "interval": "15s",
+       "path": "/metrics",
+       "port": "metrics"
+      }
+     ],
+     "podTargetLabels": [
+      "rollouts-pod-template-hash"
+     ],
+     "selector": {
+      "matchLabels": {
+       "app.kubernetes.io/instance": "aipostit",
+       "app.kubernetes.io/name": "aipostit"
+      }
+     }
+    }
+   },
+   {
+    "metadata": {
+     "name": "argo-rollouts",
+     "namespace": "argocd",
+     "annotations": {
+      "argocd.argoproj.io/tracking-id": "platform:monitoring.coreos.com/ServiceMonitor:argocd/argo-rollouts"
+     }
+    },
+    "spec": {
+     "endpoints": [
+      {
+       "interval": "30s",
+       "port": "metrics"
+      }
+     ],
+     "jobLabel": "app.kubernetes.io/name",
+     "namespaceSelector": {
+      "matchNames": [
+       "argo-rollouts"
+      ]
+     },
+     "selector": {
+      "matchLabels": {
+       "app.kubernetes.io/component": "rollouts-controller",
+       "app.kubernetes.io/name": "argo-rollouts"
+      }
+     }
+    }
+   },
+   {
+    "metadata": {
+     "name": "argocd-application-controller",
+     "namespace": "argocd",
+     "annotations": {
+      "argocd.argoproj.io/tracking-id": "platform:monitoring.coreos.com/ServiceMonitor:argocd/argocd-application-controller"
+     }
+    },
+    "spec": {
+     "endpoints": [
+      {
+       "interval": "30s",
+       "port": "http-metrics"
+      }
+     ],
+     "selector": {
+      "matchLabels": {
+       "app.kubernetes.io/component": "application-controller",
+       "app.kubernetes.io/name": "argocd-metrics"
+      }
+     }
+    }
+   },
+   {
+    "metadata": {
+     "name": "argocd-applicationset-controller",
+     "namespace": "argocd",
+     "annotations": {
+      "argocd.argoproj.io/tracking-id": "platform:monitoring.coreos.com/ServiceMonitor:argocd/argocd-applicationset-controller"
+     }
+    },
+    "spec": {
+     "endpoints": [
+      {
+       "interval": "30s",
+       "port": "http-metrics"
+      }
+     ],
+     "selector": {
+      "matchLabels": {
+       "app.kubernetes.io/component": "applicationset-controller",
+       "app.kubernetes.io/name": "argocd-metrics"
+      }
+     }
+    }
+   },
+   {
+    "metadata": {
+     "name": "argocd-repo-server",
+     "namespace": "argocd",
+     "annotations": {
+      "argocd.argoproj.io/tracking-id": "platform:monitoring.coreos.com/ServiceMonitor:argocd/argocd-repo-server"
+     }
+    },
+    "spec": {
+     "endpoints": [
+      {
+       "interval": "30s",
+       "port": "http-metrics"
+      }
+     ],
+     "selector": {
+      "matchLabels": {
+       "app.kubernetes.io/component": "repo-server",
+       "app.kubernetes.io/name": "argocd-repo-server-metrics"
+      }
+     }
+    }
+   },
+   {
+    "metadata": {
+     "name": "envoy-gateway",
+     "namespace": "argocd",
+     "annotations": {
+      "argocd.argoproj.io/tracking-id": "platform:monitoring.coreos.com/ServiceMonitor:argocd/envoy-gateway"
+     }
+    },
+    "spec": {
+     "endpoints": [
+      {
+       "interval": "30s",
+       "port": "metrics"
+      }
+     ],
+     "namespaceSelector": {
+      "matchNames": [
+       "envoy-gateway-system"
+      ]
+     },
+     "selector": {
+      "matchLabels": {
+       "control-plane": "envoy-gateway"
+      }
+     }
+    }
+   },
+   {
+    "metadata": {
+     "name": "kyverno",
+     "namespace": "argocd",
+     "annotations": {
+      "argocd.argoproj.io/tracking-id": "platform:monitoring.coreos.com/ServiceMonitor:argocd/kyverno"
+     }
+    },
+    "spec": {
+     "endpoints": [
+      {
+       "interval": "30s",
+       "port": "metrics-port"
+      }
+     ],
+     "namespaceSelector": {
+      "matchNames": [
+       "kyverno"
+      ]
+     },
+     "selector": {
+      "matchLabels": {
+       "app.kubernetes.io/instance": "kyverno",
+       "app.kubernetes.io/part-of": "kyverno"
+      }
+     }
+    }
+   },
+   {
+    "metadata": {
+     "name": "cert-manager",
+     "namespace": "cert-manager",
+     "annotations": {
+      "argocd.argoproj.io/tracking-id": "platform:monitoring.coreos.com/ServiceMonitor:cert-manager/cert-manager"
+     }
+    },
+    "spec": {
+     "endpoints": [
+      {
+       "interval": "60s",
+       "port": "http-metrics"
+      }
+     ],
+     "selector": {
+      "matchLabels": {
+       "app.kubernetes.io/component": "controller",
+       "app.kubernetes.io/name": "cert-manager"
+      }
+     }
+    }
+   },
+   {
+    "metadata": {
+     "name": "external-secrets-cert-controller-metrics",
+     "namespace": "external-secrets",
+     "annotations": {
+      "argocd.argoproj.io/tracking-id": "external-secrets:monitoring.coreos.com/ServiceMonitor:external-secrets/external-secrets-cert-controller-metrics"
+     }
+    },
+    "spec": {
+     "endpoints": [
+      {
+       "honorLabels": false,
+       "interval": "30s",
+       "port": "metrics",
+       "scrapeTimeout": "25s"
+      }
+     ],
+     "namespaceSelector": {
+      "matchNames": [
+       "external-secrets"
+      ]
+     },
+     "selector": {
+      "matchLabels": {
+       "app.kubernetes.io/instance": "external-secrets",
+       "app.kubernetes.io/metrics": "cert-controller",
+       "app.kubernetes.io/name": "external-secrets-cert-controller"
+      }
+     }
+    }
+   },
+   {
+    "metadata": {
+     "name": "external-secrets-metrics",
+     "namespace": "external-secrets",
+     "annotations": {
+      "argocd.argoproj.io/tracking-id": "external-secrets:monitoring.coreos.com/ServiceMonitor:external-secrets/external-secrets-metrics"
+     }
+    },
+    "spec": {
+     "endpoints": [
+      {
+       "honorLabels": false,
+       "interval": "30s",
+       "port": "metrics",
+       "scrapeTimeout": "25s"
+      }
+     ],
+     "namespaceSelector": {
+      "matchNames": [
+       "external-secrets"
+      ]
+     },
+     "selector": {
+      "matchLabels": {
+       "app.kubernetes.io/instance": "external-secrets",
+       "app.kubernetes.io/name": "external-secrets"
+      }
+     }
+    }
+   },
+   {
+    "metadata": {
+     "name": "external-secrets-webhook-metrics",
+     "namespace": "external-secrets",
+     "annotations": {
+      "argocd.argoproj.io/tracking-id": "external-secrets:monitoring.coreos.com/ServiceMonitor:external-secrets/external-secrets-webhook-metrics"
+     }
+    },
+    "spec": {
+     "endpoints": [
+      {
+       "honorLabels": false,
+       "interval": "30s",
+       "port": "metrics",
+       "scrapeTimeout": "25s"
+      }
+     ],
+     "namespaceSelector": {
+      "matchNames": [
+       "external-secrets"
+      ]
+     },
+     "selector": {
+      "matchLabels": {
+       "app.kubernetes.io/instance": "external-secrets",
+       "app.kubernetes.io/metrics": "webhook",
+       "app.kubernetes.io/name": "external-secrets-webhook"
+      }
+     }
+    }
+   },
+   {
+    "metadata": {
+     "name": "grafana",
+     "namespace": "monitoring",
+     "annotations": {
+      "argocd.argoproj.io/tracking-id": "monitoring:monitoring.coreos.com/ServiceMonitor:monitoring/grafana"
+     }
+    },
+    "spec": {
+     "endpoints": [
+      {
+       "honorLabels": true,
+       "path": "/metrics",
+       "port": "http-web",
+       "scheme": "http"
+      }
+     ],
+     "jobLabel": "monitoring",
+     "namespaceSelector": {
+      "matchNames": [
+       "monitoring"
+      ]
+     },
+     "selector": {
+      "matchLabels": {
+       "app.kubernetes.io/instance": "monitoring",
+       "app.kubernetes.io/name": "grafana"
+      }
+     }
+    }
+   },
+   {
+    "metadata": {
+     "name": "kps-alertmanager",
+     "namespace": "monitoring",
+     "annotations": {
+      "argocd.argoproj.io/tracking-id": "monitoring:monitoring.coreos.com/ServiceMonitor:monitoring/kps-alertmanager"
+     }
+    },
+    "spec": {
+     "endpoints": [
+      {
+       "enableHttp2": true,
+       "path": "/metrics",
+       "port": "http-web"
+      },
+      {
+       "path": "/metrics",
+       "port": "reloader-web"
+      }
+     ],
+     "namespaceSelector": {
+      "matchNames": [
+       "monitoring"
+      ]
+     },
+     "selector": {
+      "matchLabels": {
+       "app": "kube-prometheus-stack-alertmanager",
+       "release": "monitoring",
+       "self-monitor": "true"
+      }
+     }
+    }
+   },
+   {
+    "metadata": {
+     "name": "kps-apiserver",
+     "namespace": "monitoring",
+     "annotations": {
+      "argocd.argoproj.io/tracking-id": "monitoring:monitoring.coreos.com/ServiceMonitor:monitoring/kps-apiserver"
+     }
+    },
+    "spec": {
+     "endpoints": [
+      {
+       "authorization": {
+        "credentials": {
+         "key": "token",
+         "name": "kps-prometheus-token"
+        },
+        "type": "Bearer"
+       },
+       "metricRelabelings": [
+        {
+         "action": "drop",
+         "regex": "(etcd_request|apiserver_request_slo|apiserver_request_sli|apiserver_request)_duration_seconds_bucket;(0\\.15|0\\.2|0\\.3|0\\.35|0\\.4|0\\.45|0\\.6|0\\.7|0\\.8|0\\.9|1\\.25|1\\.5|1\\.75|2|3|3\\.5|4|4\\.5|6|7|8|9|15|20|40|45|50)(\\.0)?",
+         "sourceLabels": [
+          "__name__",
+          "le"
+         ]
+        },
+        {
+         "action": "drop",
+         "regex": "(apiserver_request_body_size_bytes|apiserver_request_duration_seconds|apiserver_response_sizes|apiserver_storage_list_duration_seconds|apiserver_watch_cache_initialization_duration_seconds|apiserver_watch_cache_read_wait_seconds|apiserver_watch_events_dispatch_duration_seconds|apiserver_watch_events_sizes|apiserver_watch_list_duration_seconds|etcd_request_duration_seconds)_bucket",
+         "sourceLabels": [
+          "__name__"
+         ]
+        }
+       ],
+       "port": "https",
+       "scheme": "https",
+       "tlsConfig": {
+        "ca": {
+         "configMap": {
+          "key": "ca.crt",
+          "name": "kube-root-ca.crt"
+         }
+        },
+        "insecureSkipVerify": false,
+        "serverName": "kubernetes"
+       }
+      }
+     ],
+     "jobLabel": "component",
+     "namespaceSelector": {
+      "matchNames": [
+       "default"
+      ]
+     },
+     "selector": {
+      "matchLabels": {
+       "component": "apiserver",
+       "provider": "kubernetes"
+      }
+     }
+    }
+   },
+   {
+    "metadata": {
+     "name": "kps-coredns",
+     "namespace": "monitoring",
+     "annotations": {
+      "argocd.argoproj.io/tracking-id": "monitoring:monitoring.coreos.com/ServiceMonitor:monitoring/kps-coredns"
+     }
+    },
+    "spec": {
+     "endpoints": [
+      {
+       "authorization": {
+        "credentials": {
+         "key": "token",
+         "name": "kps-prometheus-token"
+        },
+        "type": "Bearer"
+       },
+       "port": "http-metrics"
+      }
+     ],
+     "jobLabel": "jobLabel",
+     "namespaceSelector": {
+      "matchNames": [
+       "kube-system"
+      ]
+     },
+     "selector": {
+      "matchLabels": {
+       "app": "kube-prometheus-stack-coredns",
+       "release": "monitoring"
+      }
+     }
+    }
+   },
+   {
+    "metadata": {
+     "name": "kps-kubelet",
+     "namespace": "monitoring",
+     "annotations": {
+      "argocd.argoproj.io/tracking-id": "monitoring:monitoring.coreos.com/ServiceMonitor:monitoring/kps-kubelet"
+     }
+    },
+    "spec": {
+     "attachMetadata": {
+      "node": false
+     },
+     "endpoints": [
+      {
+       "authorization": {
+        "credentials": {
+         "key": "token",
+         "name": "kps-prometheus-token"
+        },
+        "type": "Bearer"
+       },
+       "honorLabels": true,
+       "honorTimestamps": true,
+       "metricRelabelings": [
+        {
+         "action": "drop",
+         "regex": "(csi_operations|storage_operation_duration)_seconds_bucket;(0.25|2.5|15|25|120|600)(\\.0)?",
+         "sourceLabels": [
+          "__name__",
+          "le"
+         ]
+        }
+       ],
+       "port": "https-metrics",
+       "relabelings": [
+        {
+         "action": "replace",
+         "sourceLabels": [
+          "__metrics_path__"
+         ],
+         "targetLabel": "metrics_path"
+        }
+       ],
+       "scheme": "https",
+       "tlsConfig": {
+        "ca": {
+         "configMap": {
+          "key": "ca.crt",
+          "name": "kube-root-ca.crt"
+         }
+        },
+        "insecureSkipVerify": true
+       }
+      },
+      {
+       "authorization": {
+        "credentials": {
+         "key": "token",
+         "name": "kps-prometheus-token"
+        },
+        "type": "Bearer"
+       },
+       "honorLabels": true,
+       "honorTimestamps": true,
+       "interval": "10s",
+       "metricRelabelings": [
+        {
+         "action": "drop",
+         "regex": "container_cpu_(cfs_throttled_seconds_total|load_average_10s|system_seconds_total|user_seconds_total)",
+         "sourceLabels": [
+          "__name__"
+         ]
+        },
+        {
+         "action": "drop",
+         "regex": "container_fs_(io_current|io_time_seconds_total|io_time_weighted_seconds_total|reads_merged_total|sector_reads_total|sector_writes_total|writes_merged_total)",
+         "sourceLabels": [
+          "__name__"
+         ]
+        },
+        {
+         "action": "drop",
+         "regex": "container_memory_mapped_file",
+         "sourceLabels": [
+          "__name__"
+         ]
+        },
+        {
+         "action": "drop",
+         "regex": "container_(file_descriptors|tasks_state|threads_max)",
+         "sourceLabels": [
+          "__name__"
+         ]
+        },
+        {
+         "action": "drop",
+         "regex": "container_memory_failures_total;hierarchy",
+         "sourceLabels": [
+          "__name__",
+          "scope"
+         ]
+        },
+        {
+         "action": "drop",
+         "regex": "container_network_.*;(cali|cilium|cni|lxc|nodelocaldns|tunl).*",
+         "sourceLabels": [
+          "__name__",
+          "interface"
+         ]
+        },
+        {
+         "action": "drop",
+         "regex": "container_spec.*",
+         "sourceLabels": [
+          "__name__"
+         ]
+        },
+        {
+         "action": "drop",
+         "regex": ".+;",
+         "sourceLabels": [
+          "id",
+          "pod"
+         ]
+        }
+       ],
+       "path": "/metrics/cadvisor",
+       "port": "https-metrics",
+       "relabelings": [
+        {
+         "action": "replace",
+         "sourceLabels": [
+          "__metrics_path__"
+         ],
+         "targetLabel": "metrics_path"
+        }
+       ],
+       "scheme": "https",
+       "tlsConfig": {
+        "ca": {
+         "configMap": {
+          "key": "ca.crt",
+          "name": "kube-root-ca.crt"
+         }
+        },
+        "insecureSkipVerify": true
+       },
+       "trackTimestampsStaleness": true
+      },
+      {
+       "authorization": {
+        "credentials": {
+         "key": "token",
+         "name": "kps-prometheus-token"
+        },
+        "type": "Bearer"
+       },
+       "honorLabels": true,
+       "honorTimestamps": true,
+       "path": "/metrics/probes",
+       "port": "https-metrics",
+       "relabelings": [
+        {
+         "action": "replace",
+         "sourceLabels": [
+          "__metrics_path__"
+         ],
+         "targetLabel": "metrics_path"
+        }
+       ],
+       "scheme": "https",
+       "tlsConfig": {
+        "ca": {
+         "configMap": {
+          "key": "ca.crt",
+          "name": "kube-root-ca.crt"
+         }
+        },
+        "insecureSkipVerify": true
+       }
+      }
+     ],
+     "jobLabel": "k8s-app",
+     "namespaceSelector": {
+      "matchNames": [
+       "kube-system"
+      ]
+     },
+     "selector": {
+      "matchLabels": {
+       "app.kubernetes.io/name": "kubelet",
+       "k8s-app": "kubelet"
+      }
+     }
+    }
+   },
+   {
+    "metadata": {
+     "name": "kps-operator",
+     "namespace": "monitoring",
+     "annotations": {
+      "argocd.argoproj.io/tracking-id": "monitoring:monitoring.coreos.com/ServiceMonitor:monitoring/kps-operator"
+     }
+    },
+    "spec": {
+     "endpoints": [
+      {
+       "honorLabels": true,
+       "port": "https",
+       "scheme": "https",
+       "tlsConfig": {
+        "ca": {
+         "secret": {
+          "key": "ca.crt",
+          "name": "kps-admission",
+          "optional": false
+         }
+        },
+        "serverName": "kps-operator"
+       }
+      }
+     ],
+     "namespaceSelector": {
+      "matchNames": [
+       "monitoring"
+      ]
+     },
+     "selector": {
+      "matchLabels": {
+       "app": "kube-prometheus-stack-operator",
+       "release": "monitoring"
+      }
+     }
+    }
+   },
+   {
+    "metadata": {
+     "name": "kps-prometheus",
+     "namespace": "monitoring",
+     "annotations": {
+      "argocd.argoproj.io/tracking-id": "monitoring:monitoring.coreos.com/ServiceMonitor:monitoring/kps-prometheus"
+     }
+    },
+    "spec": {
+     "endpoints": [
+      {
+       "path": "/metrics",
+       "port": "http-web"
+      },
+      {
+       "path": "/metrics",
+       "port": "reloader-web"
+      }
+     ],
+     "namespaceSelector": {
+      "matchNames": [
+       "monitoring"
+      ]
+     },
+     "selector": {
+      "matchLabels": {
+       "app": "kube-prometheus-stack-prometheus",
+       "release": "monitoring",
+       "self-monitor": "true"
+      }
+     }
+    }
+   },
+   {
+    "metadata": {
+     "name": "kube-state-metrics",
+     "namespace": "monitoring",
+     "annotations": {
+      "argocd.argoproj.io/tracking-id": "monitoring:monitoring.coreos.com/ServiceMonitor:monitoring/kube-state-metrics"
+     }
+    },
+    "spec": {
+     "endpoints": [
+      {
+       "honorLabels": true,
+       "port": "http"
+      }
+     ],
+     "jobLabel": "app.kubernetes.io/name",
+     "selector": {
+      "matchLabels": {
+       "app.kubernetes.io/instance": "monitoring",
+       "app.kubernetes.io/name": "kube-state-metrics"
+      }
+     }
+    }
+   },
+   {
+    "metadata": {
+     "name": "victoria-logs",
+     "namespace": "monitoring",
+     "annotations": {
+      "argocd.argoproj.io/tracking-id": "logs:monitoring.coreos.com/ServiceMonitor:monitoring/victoria-logs"
+     }
+    },
+    "spec": {
+     "endpoints": [
+      {
+       "path": "/metrics",
+       "port": "http"
+      }
+     ],
+     "namespaceSelector": {
+      "matchNames": [
+       "monitoring"
+      ]
+     },
+     "selector": {
+      "matchLabels": {
+       "app.kubernetes.io/component": "server",
+       "app.kubernetes.io/instance": "logs",
+       "app.kubernetes.io/name": "victoria-logs-single"
+      }
+     }
+    }
+   },
+   {
+    "metadata": {
+     "name": "servicemonitor",
+     "namespace": "servicemonitor-ops",
+     "annotations": {
+      "argocd.argoproj.io/tracking-id": "servicemonitor-ops:monitoring.coreos.com/ServiceMonitor:servicemonitor-ops/servicemonitor"
+     }
+    },
+    "spec": {
+     "endpoints": [
+      {
+       "interval": "15s",
+       "path": "/metrics",
+       "port": "metrics"
+      }
+     ],
+     "podTargetLabels": [
+      "rollouts-pod-template-hash"
+     ],
+     "selector": {
+      "matchLabels": {
+       "app.kubernetes.io/instance": "servicemonitor",
+       "app.kubernetes.io/name": "servicemonitor"
+      }
+     }
+    }
+   }
+  ]
+ },
+ "podmonitors": {
+  "items": [
+   {
+    "metadata": {
+     "name": "cloudnative-pg",
+     "namespace": "argocd",
+     "annotations": {
+      "argocd.argoproj.io/tracking-id": "platform:monitoring.coreos.com/PodMonitor:argocd/cloudnative-pg"
+     }
+    },
+    "spec": {
+     "jobLabel": "app.kubernetes.io/name",
+     "namespaceSelector": {
+      "matchNames": [
+       "cnpg-system"
+      ]
+     },
+     "podMetricsEndpoints": [
+      {
+       "interval": "60s",
+       "port": "metrics"
+      }
+     ],
+     "selector": {
+      "matchLabels": {
+       "app.kubernetes.io/name": "cloudnative-pg"
+      }
+     }
+    }
+   },
+   {
+    "metadata": {
+     "name": "envoy-proxy",
+     "namespace": "argocd",
+     "annotations": {
+      "argocd.argoproj.io/tracking-id": "platform:monitoring.coreos.com/PodMonitor:argocd/envoy-proxy"
+     }
+    },
+    "spec": {
+     "jobLabel": "app.kubernetes.io/name",
+     "namespaceSelector": {
+      "matchNames": [
+       "envoy-gateway-system"
+      ]
+     },
+     "podMetricsEndpoints": [
+      {
+       "interval": "30s",
+       "metricRelabelings": [
+        {
+         "action": "replace",
+         "regex": "httproute/([^/]+)/([^/]+)/rule/\\d+",
+         "replacement": "$1",
+         "sourceLabels": [
+          "envoy_cluster_name"
+         ],
+         "targetLabel": "route_namespace"
+        },
+        {
+         "action": "replace",
+         "regex": "httproute/([^/]+)/([^/]+)/rule/\\d+",
+         "replacement": "$2",
+         "sourceLabels": [
+          "envoy_cluster_name"
+         ],
+         "targetLabel": "route"
+        }
+       ],
+       "path": "/stats/prometheus",
+       "port": "metrics"
+      }
+     ],
+     "selector": {
+      "matchLabels": {
+       "app.kubernetes.io/component": "proxy",
+       "app.kubernetes.io/managed-by": "envoy-gateway",
+       "app.kubernetes.io/name": "envoy"
+      }
+     }
+    }
+   },
+   {
+    "metadata": {
+     "name": "log-collector",
+     "namespace": "log-collector",
+     "annotations": {
+      "argocd.argoproj.io/tracking-id": "log-collector:monitoring.coreos.com/PodMonitor:log-collector/log-collector"
+     }
+    },
+    "spec": {
+     "namespaceSelector": {
+      "matchNames": [
+       "log-collector"
+      ]
+     },
+     "podMetricsEndpoints": [
+      {
+       "port": "http"
+      }
+     ],
+     "selector": {
+      "matchLabels": {
+       "app.kubernetes.io/instance": "log-collector",
+       "app.kubernetes.io/name": "victoria-logs-collector"
+      }
+     }
+    }
+   },
+   {
+    "metadata": {
+     "name": "node-exporter",
+     "namespace": "node-exporter",
+     "annotations": {
+      "argocd.argoproj.io/tracking-id": "node-exporter:monitoring.coreos.com/PodMonitor:node-exporter/node-exporter"
+     }
+    },
+    "spec": {
+     "attachMetadata": {
+      "node": false
+     },
+     "jobLabel": "app.kubernetes.io/name",
+     "namespaceSelector": {
+      "matchNames": [
+       "node-exporter"
+      ]
+     },
+     "podMetricsEndpoints": [
+      {
+       "enableHttp2": false,
+       "filterRunning": true,
+       "followRedirects": false,
+       "honorLabels": true,
+       "honorTimestamps": true,
+       "path": "/metrics",
+       "port": "metrics",
+       "scheme": "http"
+      }
+     ],
+     "selector": {
+      "matchLabels": {
+       "app.kubernetes.io/instance": "node-exporter",
+       "app.kubernetes.io/name": "node-exporter"
+      }
+     }
+    }
+   }
+  ]
+ },
+ "probes": {
+  "items": [
+   {
+    "metadata": {
+     "name": "front-door-aipostit-localhost",
+     "namespace": "argocd",
+     "annotations": {
+      "argocd.argoproj.io/tracking-id": "platform:monitoring.coreos.com/Probe:argocd/front-door-aipostit-localhost"
+     }
+    },
+    "spec": {
+     "interval": "60s",
+     "jobName": "front-door",
+     "module": "front_door_http",
+     "prober": {
+      "path": "/probe",
+      "url": "blackbox-exporter.monitoring.svc:9115"
+     },
+     "targets": {
+      "staticConfig": {
+       "labels": {
+        "hostname": "aipostit.localhost",
+        "listener": "http"
+       },
+       "static": [
+        "http://aipostit.localhost/healthz"
+       ]
+      }
+     }
+    }
+   },
+   {
+    "metadata": {
+     "name": "front-door-alertmanager-localhost",
+     "namespace": "argocd",
+     "annotations": {
+      "argocd.argoproj.io/tracking-id": "platform:monitoring.coreos.com/Probe:argocd/front-door-alertmanager-localhost"
+     }
+    },
+    "spec": {
+     "interval": "60s",
+     "jobName": "front-door",
+     "module": "front_door_tools",
+     "prober": {
+      "path": "/probe",
+      "url": "blackbox-exporter.monitoring.svc:9115"
+     },
+     "targets": {
+      "staticConfig": {
+       "labels": {
+        "hostname": "alertmanager.localhost",
+        "listener": "tools"
+       },
+       "static": [
+        "http://alertmanager.localhost/-/healthy"
+       ]
+      }
+     }
+    }
+   },
+   {
+    "metadata": {
+     "name": "front-door-argocd-localhost",
+     "namespace": "argocd",
+     "annotations": {
+      "argocd.argoproj.io/tracking-id": "platform:monitoring.coreos.com/Probe:argocd/front-door-argocd-localhost"
+     }
+    },
+    "spec": {
+     "interval": "60s",
+     "jobName": "front-door",
+     "module": "front_door_tools",
+     "prober": {
+      "path": "/probe",
+      "url": "blackbox-exporter.monitoring.svc:9115"
+     },
+     "targets": {
+      "staticConfig": {
+       "labels": {
+        "hostname": "argocd.localhost",
+        "listener": "tools"
+       },
+       "static": [
+        "http://argocd.localhost/healthz"
+       ]
+      }
+     }
+    }
+   },
+   {
+    "metadata": {
+     "name": "front-door-grafana-localhost",
+     "namespace": "argocd",
+     "annotations": {
+      "argocd.argoproj.io/tracking-id": "platform:monitoring.coreos.com/Probe:argocd/front-door-grafana-localhost"
+     }
+    },
+    "spec": {
+     "interval": "60s",
+     "jobName": "front-door",
+     "module": "front_door_tools",
+     "prober": {
+      "path": "/probe",
+      "url": "blackbox-exporter.monitoring.svc:9115"
+     },
+     "targets": {
+      "staticConfig": {
+       "labels": {
+        "hostname": "grafana.localhost",
+        "listener": "tools"
+       },
+       "static": [
+        "http://grafana.localhost/api/health"
+       ]
+      }
+     }
+    }
+   },
+   {
+    "metadata": {
+     "name": "front-door-prometheus-localhost",
+     "namespace": "argocd",
+     "annotations": {
+      "argocd.argoproj.io/tracking-id": "platform:monitoring.coreos.com/Probe:argocd/front-door-prometheus-localhost"
+     }
+    },
+    "spec": {
+     "interval": "60s",
+     "jobName": "front-door",
+     "module": "front_door_tools",
+     "prober": {
+      "path": "/probe",
+      "url": "blackbox-exporter.monitoring.svc:9115"
+     },
+     "targets": {
+      "staticConfig": {
+       "labels": {
+        "hostname": "prometheus.localhost",
+        "listener": "tools"
+       },
+       "static": [
+        "http://prometheus.localhost/-/healthy"
+       ]
+      }
+     }
+    }
+   },
+   {
+    "metadata": {
+     "name": "front-door-servicemonitor-localhost",
+     "namespace": "argocd",
+     "annotations": {
+      "argocd.argoproj.io/tracking-id": "platform:monitoring.coreos.com/Probe:argocd/front-door-servicemonitor-localhost"
+     }
+    },
+    "spec": {
+     "interval": "60s",
+     "jobName": "front-door",
+     "module": "front_door_tools",
+     "prober": {
+      "path": "/probe",
+      "url": "blackbox-exporter.monitoring.svc:9115"
+     },
+     "targets": {
+      "staticConfig": {
+       "labels": {
+        "hostname": "servicemonitor.localhost",
+        "listener": "tools"
+       },
+       "static": [
+        "http://servicemonitor.localhost/healthz"
+       ]
+      }
+     }
+    }
+   },
+   {
+    "metadata": {
+     "name": "front-door-staging-aipostit-localhost",
+     "namespace": "argocd",
+     "annotations": {
+      "argocd.argoproj.io/tracking-id": "platform:monitoring.coreos.com/Probe:argocd/front-door-staging-aipostit-localhost"
+     }
+    },
+    "spec": {
+     "interval": "60s",
+     "jobName": "front-door",
+     "module": "front_door_http",
+     "prober": {
+      "path": "/probe",
+      "url": "blackbox-exporter.monitoring.svc:9115"
+     },
+     "targets": {
+      "staticConfig": {
+       "labels": {
+        "hostname": "staging.aipostit.localhost",
+        "listener": "http"
+       },
+       "static": [
+        "http://staging.aipostit.localhost/healthz"
+       ]
+      }
+     }
+    }
+   }
+  ]
+ },
+ "targets": {
+  "status": "success",
+  "data": {
+   "activeTargets": [
+    {
+     "labels": {
+      "instance": "10.244.0.24:8080",
+      "job": "cloudnative-pg",
+      "namespace": "cnpg-system",
+      "pod": "cloudnative-pg-5d7cf7cfc-n4blp"
+     },
+     "scrapePool": "podMonitor/argocd/cloudnative-pg/0",
+     "scrapeUrl": "http://10.244.0.24:8080/metrics",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:13:49.287101178Z",
+     "lastScrapeDuration": 0.006916458,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "10.244.0.11:19001",
+      "job": "envoy",
+      "namespace": "envoy-gateway-system",
+      "pod": "envoy-gateway-front-door-070c26fc-689f887957-6544f"
+     },
+     "scrapePool": "podMonitor/argocd/envoy-proxy/0",
+     "scrapeUrl": "http://10.244.0.11:19001/stats/prometheus",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:14:29.45742321Z",
+     "lastScrapeDuration": 0.011586208,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "10.244.0.7:9429",
+      "job": "log-collector/log-collector",
+      "namespace": "log-collector",
+      "pod": "log-collector-2srnh"
+     },
+     "scrapePool": "podMonitor/log-collector/log-collector/0",
+     "scrapeUrl": "http://10.244.0.7:9429/metrics",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:14:22.249898596Z",
+     "lastScrapeDuration": 0.004276542,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "10.244.0.15:9100",
+      "job": "node-exporter",
+      "namespace": "node-exporter",
+      "pod": "node-exporter-xdl7k"
+     },
+     "scrapePool": "podMonitor/node-exporter/node-exporter/0",
+     "scrapeUrl": "http://10.244.0.15:9100/metrics",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:14:21.149024845Z",
+     "lastScrapeDuration": 0.042050792,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "http://aipostit.localhost/healthz",
+      "job": "front-door",
+      "namespace": "argocd"
+     },
+     "scrapePool": "probe/argocd/front-door-aipostit-localhost",
+     "scrapeUrl": "http://blackbox-exporter.monitoring.svc:9115/probe?module=front_door_http&target=http%3A%2F%2Faipostit.localhost%2Fhealthz",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:14:06.436105088Z",
+     "lastScrapeDuration": 0.059638708,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "http://alertmanager.localhost/-/healthy",
+      "job": "front-door",
+      "namespace": "argocd"
+     },
+     "scrapePool": "probe/argocd/front-door-alertmanager-localhost",
+     "scrapeUrl": "http://blackbox-exporter.monitoring.svc:9115/probe?module=front_door_tools&target=http%3A%2F%2Falertmanager.localhost%2F-%2Fhealthy",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:13:59.564304668Z",
+     "lastScrapeDuration": 0.01252825,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "http://argocd.localhost/healthz",
+      "job": "front-door",
+      "namespace": "argocd"
+     },
+     "scrapePool": "probe/argocd/front-door-argocd-localhost",
+     "scrapeUrl": "http://blackbox-exporter.monitoring.svc:9115/probe?module=front_door_tools&target=http%3A%2F%2Fargocd.localhost%2Fhealthz",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:13:45.454689593Z",
+     "lastScrapeDuration": 0.008736833,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "http://grafana.localhost/api/health",
+      "job": "front-door",
+      "namespace": "argocd"
+     },
+     "scrapePool": "probe/argocd/front-door-grafana-localhost",
+     "scrapeUrl": "http://blackbox-exporter.monitoring.svc:9115/probe?module=front_door_tools&target=http%3A%2F%2Fgrafana.localhost%2Fapi%2Fhealth",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:14:31.852629711Z",
+     "lastScrapeDuration": 0.01444125,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "http://prometheus.localhost/-/healthy",
+      "job": "front-door",
+      "namespace": "argocd"
+     },
+     "scrapePool": "probe/argocd/front-door-prometheus-localhost",
+     "scrapeUrl": "http://blackbox-exporter.monitoring.svc:9115/probe?module=front_door_tools&target=http%3A%2F%2Fprometheus.localhost%2F-%2Fhealthy",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:14:33.770418962Z",
+     "lastScrapeDuration": 0.009227917,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "http://servicemonitor.localhost/healthz",
+      "job": "front-door",
+      "namespace": "argocd"
+     },
+     "scrapePool": "probe/argocd/front-door-servicemonitor-localhost",
+     "scrapeUrl": "http://blackbox-exporter.monitoring.svc:9115/probe?module=front_door_tools&target=http%3A%2F%2Fservicemonitor.localhost%2Fhealthz",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:14:29.703577252Z",
+     "lastScrapeDuration": 0.016147958,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "http://staging.aipostit.localhost/healthz",
+      "job": "front-door",
+      "namespace": "argocd"
+     },
+     "scrapePool": "probe/argocd/front-door-staging-aipostit-localhost",
+     "scrapeUrl": "http://blackbox-exporter.monitoring.svc:9115/probe?module=front_door_http&target=http%3A%2F%2Fstaging.aipostit.localhost%2Fhealthz",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:13:53.005849554Z",
+     "lastScrapeDuration": 0.018901917,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "10.244.0.32:9100",
+      "job": "aipostit",
+      "namespace": "aipostit-prod",
+      "pod": "aipostit-84f9bbb4-j8vsp",
+      "service": "aipostit"
+     },
+     "scrapePool": "serviceMonitor/aipostit-prod/aipostit/0",
+     "scrapeUrl": "http://10.244.0.32:9100/metrics",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:14:27.788140334Z",
+     "lastScrapeDuration": 0.0064985,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "10.244.0.8:9100",
+      "job": "aipostit",
+      "namespace": "aipostit-prod",
+      "pod": "aipostit-84f9bbb4-tzw82",
+      "service": "aipostit"
+     },
+     "scrapePool": "serviceMonitor/aipostit-prod/aipostit/0",
+     "scrapeUrl": "http://10.244.0.8:9100/metrics",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:14:31.028861502Z",
+     "lastScrapeDuration": 0.004973666,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "10.244.0.6:9100",
+      "job": "aipostit",
+      "namespace": "aipostit-staging",
+      "pod": "aipostit-68b9b856bb-wlqck",
+      "service": "aipostit"
+     },
+     "scrapePool": "serviceMonitor/aipostit-staging/aipostit/0",
+     "scrapeUrl": "http://10.244.0.6:9100/metrics",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:14:23.35537868Z",
+     "lastScrapeDuration": 0.006623125,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "10.244.0.3:8090",
+      "job": "argo-rollouts",
+      "namespace": "argo-rollouts",
+      "pod": "argo-rollouts-7c6d9bc7c4-v54dw",
+      "service": "argo-rollouts-metrics"
+     },
+     "scrapePool": "serviceMonitor/argocd/argo-rollouts/0",
+     "scrapeUrl": "http://10.244.0.3:8090/metrics",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:14:07.314101422Z",
+     "lastScrapeDuration": 0.011080542,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "10.244.0.69:8082",
+      "job": "argocd-application-controller-metrics",
+      "namespace": "argocd",
+      "pod": "argocd-application-controller-0",
+      "service": "argocd-application-controller-metrics"
+     },
+     "scrapePool": "serviceMonitor/argocd/argocd-application-controller/0",
+     "scrapeUrl": "http://10.244.0.69:8082/metrics",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:14:13.24419155Z",
+     "lastScrapeDuration": 0.00835,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "10.244.0.19:8080",
+      "job": "argocd-applicationset-controller-metrics",
+      "namespace": "argocd",
+      "pod": "argocd-applicationset-controller-78bcdf4f76-ph8ck",
+      "service": "argocd-applicationset-controller-metrics"
+     },
+     "scrapePool": "serviceMonitor/argocd/argocd-applicationset-controller/0",
+     "scrapeUrl": "http://10.244.0.19:8080/metrics",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:14:24.814375514Z",
+     "lastScrapeDuration": 0.012807125,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "10.244.0.42:8084",
+      "job": "argocd-repo-server-metrics",
+      "namespace": "argocd",
+      "pod": "argocd-repo-server-649976f789-fbzgh",
+      "service": "argocd-repo-server-metrics"
+     },
+     "scrapePool": "serviceMonitor/argocd/argocd-repo-server/0",
+     "scrapeUrl": "http://10.244.0.42:8084/metrics",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:14:24.52136068Z",
+     "lastScrapeDuration": 0.005404708,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "10.244.0.38:19001",
+      "job": "envoy-gateway",
+      "namespace": "envoy-gateway-system",
+      "pod": "envoy-gateway-794d569d78-bhl6v",
+      "service": "envoy-gateway"
+     },
+     "scrapePool": "serviceMonitor/argocd/envoy-gateway/0",
+     "scrapeUrl": "http://10.244.0.38:19001/metrics",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:14:08.262615756Z",
+     "lastScrapeDuration": 0.032618875,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "10.244.0.56:8000",
+      "job": "kyverno-svc-metrics",
+      "namespace": "kyverno",
+      "pod": "kyverno-admission-controller-7c44b4f577-zjlvd",
+      "service": "kyverno-svc-metrics"
+     },
+     "scrapePool": "serviceMonitor/argocd/kyverno/0",
+     "scrapeUrl": "http://10.244.0.56:8000/metrics",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:14:17.707668469Z",
+     "lastScrapeDuration": 0.008808542,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "10.244.0.31:8000",
+      "job": "kyverno-reports-controller-metrics",
+      "namespace": "kyverno",
+      "pod": "kyverno-reports-controller-585c8dfbc8-jb5xt",
+      "service": "kyverno-reports-controller-metrics"
+     },
+     "scrapePool": "serviceMonitor/argocd/kyverno/0",
+     "scrapeUrl": "http://10.244.0.31:8000/metrics",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:14:05.439353296Z",
+     "lastScrapeDuration": 0.012173167,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "10.244.0.54:8000",
+      "job": "kyverno-svc-metrics",
+      "namespace": "kyverno",
+      "pod": "kyverno-admission-controller-7c44b4f577-d4slh",
+      "service": "kyverno-svc-metrics"
+     },
+     "scrapePool": "serviceMonitor/argocd/kyverno/0",
+     "scrapeUrl": "http://10.244.0.54:8000/metrics",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:14:07.929276922Z",
+     "lastScrapeDuration": 0.038606166,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "10.244.0.28:9402",
+      "job": "cert-manager",
+      "namespace": "cert-manager",
+      "pod": "cert-manager-65ff595498-lgmwt",
+      "service": "cert-manager"
+     },
+     "scrapePool": "serviceMonitor/cert-manager/cert-manager/0",
+     "scrapeUrl": "http://10.244.0.28:9402/metrics",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:14:04.851369671Z",
+     "lastScrapeDuration": 0.008759834,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "10.244.0.37:8080",
+      "job": "external-secrets-cert-controller-metrics",
+      "namespace": "external-secrets",
+      "pod": "external-secrets-cert-controller-7484847f9f-xtq6p",
+      "service": "external-secrets-cert-controller-metrics"
+     },
+     "scrapePool": "serviceMonitor/external-secrets/external-secrets-cert-controller-metrics/0",
+     "scrapeUrl": "http://10.244.0.37:8080/metrics",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:14:15.032908009Z",
+     "lastScrapeDuration": 0.008904292,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "10.244.0.39:8080",
+      "job": "external-secrets-metrics",
+      "namespace": "external-secrets",
+      "pod": "external-secrets-f496c857c-vbxh4",
+      "service": "external-secrets-metrics"
+     },
+     "scrapePool": "serviceMonitor/external-secrets/external-secrets-metrics/0",
+     "scrapeUrl": "http://10.244.0.39:8080/metrics",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:14:30.23390846Z",
+     "lastScrapeDuration": 0.00745825,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "10.244.0.13:8080",
+      "job": "external-secrets-webhook",
+      "namespace": "external-secrets",
+      "pod": "external-secrets-webhook-67b8594cd9-kndwv",
+      "service": "external-secrets-webhook"
+     },
+     "scrapePool": "serviceMonitor/external-secrets/external-secrets-webhook-metrics/0",
+     "scrapeUrl": "http://10.244.0.13:8080/metrics",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:14:17.93945651Z",
+     "lastScrapeDuration": 0.002491875,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "10.244.0.47:3000",
+      "job": "grafana",
+      "namespace": "monitoring",
+      "pod": "grafana-d6c44898-hf9l6",
+      "service": "grafana"
+     },
+     "scrapePool": "serviceMonitor/monitoring/grafana/0",
+     "scrapeUrl": "http://10.244.0.47:3000/metrics",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:14:28.068826501Z",
+     "lastScrapeDuration": 0.078090292,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "10.244.0.40:9093",
+      "job": "kps-alertmanager",
+      "namespace": "monitoring",
+      "pod": "alertmanager-kps-alertmanager-0",
+      "service": "kps-alertmanager"
+     },
+     "scrapePool": "serviceMonitor/monitoring/kps-alertmanager/0",
+     "scrapeUrl": "http://10.244.0.40:9093/metrics",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:14:30.482106335Z",
+     "lastScrapeDuration": 0.009242417,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "10.244.0.40:8080",
+      "job": "kps-alertmanager",
+      "namespace": "monitoring",
+      "pod": "alertmanager-kps-alertmanager-0",
+      "service": "kps-alertmanager"
+     },
+     "scrapePool": "serviceMonitor/monitoring/kps-alertmanager/1",
+     "scrapeUrl": "http://10.244.0.40:8080/metrics",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:14:29.173551293Z",
+     "lastScrapeDuration": 0.005626792,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "172.19.0.3:6443",
+      "job": "apiserver",
+      "namespace": "default",
+      "service": "kubernetes"
+     },
+     "scrapePool": "serviceMonitor/monitoring/kps-apiserver/0",
+     "scrapeUrl": "https://172.19.0.3:6443/metrics",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:14:30.778027877Z",
+     "lastScrapeDuration": 0.268620958,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "10.244.0.2:9153",
+      "job": "coredns",
+      "namespace": "kube-system",
+      "pod": "coredns-559f6c778d-gjbk4",
+      "service": "kps-coredns"
+     },
+     "scrapePool": "serviceMonitor/monitoring/kps-coredns/0",
+     "scrapeUrl": "http://10.244.0.2:9153/metrics",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:14:24.737560014Z",
+     "lastScrapeDuration": 0.013150708,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "10.244.0.25:9153",
+      "job": "coredns",
+      "namespace": "kube-system",
+      "pod": "coredns-559f6c778d-jfsll",
+      "service": "kps-coredns"
+     },
+     "scrapePool": "serviceMonitor/monitoring/kps-coredns/0",
+     "scrapeUrl": "http://10.244.0.25:9153/metrics",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:14:31.135366002Z",
+     "lastScrapeDuration": 0.003475625,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "172.19.0.3:10250",
+      "job": "kubelet",
+      "namespace": "kube-system",
+      "service": "kps-kubelet"
+     },
+     "scrapePool": "serviceMonitor/monitoring/kps-kubelet/0",
+     "scrapeUrl": "https://172.19.0.3:10250/metrics",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:14:34.435485337Z",
+     "lastScrapeDuration": 0.053688916,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "172.19.0.3:10250",
+      "job": "kubelet",
+      "namespace": "kube-system",
+      "service": "kps-kubelet"
+     },
+     "scrapePool": "serviceMonitor/monitoring/kps-kubelet/1",
+     "scrapeUrl": "https://172.19.0.3:10250/metrics/cadvisor",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:14:34.137510337Z",
+     "lastScrapeDuration": 0.182595125,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "172.19.0.3:10250",
+      "job": "kubelet",
+      "namespace": "kube-system",
+      "service": "kps-kubelet"
+     },
+     "scrapePool": "serviceMonitor/monitoring/kps-kubelet/2",
+     "scrapeUrl": "https://172.19.0.3:10250/metrics/probes",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:14:28.361815668Z",
+     "lastScrapeDuration": 0.013190416,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "10.244.0.33:10250",
+      "job": "kps-operator",
+      "namespace": "monitoring",
+      "pod": "kps-operator-5c5554b56d-xcbn2",
+      "service": "kps-operator"
+     },
+     "scrapePool": "serviceMonitor/monitoring/kps-operator/0",
+     "scrapeUrl": "https://10.244.0.33:10250/metrics",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:14:33.29117917Z",
+     "lastScrapeDuration": 0.017281375,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "10.244.0.48:9090",
+      "job": "kps-prometheus",
+      "namespace": "monitoring",
+      "pod": "prometheus-kps-prometheus-0",
+      "service": "kps-prometheus"
+     },
+     "scrapePool": "serviceMonitor/monitoring/kps-prometheus/0",
+     "scrapeUrl": "http://10.244.0.48:9090/metrics",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:14:30.113130585Z",
+     "lastScrapeDuration": 0.022431125,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "10.244.0.48:8080",
+      "job": "kps-prometheus",
+      "namespace": "monitoring",
+      "pod": "prometheus-kps-prometheus-0",
+      "service": "kps-prometheus"
+     },
+     "scrapePool": "serviceMonitor/monitoring/kps-prometheus/1",
+     "scrapeUrl": "http://10.244.0.48:8080/metrics",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:14:29.50534146Z",
+     "lastScrapeDuration": 0.004856792,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "10.244.0.36:8080",
+      "job": "kube-state-metrics",
+      "namespace": "monitoring",
+      "pod": "kube-state-metrics-785764d86f-jqxtl",
+      "service": "kube-state-metrics"
+     },
+     "scrapePool": "serviceMonitor/monitoring/kube-state-metrics/0",
+     "scrapeUrl": "http://10.244.0.36:8080/metrics",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:14:24.99558968Z",
+     "lastScrapeDuration": 0.019018416,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "10.244.0.49:9428",
+      "job": "victoria-logs",
+      "namespace": "monitoring",
+      "pod": "victoria-logs-0",
+      "service": "victoria-logs"
+     },
+     "scrapePool": "serviceMonitor/monitoring/victoria-logs/0",
+     "scrapeUrl": "http://10.244.0.49:9428/metrics",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:14:29.138000376Z",
+     "lastScrapeDuration": 0.006750292,
+     "health": "up"
+    },
+    {
+     "labels": {
+      "instance": "10.244.0.80:9100",
+      "job": "servicemonitor",
+      "namespace": "servicemonitor-ops",
+      "pod": "servicemonitor-7bcc89dd44-4cmkz",
+      "service": "servicemonitor"
+     },
+     "scrapePool": "serviceMonitor/servicemonitor-ops/servicemonitor/0",
+     "scrapeUrl": "http://10.244.0.80:9100/metrics",
+     "lastError": "",
+     "lastScrape": "2026-11-17T04:14:32.693136003Z",
+     "lastScrapeDuration": 0.008896625,
+     "health": "up"
+    }
+   ]
+  }
+ },
+ "alerts": {
+  "status": "success",
+  "data": {
+   "alerts": [
+    {
+     "labels": {
+      "alertname": "Watchdog",
+      "severity": "none"
+     },
+     "annotations": {
+      "description": "This is an alert meant to ensure that the entire alerting pipeline is functional.\nThis alert is always firing, therefore it should always be firing in Alertmanager\nand always fire against a receiver. There are integrations with various notification\nmechanisms that send a notification when this alert is not firing. For example the\n\"DeadMansSnitch\" integration in PagerDuty.\n",
+      "runbook_url": "https://runbooks.prometheus-operator.dev/runbooks/general/watchdog",
+      "summary": "An alert that should always be firing to certify that Alertmanager is working properly."
+     },
+     "state": "firing",
+     "activeAt": "2026-11-16T19:19:46Z",
+     "value": "1e+00"
+    },
+    {
+     "labels": {
+      "alertname": "KubeJobFailed",
+      "condition": "true",
+      "container": "kube-state-metrics",
+      "endpoint": "http",
+      "instance": "10.244.0.36:8080",
+      "job": "kube-state-metrics",
+      "job_name": "aipostit-sync-buffer-29913435",
+      "namespace": "aipostit-prod",
+      "pod": "kube-state-metrics-785764d86f-jqxtl",
+      "service": "kube-state-metrics",
+      "severity": "warning"
+     },
+     "annotations": {
+      "description": "Job aipostit-prod/aipostit-sync-buffer-29913435 failed to complete. Removing failed job after investigation should clear this alert on cluster .",
+      "runbook_url": "https://runbooks.prometheus-operator.dev/runbooks/kubernetes/kubejobfailed",
+      "summary": "Job failed to complete."
+     },
+     "state": "firing",
+     "activeAt": "2026-11-17T03:43:58.689173717Z",
+     "value": "1e+00"
+    },
+    {
+     "labels": {
+      "alertname": "PrometheusDuplicateTimestamps",
+      "container": "prometheus",
+      "endpoint": "http-web",
+      "instance": "10.244.0.48:9090",
+      "job": "kps-prometheus",
+      "namespace": "monitoring",
+      "pod": "prometheus-kps-prometheus-0",
+      "service": "kps-prometheus",
+      "severity": "warning"
+     },
+     "annotations": {
+      "description": "Prometheus monitoring/prometheus-kps-prometheus-0 is dropping 0.2 samples/s with different values but duplicated timestamp.",
+      "runbook_url": "https://runbooks.prometheus-operator.dev/runbooks/prometheus/prometheusduplicatetimestamps",
+      "summary": "Prometheus is dropping samples with duplicate timestamps."
+     },
+     "state": "firing",
+     "activeAt": "2026-11-17T04:00:18.304419309Z",
+     "value": "1.9999999999999998e-01"
+    }
+   ]
+  }
+ },
+ "queries": {
+  "slo:error_budget_remaining:ratio": {
+   "status": "success",
+   "data": {
+    "resultType": "vector",
+    "result": [
+     {
+      "metric": {
+       "__name__": "slo:error_budget_remaining:ratio",
+       "namespace": "aipostit-prod",
+       "slo": "aipostit-latency"
+      },
+      "value": [
+       1794888874.537,
+       "-15.013213661877312"
+      ]
+     },
+     {
+      "metric": {
+       "__name__": "slo:error_budget_remaining:ratio",
+       "namespace": "aipostit-staging",
+       "slo": "aipostit-latency"
+      },
+      "value": [
+       1794888874.537,
+       "-7.694501299980573"
+      ]
+     },
+     {
+      "metric": {
+       "__name__": "slo:error_budget_remaining:ratio",
+       "namespace": "aipostit-prod",
+       "slo": "aipostit-availability"
+      },
+      "value": [
+       1794888874.537,
+       "1"
+      ]
+     },
+     {
+      "metric": {
+       "__name__": "slo:error_budget_remaining:ratio",
+       "namespace": "aipostit-staging",
+       "slo": "aipostit-availability"
+      },
+      "value": [
+       1794888874.537,
+       "1"
+      ]
+     },
+     {
+      "metric": {
+       "__name__": "slo:error_budget_remaining:ratio",
+       "namespace": "servicemonitor-ops",
+       "slo": "servicemonitor-availability"
+      },
+      "value": [
+       1794888874.537,
+       "NaN"
+      ]
+     },
+     {
+      "metric": {
+       "__name__": "slo:error_budget_remaining:ratio",
+       "namespace": "servicemonitor-ops",
+       "slo": "servicemonitor-latency"
+      },
+      "value": [
+       1794888874.537,
+       "NaN"
+      ]
+     }
+    ]
+   }
+  },
+  "count(argocd_app_info{sync_status!=\"Synced\"}) or vector(0)": {
+   "status": "success",
+   "data": {
+    "resultType": "vector",
+    "result": [
+     {
+      "metric": {},
+      "value": [
+       1794888874.538,
+       "0"
+      ]
+     }
+    ]
+   }
+  },
+  "count(argocd_app_info)": {
+   "status": "success",
+   "data": {
+    "resultType": "vector",
+    "result": [
+     {
+      "metric": {},
+      "value": [
+       1794888874.54,
+       "27"
+      ]
+     }
+    ]
+   }
+  },
+  "sum(max by (hostname, listener) (probe_success{job=\"front-door\"}))": {
+   "status": "success",
+   "data": {
+    "resultType": "vector",
+    "result": [
+     {
+      "metric": {},
+      "value": [
+       1794888874.541,
+       "7"
+      ]
+     }
+    ]
+   }
+  },
+  "count(max by (hostname, listener) (probe_success{job=\"front-door\"}))": {
+   "status": "success",
+   "data": {
+    "resultType": "vector",
+    "result": [
+     {
+      "metric": {},
+      "value": [
+       1794888874.543,
+       "7"
+      ]
+     }
+    ]
+   }
+  },
+  "sum(increase(kyverno_image_validating_policy_results_total{policy_name=\"require-release-provenance\"}[1h]))": {
+   "status": "success",
+   "data": {
+    "resultType": "vector",
+    "result": [
+     {
+      "metric": {},
+      "value": [
+       1794888874.544,
+       "2.066455563800546"
+      ]
+     }
+    ]
+   }
+  },
+  "sum(increase(kyverno_image_validating_policy_results_total{policy_name=\"require-release-provenance\",result!=\"pass\"}[1h])) or vector(0)": {
+   "status": "success",
+   "data": {
+    "resultType": "vector",
+    "result": [
+     {
+      "metric": {},
+      "value": [
+       1794888874.545,
+       "0"
+      ]
+     }
+    ]
+   }
+  },
+  "(time() - max(barman_cloud_cloudnative_pg_io_last_available_backup_timestamp)) / 3600": {
+   "status": "success",
+   "data": {
+    "resultType": "vector",
+    "result": []
+   }
+  },
+  "count(rollout_info{phase=\"Healthy\"}) or vector(0)": {
+   "status": "success",
+   "data": {
+    "resultType": "vector",
+    "result": [
+     {
+      "metric": {},
+      "value": [
+       1794888874.548,
+       "0"
+      ]
+     }
+    ]
+   }
+  },
+  "count(rollout_info)": {
+   "status": "success",
+   "data": {
+    "resultType": "vector",
+    "result": []
+   }
+  },
+  "sum(certmanager_certificate_ready_status{condition=\"True\"})": {
+   "status": "success",
+   "data": {
+    "resultType": "vector",
+    "result": [
+     {
+      "metric": {},
+      "value": [
+       1794888874.552,
+       "2"
+      ]
+     }
+    ]
+   }
+  },
+  "count(certmanager_certificate_ready_status{condition=\"True\"})": {
+   "status": "success",
+   "data": {
+    "resultType": "vector",
+    "result": [
+     {
+      "metric": {},
+      "value": [
+       1794888874.553,
+       "2"
+      ]
+     }
+    ]
+   }
+  },
+  "sum(externalsecret_status_condition{condition=\"Ready\",status=\"True\"})": {
+   "status": "success",
+   "data": {
+    "resultType": "vector",
+    "result": [
+     {
+      "metric": {},
+      "value": [
+       1794888874.554,
+       "6"
+      ]
+     }
+    ]
+   }
+  },
+  "count(externalsecret_status_condition{condition=\"Ready\",status=\"True\"})": {
+   "status": "success",
+   "data": {
+    "resultType": "vector",
+    "result": [
+     {
+      "metric": {},
+      "value": [
+       1794888874.556,
+       "6"
+      ]
+     }
+    ]
+   }
+  },
+  "sum(increase(prometheus_rule_evaluation_failures_total{job=\"kps-prometheus\"}[15m]))": {
+   "status": "success",
+   "data": {
+    "resultType": "vector",
+    "result": [
+     {
+      "metric": {},
+      "value": [
+       1794888874.557,
+       "0"
+      ]
+     }
+    ]
+   }
+  },
+  "max(grafana_stat_totals_dashboard{job=\"grafana\"})": {
+   "status": "success",
+   "data": {
+    "resultType": "vector",
+    "result": [
+     {
+      "metric": {},
+      "value": [
+       1794888874.559,
+       "25"
+      ]
+     }
+    ]
+   }
+  }
+ }
+}

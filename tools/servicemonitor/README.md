@@ -52,7 +52,15 @@ Monitors tab filtered to it; and a square per scrape target, down marked with a 
 links to its monitor's row. Below them, the last 24 hours (`app/history.py`): per hour, the
 most targets down and alerts firing at any moment in it (two range queries, cached a
 minute), an hour Prometheus has no data for marked as such, not as 0. What the page doesn't
-know is Unknown, never Healthy. Both tabs
+know is Unknown, never Healthy.
+
+The Overview's platform components panel has a line per component (Argo CD, the front
+door, Kyverno, ...): its monitors' targets up, its alerts firing, a dashboard link and one
+key signal, a PromQL query's number (`app/components.py`). Which monitors, alerts, dashboard
+and queries are a component's is `app/components.toml`, not code: a new component is a new
+`[[component]]` there. The app checks the file when it starts and stops on a mistake,
+saying what it is. A line is marked by the tiles' rules (Down also for a monitor the file
+names that doesn't exist); a query that fails leaves its line Unknown, with the error. Both tabs
 share `templates/base.html`: the header, the tab bar, the notices for a source that doesn't
 answer, the summary line and the 15 s refresh.
 
