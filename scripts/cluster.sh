@@ -186,6 +186,19 @@ alloc = int(node[:-1]) if node.endswith("m") else int(node) * 1000
 print(f"== node: CPU requested {cpu}m of {alloc}m allocatable ({100 * cpu // alloc}%)")
 EOF
   kubectl top node 2>/dev/null || echo "  (no kubectl top: metrics-server not serving yet)"
+  # An Application that drifts after a successful sync waits for self-heal, whose backoff
+  # grows with each attempt (2 s, 6 s, 18 s ... up to 5 min): the other way, besides a stale
+  # cache, for a child to sit OutOfSync with no sync running. Per Application, in the
+  # controller's current log: automated syncs, self-heal waits and the last wait asked.
+  echo "== Argo CD: automated syncs and self-heal waits, per Application that synced more than once or waited"
+  kubectl -n argocd logs statefulset/argocd-application-controller 2>/dev/null | awk '
+    /Initiated automated sync|retrying in/ && match($0, /application=[^ ]+/) {
+      a = substr($0, RSTART + 12, RLENGTH - 12)
+      if (/Initiated automated sync/) { if (!seen[a, substr($0, 1, 26)]++) syncs[a]++ } # logged twice
+      else if (match($0, /retrying in [^)]+/)) { waits[a]++; last[a] = substr($0, RSTART + 12, RLENGTH - 12) }
+    }
+    END { for (a in syncs) if (syncs[a] > 1 || waits[a]) printf "  %s: %d syncs, %d self-heal waits%s\n", a, syncs[a], waits[a], (a in last ? " (last: retrying in " last[a] ")" : "") }' \
+    | sort || true
 }
 
 # Apply the platform's root Application and wait until every child is Synced and Healthy.
