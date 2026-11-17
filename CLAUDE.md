@@ -21,7 +21,10 @@ The laptop cluster runs this repo's `main` (`scripts/cluster.sh` from a checkout
 app's CI runs its kind e2e against the platform commit it pins (links: `platform.lock`,
 which also pins the reusable workflows): a change here reaches that e2e when the app moves
 its pin, in a PR of its own. So a platform change that an app's e2e would catch is caught
-on the app's lock PR, not here: move the lock soon after a change that touches what apps run.
+on the app's lock PR, not here. Renovate opens that PR weekly in app-template and
+hotel_social_posts, and it auto-merges once green; after a change that touches what apps run,
+don't wait for Monday: trigger it from the repo's Dependency Dashboard. links still moves
+its lock by hand.
 
 ## Checks
 
