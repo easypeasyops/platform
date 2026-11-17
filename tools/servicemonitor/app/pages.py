@@ -1,6 +1,7 @@
 """The Monitors tab: the read models (app/monitors.py, and app/status.py for the alerts and
-the SLO budgets) shaped for templates/monitors.html. Filtering is done here, from the URL,
-so a filtered link shows the same rows to whoever opens it.
+the SLO budgets) shaped for templates/monitors.html, and for the shell around it
+(templates/base.html). Filtering is done here, from the URL, so a filtered link shows the
+same rows to whoever opens it.
 
 A monitor has a problem when it has a target that isn't up, no target at all, or targets
 nobody knows (Prometheus never answered): unknown is never shown as healthy. So does one
@@ -162,50 +163,36 @@ def _row(
     }
 
 
-def view(
-    model: dict[str, Any],
-    status: dict[str, Any],
-    path: str,
-    q: str,
-    show: str,
-    app: str | None,
-    now: datetime,
-) -> dict[str, Any]:
-    """`status` is status.read()'s answer over `model`, monitors.read()'s."""
-    q = q.strip().lower()
-    show = show if show in SHOW else "all"
-    every: list[dict[str, Any]] = []
-    groups = []
+def _namespaces(
+    model: dict[str, Any], status: dict[str, Any], now: datetime
+) -> list[tuple[dict[str, Any], list[dict[str, Any]]]]:
+    """Every namespace with its monitors' rows. `status` is status.read()'s answer over
+    `model`, monitors.read()'s."""
     # A monitor the status doesn't have (it appeared between the two reads): unknown.
     statuses = {
         (ns["name"], monitor["kind"], monitor["name"]): monitor
         for ns in status["namespaces"] or []
         for monitor in ns["monitors"]
     }
-    lowest = status["summary"]["lowest_budget"]
     # Apps first, then the platform; the model has each in name order.
-    for ns in sorted(model["namespaces"] or [], key=lambda ns: ns["owner"] != "app"):
-        rows = [
-            _row(ns, m, statuses.get((ns["name"], m["kind"], m["name"]), {}), now)
-            for m in ns["monitors"]
-        ]
-        every += rows
-        shown = [
-            row
-            for row in rows
-            if (app is None or ns["app"] == app)
-            and (show != "problems" or row["problem"])
-            and (show not in ("apps", "platform") or ns["owner"] == show.removesuffix("s"))
-            and any(q in text for text in (ns["name"], row["name"], ns["app"] or ""))
-        ]
-        if shown:
-            groups.append(
-                {
-                    "name": ns["name"],
-                    "owner": ns["owner"],
-                    "monitors": sorted(shown, key=lambda row: not row["problem"]),
-                }
-            )
+    return [
+        (
+            ns,
+            [
+                _row(ns, m, statuses.get((ns["name"], m["kind"], m["name"]), {}), now)
+                for m in ns["monitors"]
+            ],
+        )
+        for ns in sorted(model["namespaces"] or [], key=lambda ns: ns["owner"] != "app")
+    ]
+
+
+def _shell(
+    model: dict[str, Any], status: dict[str, Any], every: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """What templates/base.html shows on every tab: the sources that don't answer and the
+    summary line, over every monitor's row."""
+    lowest = status["summary"]["lowest_budget"]
     targets = [t for row in every for t in row["targets"]]
     return {
         "known": model["namespaces"] is not None,
@@ -239,6 +226,43 @@ def view(
                 "spent": lowest["remaining"] <= 0,
             },
         },
+        "prometheus": PROMETHEUS,
+    }
+
+
+def view(
+    model: dict[str, Any],
+    status: dict[str, Any],
+    path: str,
+    q: str,
+    show: str,
+    app: str | None,
+    now: datetime,
+) -> dict[str, Any]:
+    """The Monitors tab."""
+    q = q.strip().lower()
+    show = show if show in SHOW else "all"
+    namespaces = _namespaces(model, status, now)
+    groups = []
+    for ns, rows in namespaces:
+        shown = [
+            row
+            for row in rows
+            if (app is None or ns["app"] == app)
+            and (show != "problems" or row["problem"])
+            and (show not in ("apps", "platform") or ns["owner"] == show.removesuffix("s"))
+            and any(q in text for text in (ns["name"], row["name"], ns["app"] or ""))
+        ]
+        if shown:
+            groups.append(
+                {
+                    "name": ns["name"],
+                    "owner": ns["owner"],
+                    "monitors": sorted(shown, key=lambda row: not row["problem"]),
+                }
+            )
+    return {
+        **_shell(model, status, [row for _, rows in namespaces for row in rows]),
         "groups": groups,
         "shown": sum(len(group["monitors"]) for group in groups),
         "app": app,
@@ -254,5 +278,4 @@ def view(
             }
             for key, label in SHOW.items()
         ],
-        "prometheus": PROMETHEUS,
     }
