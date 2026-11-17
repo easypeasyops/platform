@@ -26,6 +26,14 @@ configs:
     # Missing, and kube-prometheus-stack's Prometheus "Waiting for initialization", for
     # minutes after the API server had them ready (links' kind e2e, PT-71).
     controller.cluster.cache.batch.events.processing: "false"
+    # Cap self-heal's backoff at 30 s instead of 5 minutes. On a fresh cluster each CRD-heavy
+    # child (argo-rollouts, barman-cloud, cloudnative-pg, envoy-gateway) self-heals 4 or 5
+    # times while its CRDs settle, and the default backoff (2 s, times 3 each attempt, capped
+    # at 300 s) left each one waiting 2m40s before its next sync, with every resource already
+    # applied and healthy (links run 44192123904, cluster.sh's self-heal report, PT-71). The
+    # backoff guards against fighting a controller that rewrites a field; 30 s still does,
+    # at one sync per 30 s at most.
+    controller.self.heal.backoff.cap.seconds: "30"
   cm:
     # Check the repository for changes every 60 s instead of 180 s: a merged promotion PR
     # reaches the cluster within a minute. (A webhook from GitHub would make it instant;
