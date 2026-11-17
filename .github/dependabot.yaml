@@ -13,6 +13,12 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    groups:
+      # Minor and patch updates together, one PR a week; a major update arrives in a PR of
+      # its own, because its inputs or behaviour can change.
+      actions:
+        patterns: ["*"]
+        update-types: [minor, patch]
 
   # The tools that live here (tools/<app>/): their Python dependencies and base images. CI
   # (the image scan and smoke test included) decides whether a bump is safe to merge.
