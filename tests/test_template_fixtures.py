@@ -22,6 +22,8 @@ FILES = {
     "slo-rules.values.yaml": "service/slo-rules.values.yaml",
     "staging-values.yaml": "envs/staging.yaml",
     "prod-values.yaml": "envs/prod.yaml",
+    # The spec slo-rules.values.yaml is generated from (scripts/test-slo-generator.sh).
+    "deploy/prometheus/slos.yaml": "prometheus/slos.yaml",
 }
 
 
