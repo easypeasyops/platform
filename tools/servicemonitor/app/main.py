@@ -1,5 +1,6 @@
-"""servicemonitor: the Monitors tab (`/monitors`, and `/apps/<app>` for one app's monitors),
-with what the platform's service chart expects of an app:
+"""servicemonitor: the Overview tab (`/`) and the Monitors tab (`/monitors`, and
+`/apps/<app>` for one app's monitors), with what the platform's service chart expects of
+an app:
 
 * port 8000: the app's routes, `/healthz` (liveness: the process runs) and `/readyz`
   (readiness: it can serve);
@@ -18,7 +19,7 @@ from typing import Any
 
 import uvicorn
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
 from prometheus_client import Counter, Histogram, start_http_server
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -36,9 +37,10 @@ templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 api = FastAPI(title="servicemonitor", openapi_url=None)
 
 
-@api.get("/", response_class=RedirectResponse)
-async def index() -> str:
-    return "/monitors"  # until the Overview tab (PT-57) is served here
+@api.get("/", response_class=HTMLResponse)
+async def overview_tab(request: Request) -> HTMLResponse:
+    view = pages.overview(await monitors.read(), await status.read(), datetime.now(UTC))
+    return templates.TemplateResponse(request, "overview.html", view)
 
 
 @api.get("/monitors", response_class=HTMLResponse)

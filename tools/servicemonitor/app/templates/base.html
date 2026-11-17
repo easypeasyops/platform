@@ -14,8 +14,9 @@
   --ink: #15181E; --ink-2: #3D4350; --muted: #4A5160;
   --link: #1F4FBF; --link-hover: #163A8C;
   --ok-ink: #145A33; --ok-bg: #E3F2E9; --ok-dot: #17663A;
-  --down-ink: #9B1C12; --down-bg: #FDE8E6; --down-dot: #B42318; --down-row: #FFF7F6;
-  --warn-ink: #7A3E00; --warn-bg: #FFF1DC; --warn-dot: #B86E00;
+  --down-ink: #9B1C12; --down-bg: #FDE8E6; --down-dot: #B42318; --down-row: #FFF7F6; --down-border: #F3C3BD;
+  --warn-ink: #7A3E00; --warn-bg: #FFF1DC; --warn-dot: #B86E00; --warn-row: #FFFBF3; --warn-border: #F0D3A6;
+  --square-up: #3E9B66; --square-mark: #FFFFFF;
   --app-ink: #163A8C; --app-bg: #E3EAFB; --platform-ink: #3D4350; --platform-bg: #E2E5EA;
   --on-bg: #15181E; --on-ink: #FFFFFF;
   --columns: 28px minmax(230px, 2.2fr) 110px 120px 110px minmax(170px, 1.4fr) minmax(160px, 1.2fr) minmax(210px, 1.5fr);
@@ -27,8 +28,9 @@
     --ink: #E8EAEE; --ink-2: #C2C7D0; --muted: #A3AAB6;
     --link: #8FB0FF; --link-hover: #B5CBFF;
     --ok-ink: #7FD6A4; --ok-bg: #12301F; --ok-dot: #3E9B66;
-    --down-ink: #FF9C92; --down-bg: #3A1512; --down-dot: #E5534B; --down-row: #231514;
-    --warn-ink: #F2B866; --warn-bg: #33240C; --warn-dot: #E8A23A;
+    --down-ink: #FF9C92; --down-bg: #3A1512; --down-dot: #E5534B; --down-row: #231514; --down-border: #6B2A25;
+    --warn-ink: #F2B866; --warn-bg: #33240C; --warn-dot: #E8A23A; --warn-row: #211B10; --warn-border: #5C4318;
+    --square-mark: #0F1115;
     --app-ink: #A9C1FF; --app-bg: #1B2748; --platform-ink: #C2C7D0; --platform-bg: #2B303A;
     --on-bg: #E8EAEE; --on-ink: #15181E;
   }
@@ -105,6 +107,29 @@ a.alert.dim, a.alert.dim:hover { font-weight: 400; color: var(--muted); backgrou
 .target .error { color: var(--down-ink) }
 .spec { padding: 3px 10px; font-size: 11px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 2px 14px }
 .spec .mono { font-size: 11px }
+/* The Overview tab. */
+h2.title { margin: 0; font-size: 11px; font-weight: 700; color: var(--ink-2); text-transform: uppercase; letter-spacing: 0.04em }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; margin-top: 6px }
+a.tile, a.tile:hover { display: grid; gap: 2px; padding: 6px 10px; border-radius: 8px; color: var(--ink); background: var(--surface); border: 1px solid var(--border); text-decoration: none }
+a.tile.warn { background: var(--warn-row); border-color: var(--warn-border) }
+a.tile.down { background: var(--down-row); border-color: var(--down-border) }
+a.tile:hover { border-color: var(--ink-2) }
+.tile .top { display: flex; justify-content: space-between; align-items: center; gap: 6px }
+.tile .mono { font-weight: 600; overflow-wrap: anywhere }
+.tile .pill { font-size: 11px; white-space: nowrap }
+.tile .facts { font-size: 11px; color: var(--muted) }
+.panels { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start }
+.panel { flex: 1 1 420px; min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 8px }
+.panel h2 { padding: 5px 12px; background: var(--head); border-bottom: 1px solid var(--border); border-radius: 8px 8px 0 0 }
+.squares { padding: 8px 12px; display: grid; gap: 6px }
+.squares .ns { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 8px; align-items: center; font-size: 11px; color: var(--ink-2) }
+.squares .mono { font-size: 11px; overflow-wrap: anywhere }
+.squares .ns > :last-child, .legend, .legend span { display: flex; flex-wrap: wrap; align-items: center; gap: 3px }
+.square, a.square:hover { width: 14px; height: 14px; border-radius: 3px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; line-height: 1; font-weight: 700; text-decoration: none; color: var(--ink); background: var(--border-strong) }
+.square.up { background: var(--square-up) }
+.square.down, a.square.down:hover { color: var(--square-mark); background: var(--down-dot) }
+.legend { gap: 4px 14px; padding-top: 2px; font-size: 11px; color: var(--muted) }
+.legend .square { width: 10px; height: 10px; border-radius: 2px; margin-right: 1px }
 </style>
 </head>
 <body>
@@ -121,8 +146,10 @@ a.alert.dim, a.alert.dim:hover { font-weight: 400; color: var(--muted); backgrou
 </header>
 
 <main class="wrap">
-{# PT-57 adds Overview, at /. #}
-<nav class="tabs" aria-label="View"><a href="/monitors" aria-current="page">Monitors</a></nav>
+<nav class="tabs" aria-label="View">
+{% for name, href in (("Overview", "/"), ("Monitors", "/monitors")) %}<a href="{{ href }}"{% if name | lower == tab %} aria-current="page"{% endif %}>{{ name }}</a>
+{% endfor %}
+</nav>
 
 {% block controls %}{% endblock %}
 
@@ -171,6 +198,8 @@ const localTimes = () => document.querySelectorAll("time").forEach((t) => {
   t.textContent = new Date(t.dateTime).toLocaleTimeString();
 });
 localTimes();
+// A link to a monitor's row (the Overview's squares) opens it.
+if (location.hash) document.getElementById(decodeURIComponent(location.hash.slice(1)))?.setAttribute("open", "");
 // Every 15 s: this same URL again, and its #live swapped in, keeping the rows that are
 // open and the keyboard's place.
 setInterval(async () => {
