@@ -24,7 +24,7 @@ from fastapi.templating import Jinja2Templates
 from prometheus_client import Counter, Histogram, start_http_server
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from app import monitors, pages, status
+from app import history, monitors, pages, status
 
 REQUESTS = Counter("http_requests_total", "Requests served", ["method", "route", "status"])
 # The default buckets; an SLO's latency threshold must be one of their edges
@@ -39,7 +39,9 @@ api = FastAPI(title="servicemonitor", openapi_url=None)
 
 @api.get("/", response_class=HTMLResponse)
 async def overview_tab(request: Request) -> HTMLResponse:
-    view = pages.overview(await monitors.read(), await status.read(), datetime.now(UTC))
+    now = datetime.now(UTC)
+    view = pages.overview(await monitors.read(), await status.read(), now)
+    view["history"] = await history.read(now)
     return templates.TemplateResponse(request, "overview.html", view)
 
 

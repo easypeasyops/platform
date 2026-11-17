@@ -43,5 +43,29 @@
 
 {# PT-60: the Platform Radar goes here, a .panel across the page. #}
 
-{# PT-59: the last 24 hours, per hour (targets down, alerts firing), goes here, a .panel across the page. #}
+<section class="panel" aria-labelledby="history">
+<h2 id="history" class="title">Last 24 hours, per hour</h2>
+<div class="history">
+{% for row in history %}
+{% if row.key == "down" %}{% set now = summary.targets - summary.up if summary.targets_known else "?" %}
+{% else %}{% set now = "?" if summary.alerts is none else summary.alerts %}{% endif %}
+<div class="lane">
+<span>{{ row.name }}</span>
+{% if row.cells is none %}<span class="error">unknown: Prometheus's query API did not answer. <span class="mono">{{ row.error }}</span></span>
+{% else %}<ol class="cells" aria-label="{{ row.name }}, per hour, oldest first">
+{% for cell in row.cells %}<li class="cell h-{{ row.key }} l{{ cell.level }}"><span class="sr"><time datetime="{{ cell.start }}" data-hour>{{ cell.start[11:16] }} UTC</time>–{% if cell.end %}<time datetime="{{ cell.end }}" data-hour>{{ cell.end[11:16] }} UTC</time>{% else %}now{% endif %}: {{ cell.text }}</span><span aria-hidden="true">{{ cell.value or "" }}</span></li>
+{% endfor %}</ol>{% endif %}
+<b>{{ now }} now</b>
+</div>
+{% endfor %}
+<div class="lane axis" aria-hidden="true"><span></span><span><span>−24 h</span><span>−18 h</span><span>−12 h</span><span>−6 h</span><span>now</span></span></div>
+<div class="legend">
+<span><span class="cell l0" aria-hidden="true"></span>none</span>
+<span><span class="cell h-down l1" aria-hidden="true"></span><span class="cell h-alerts l1" aria-hidden="true"></span>1</span>
+<span><span class="cell h-down l2" aria-hidden="true"></span><span class="cell h-alerts l2" aria-hidden="true"></span>2 or more (the number is in the cell)</span>
+<span><span class="cell lnone" aria-hidden="true"></span>no data: Prometheus wasn't running</span>
+<span>Each hour shows its worst moment; hover a cell for its hour. Alerts count Watchdog, which always fires.</span>
+</div>
+</div>
+</section>
 {% endblock %}

@@ -49,7 +49,10 @@ The Overview tab is the same data at a glance: a tile per namespace, marked by i
 monitor (Down: a target that isn't up, or a monitor with no targets; else Alert: an alert on
 a job a monitor scrapes, or an SLO with no budget left; else Healthy), that links to the
 Monitors tab filtered to it; and a square per scrape target, down marked with a ×, that
-links to its monitor's row. What the page doesn't know is Unknown, never Healthy. Both tabs
+links to its monitor's row. Below them, the last 24 hours (`app/history.py`): per hour, the
+most targets down and alerts firing at any moment in it (two range queries, cached a
+minute), an hour Prometheus has no data for marked as such, not as 0. What the page doesn't
+know is Unknown, never Healthy. Both tabs
 share `templates/base.html`: the header, the tab bar, the notices for a source that doesn't
 answer, the summary line and the 15 s refresh.
 
