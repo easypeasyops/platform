@@ -14,7 +14,26 @@
 </section>
 
 <div class="panels">
-{# PT-58: the platform components panel goes here, a .panel before the squares'. #}
+<section class="panel" aria-labelledby="components">
+<h2 id="components" class="title">Platform components</h2>
+{% for c in components %}
+<div class="component">
+<span class="cname">{{ c.name }}</span>
+<span class="pill {{ c.tone }}">{{ c.word }}</span>
+<span class="ctargets">{{ c.targets }}</span>
+<span class="cdash">{% if c.dashboard %}<a href="{{ c.dashboard }}">Dashboard</a>{% endif %}</span>
+<span class="alerts csignal">
+{% for monitor in c.missing %}<span class="error"><span class="mono">{{ monitor }}</span>: monitor not found</span>
+{% endfor %}
+{% if c.error %}<span class="error">signal unknown: <span class="mono">{{ c.error }}</span></span>
+{% else %}<span>{{ c.signal }}</span>{% endif %}
+{% if c.alerts is none %}<span class="note">alerts unknown</span>
+{% else %}{% for alert in c.alerts %}<a class="alert" href="{{ alert.href }}">{{ alert.name }}</a>
+{% endfor %}{% endif %}
+</span>
+</div>
+{% endfor %}
+</section>
 <section class="panel" aria-labelledby="targets">
 <h2 id="targets" class="title">Every scrape target</h2>
 <div class="squares">
