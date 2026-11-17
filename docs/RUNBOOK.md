@@ -54,11 +54,12 @@ How free the node is: `docker exec shortly-control-plane free -m` (`available`).
 **The CI node's CPU budget.** An app's kind e2e (links' "kind e2e (platform)") runs the
 whole platform and the app on one GitHub runner: 4000m CPU allocatable. The scheduler places
 a pod only where its CPU *request* fits, and prod's canary needs room for 2 old and 2 new
-pods at 500m each. So the platform may request 755m in all: 4000m, less kind's own pods
-(950m: the API server, controller manager, scheduler, etcd, kindnet, CoreDNS), less shortly at
-its canary's peak (2045m), less 250m left free. `tests/test_cpu_budget.py` renders what the
-e2e installs and fails a PR that goes over, with each component's request in the message
-(PT-71; the ticket aims for 500m free, which needs more than the platform's own requests).
+pods. The e2e runs them at 400m each (links #171; prod's real request is 500m). So the
+platform may request 905m in all: 4000m, less kind's own pods (950m: the API server,
+controller manager, scheduler, etcd, kindnet, CoreDNS), less shortly at its canary's peak
+(1645m), less 500m left free, room for one more app pod. `tests/test_cpu_budget.py` renders
+what the e2e installs and fails a PR that goes over, with each component's request in the
+message (PT-71). links' e2e prints the node's allocated CPU after that canary on every run.
 To stay inside it, don't raise the budget: set a request to the component's peak use plus a
 margin, or lower another to make room. Peak use, a 5-minute rate over the last day, from
 Prometheus on the laptop:
