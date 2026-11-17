@@ -3,8 +3,8 @@ app: deploybot
 env: ops
 # The platform's service chart, pinned by digest (the version is for people), as aipostit's.
 chart:
-  version: 1.5.0
-  digest: sha256:514c85572c0141e16fd1dc9d8a38505034e8dd27a1866c5794645cd6a4955584
+  version: 1.6.0
+  digest: sha256:df51161143266cc5d10dc92148e1baae931d5c65adfa7a46ecba8e5ef866f8ff
 # deploybot's values, from hotel_social_posts at this revision, layered in this order.
 values:
   repoURL: https://github.com/easypeasyops/hotel_social_posts.git
