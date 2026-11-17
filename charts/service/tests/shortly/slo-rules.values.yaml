@@ -69,6 +69,10 @@ monitoring:
           expr: sum by (namespace) (increase(http_requests_total{method="GET", route="/{code}"}[3d]))
           labels:
             slo: redirect-availability
+        - record: slo:sli_events:increase30d
+          expr: sum by (namespace) (increase(http_requests_total{method="GET", route="/{code}"}[30d]))
+          labels:
+            slo: redirect-availability
         - record: slo:error_budget_remaining:ratio
           expr: 1 - slo:sli_error:ratio_rate30d{slo="redirect-availability"} / 0.001
           labels:
@@ -157,6 +161,10 @@ monitoring:
             slo: redirect-latency
         - record: slo:sli_events:increase3d
           expr: sum by (namespace) (increase(http_request_duration_seconds_count{method="GET", route="/{code}"}[3d]))
+          labels:
+            slo: redirect-latency
+        - record: slo:sli_events:increase30d
+          expr: sum by (namespace) (increase(http_request_duration_seconds_count{method="GET", route="/{code}"}[30d]))
           labels:
             slo: redirect-latency
         - record: slo:error_budget_remaining:ratio
@@ -249,6 +257,10 @@ monitoring:
           expr: sum by (namespace) (increase(http_requests_total{method="POST", route="/links"}[3d]))
           labels:
             slo: create-availability
+        - record: slo:sli_events:increase30d
+          expr: sum by (namespace) (increase(http_requests_total{method="POST", route="/links"}[30d]))
+          labels:
+            slo: create-availability
         - record: slo:error_budget_remaining:ratio
           expr: 1 - slo:sli_error:ratio_rate30d{slo="create-availability"} / 0.005
           labels:
@@ -337,6 +349,10 @@ monitoring:
             slo: create-latency
         - record: slo:sli_events:increase3d
           expr: sum by (namespace) (increase(http_request_duration_seconds_count{method="POST", route="/links"}[3d]))
+          labels:
+            slo: create-latency
+        - record: slo:sli_events:increase30d
+          expr: sum by (namespace) (increase(http_request_duration_seconds_count{method="POST", route="/links"}[30d]))
           labels:
             slo: create-latency
         - record: slo:error_budget_remaining:ratio
