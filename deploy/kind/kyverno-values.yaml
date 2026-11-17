@@ -17,7 +17,9 @@ admissionController:
     minAvailable: 1
   container:
     resources:
-      requests: { cpu: 100m, memory: 128Mi }
+      # 50m each, so the two together reserve what one did. The CI node had no CPU left to
+      # schedule the canary's pod at 2 × 100m (links #169); each one uses about 10m on the laptop.
+      requests: { cpu: 50m, memory: 128Mi }
       limits: { memory: 384Mi }
 # We only validate. The background controller (generate/mutate-existing) and the cleanup
 # controller aren't used; the reports controller turns Audit results into PolicyReports.
