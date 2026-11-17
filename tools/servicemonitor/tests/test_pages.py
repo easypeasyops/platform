@@ -1,6 +1,8 @@
 """The Monitors tab, over the same recording as the read model's tests
-(tests/test_monitors.py), changed the same way: one thing per test."""
+(tests/test_monitors.py), changed the same way: one thing per test. No alert fires here
+and no SLO has a budget: tests/test_pages_status.py has those."""
 
+import asyncio
 import copy
 import html
 import re
@@ -8,11 +10,12 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import unquote
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from prometheus_client import REGISTRY
 
-from app import monitors, pages
+from app import monitors, pages, status
 from app.main import app
 from tests import test_monitors
 from tests.test_monitors import Cluster
@@ -20,6 +23,23 @@ from tests.test_monitors import Cluster
 cluster = test_monitors.cluster  # the recording, behind both APIs, for every test here
 client = TestClient(app)
 NOW = datetime(2026, 11, 16, 22, 4, 40, tzinfo=UTC)  # seconds after the recording
+QUIET: dict[str, Any] = {"/api/v1/alerts": {"alerts": []}, "/api/v1/query": {"result": []}}
+
+
+@pytest.fixture(autouse=True)
+def quiet(cluster: Cluster, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Prometheus, while it answers, has no alert and no budget series."""
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        if request.url.path not in QUIET:
+            return cluster(request)
+        if "prometheus" in cluster.down:
+            raise httpx.ConnectError("connection refused")
+        return httpx.Response(200, json={"data": QUIET[request.url.path]})
+
+    monkeypatch.setattr(monitors, "transport", httpx.MockTransport(answer))
+    monkeypatch.setattr(status, "_cache", None)
+    monkeypatch.setattr(status, "_last_good", {})
 
 
 def page(url: str) -> str:
@@ -39,7 +59,7 @@ def rows(text: str) -> list[str]:
 
 def row(namespace: str, name: str) -> dict[str, Any]:
     model = test_monitors.read()
-    view = pages.view(model, "/monitors", "", "all", None, NOW)
+    view = pages.view(model, asyncio.run(status.read()), "/monitors", "", "all", None, NOW)
     (found,) = (
         m
         for g in view["groups"]
@@ -170,7 +190,9 @@ def test_the_links(cluster: Cluster) -> None:
     del cluster.bodies["podmonitors"]["items"][0]["metadata"]["annotations"]
     links = row("aipostit-prod", "aipostit")["links"]
     assert links["Dashboard"] == "http://grafana.localhost:8090/dashboards?query=aipostit"
-    assert links["Alerts"] == "http://prometheus.localhost:8090/alerts?search=aipostit-prod"
+    assert unquote(links["Alerts"]) == (
+        'http://prometheus.localhost:8090/query?g0.tab=table&g0.expr=ALERTS{namespace=~"aipostit-prod"}'
+    )
     assert links["Argo CD"] == "http://argocd.localhost:8090/applications/argocd/aipostit-prod"
     assert links["Logs"].startswith("http://grafana.localhost:8090/explore?schemaVersion=1&")
     assert '"expr":"{kubernetes.pod_namespace=~\\"aipostit-prod\\"}"' in unquote(links["Logs"])

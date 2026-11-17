@@ -1,0 +1,65 @@
+{
+  "status": "success",
+  "data": {
+    "alerts": [
+      {
+        "labels": {
+          "alertname": "KubeJobFailed",
+          "condition": "true",
+          "container": "kube-state-metrics",
+          "endpoint": "http",
+          "instance": "10.244.0.36:8080",
+          "job": "kube-state-metrics",
+          "job_name": "aipostit-sync-buffer-29913435",
+          "namespace": "aipostit-prod",
+          "pod": "kube-state-metrics-785764d86f-jqxtl",
+          "service": "kube-state-metrics",
+          "severity": "warning"
+        },
+        "annotations": {
+          "description": "Job aipostit-prod/aipostit-sync-buffer-29913435 failed to complete. Removing failed job after investigation should clear this alert on cluster .",
+          "runbook_url": "https://runbooks.prometheus-operator.dev/runbooks/kubernetes/kubejobfailed",
+          "summary": "Job failed to complete."
+        },
+        "state": "firing",
+        "activeAt": "2026-11-16T21:35:28.689173717Z",
+        "value": "1e+00"
+      },
+      {
+        "labels": {
+          "alertname": "Watchdog",
+          "severity": "none"
+        },
+        "annotations": {
+          "description": "This is an alert meant to ensure that the entire alerting pipeline is functional.\nThis alert is always firing, therefore it should always be firing in Alertmanager\nand always fire against a receiver. There are integrations with various notification\nmechanisms that send a notification when this alert is not firing. For example the\n\"DeadMansSnitch\" integration in PagerDuty.\n",
+          "runbook_url": "https://runbooks.prometheus-operator.dev/runbooks/general/watchdog",
+          "summary": "An alert that should always be firing to certify that Alertmanager is working properly."
+        },
+        "state": "firing",
+        "activeAt": "2026-11-16T19:19:46Z",
+        "value": "1e+00"
+      },
+      {
+        "labels": {
+          "alertname": "PrometheusDuplicateTimestamps",
+          "container": "prometheus",
+          "endpoint": "http-web",
+          "instance": "10.244.0.48:9090",
+          "job": "kps-prometheus",
+          "namespace": "monitoring",
+          "pod": "prometheus-kps-prometheus-0",
+          "service": "kps-prometheus",
+          "severity": "warning"
+        },
+        "annotations": {
+          "description": "Prometheus monitoring/prometheus-kps-prometheus-0 is dropping 0.1333 samples/s with different values but duplicated timestamp.",
+          "runbook_url": "https://runbooks.prometheus-operator.dev/runbooks/prometheus/prometheusduplicatetimestamps",
+          "summary": "Prometheus is dropping samples with duplicate timestamps."
+        },
+        "state": "firing",
+        "activeAt": "2026-11-16T19:44:03.304419309Z",
+        "value": "1.333338011712322e-01"
+      }
+    ]
+  }
+}

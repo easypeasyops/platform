@@ -38,6 +38,13 @@ alerts and its Argo CD Application, at `GRAFANA_LINK_URL`, `PROMETHEUS_LINK_URL`
 (`http://grafana.localhost:8090`, `http://prometheus.localhost:8090`,
 `http://argocd.localhost:8090`).
 
+`/api/status` (`app/status.py`) adds, for each of those monitors, the alerts firing on it
+and the error budget its SLOs have left (the series the platform's SLO dashboard shows),
+and the summary line: monitors, targets up and down, alerts firing, lowest budget. It
+reads Prometheus only (`/api/v1/alerts`, one query). The Monitors tab shows both on each
+monitor's row: an alert on a job the monitor scrapes, and one that is only in a namespace
+it scrapes, dimmed; the lowest budget as a bar, below zero as its real number.
+
 ## Release and deploy
 
 Bump `version` in `pyproject.toml` (a PR), then Emrah tags the merge commit

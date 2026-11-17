@@ -1,0 +1,52 @@
+{
+  "status": "success",
+  "data": {
+    "resultType": "vector",
+    "result": [
+      {
+        "metric": {
+          "__name__": "slo:error_budget_remaining:ratio",
+          "namespace": "aipostit-prod",
+          "slo": "aipostit-latency"
+        },
+        "value": [
+          1794866950.525,
+          "-15.013213661877312"
+        ]
+      },
+      {
+        "metric": {
+          "__name__": "slo:error_budget_remaining:ratio",
+          "namespace": "aipostit-staging",
+          "slo": "aipostit-latency"
+        },
+        "value": [
+          1794866950.525,
+          "-7.694501299980573"
+        ]
+      },
+      {
+        "metric": {
+          "__name__": "slo:error_budget_remaining:ratio",
+          "namespace": "aipostit-prod",
+          "slo": "aipostit-availability"
+        },
+        "value": [
+          1794866950.525,
+          "1"
+        ]
+      },
+      {
+        "metric": {
+          "__name__": "slo:error_budget_remaining:ratio",
+          "namespace": "aipostit-staging",
+          "slo": "aipostit-availability"
+        },
+        "value": [
+          1794866950.525,
+          "1"
+        ]
+      }
+    ]
+  }
+}
