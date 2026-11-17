@@ -2,10 +2,10 @@
 
 A page that shows, at a glance, whether Prometheus sees every app and platform tool on the
 cluster: every ServiceMonitor, PodMonitor and Probe, its scrape targets, alerts and SLO
-error budget (PT-51). For now it serves the Monitors tab (`/monitors`, rendered on the
-server from `app/templates/`; `?q=` and `?show=problems|apps|platform` filter it;
-`/apps/<app>` is a link to one app's monitors), and `/api/monitors`: every monitor joined
-with its scrape targets, as JSON.
+error budget (PT-51). It serves the Overview tab (`/`) and the Monitors tab (`/monitors`;
+`?q=` and `?show=problems|apps|platform` filter it; `/apps/<app>` is a link to one app's
+monitors), both rendered on the server from `app/templates/`, and `/api/monitors`: every
+monitor joined with its scrape targets, as JSON.
 
 It lives in the platform repo, and is built, released, admitted and run like any other
 app: the image `ghcr.io/easypeasyops/platform/servicemonitor`, deployed with a released
@@ -44,6 +44,14 @@ and the summary line: monitors, targets up and down, alerts firing, lowest budge
 reads Prometheus only (`/api/v1/alerts`, one query). The Monitors tab shows both on each
 monitor's row: an alert on a job the monitor scrapes, and one that is only in a namespace
 it scrapes, dimmed; the lowest budget as a bar, below zero as its real number.
+
+The Overview tab is the same data at a glance: a tile per namespace, marked by its worst
+monitor (Down: a target that isn't up, or a monitor with no targets; else Alert: an alert on
+a job a monitor scrapes, or an SLO with no budget left; else Healthy), that links to the
+Monitors tab filtered to it; and a square per scrape target, down marked with a ×, that
+links to its monitor's row. What the page doesn't know is Unknown, never Healthy. Both tabs
+share `templates/base.html`: the header, the tab bar, the notices for a source that doesn't
+answer, the summary line and the 15 s refresh.
 
 ## Release and deploy
 

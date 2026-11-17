@@ -11,12 +11,6 @@ def _count(route: str, status: str) -> float:
     return REGISTRY.get_sample_value("http_requests_total", labels) or 0.0
 
 
-def test_the_front_page_is_the_monitors_tab_for_now() -> None:
-    response = client.get("/", follow_redirects=False)
-    assert response.status_code == 307
-    assert response.headers["location"] == "/monitors"
-
-
 def test_the_probes_answer() -> None:
     assert client.get("/healthz").status_code == 200
     assert client.get("/readyz").status_code == 200

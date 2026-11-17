@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block live %}
+<section aria-labelledby="namespaces">
+<h2 id="namespaces" class="title">Namespaces · click one to see its monitors</h2>
+<div class="tiles">
+{% for ns in namespaces %}
+<a class="tile {{ ns.tone }}" href="{{ ns.href }}">
+<span class="top"><span class="mono">{{ ns.name }}</span><span class="pill {{ ns.tone }}">{{ ns.word }}</span></span>
+<span class="facts">{{ ns.owner | capitalize }} · {{ ns.facts }}</span>
+</a>
+{% endfor %}
+</div>
+</section>
+
+<div class="panels">
+{# PT-58: the platform components panel goes here, a .panel before the squares'. #}
+<section class="panel" aria-labelledby="targets">
+<h2 id="targets" class="title">Every scrape target</h2>
+<div class="squares">
+{% for ns in namespaces %}
+<div class="ns">
+<span class="mono">{{ ns.name }}</span>
+<span>
+{% if ns.squares is none %}unknown
+{% else %}
+{% for square in ns.squares %}<a class="square {{ square.health }}" href="{{ square.href }}" title="{{ square.label }}"><span class="sr">{{ square.label }}</span>{% if square.health != "up" %}<span aria-hidden="true">{{ "×" if square.health == "down" else "?" }}</span>{% endif %}</a>
+{% else %}no targets
+{% endfor %}
+{% endif %}
+</span>
+</div>
+{% endfor %}
+<div class="legend">
+<span><span class="square up" aria-hidden="true"></span>up</span>
+<span><span class="square down" aria-hidden="true"></span>down (×)</span>
+<span><span class="square" aria-hidden="true"></span>unknown (?)</span>
+<span>Hover a square for its endpoint.</span>
+</div>
+</div>
+</section>
+</div>
+
+{# PT-60: the Platform Radar goes here, a .panel across the page. #}
+
+{# PT-59: the last 24 hours, per hour (targets down, alerts firing), goes here, a .panel across the page. #}
+{% endblock %}

@@ -1,12 +1,13 @@
-"""The Monitors tab: the read models (app/monitors.py, and app/status.py for the alerts and
-the SLO budgets) shaped for templates/monitors.html, and for the shell around it
-(templates/base.html). Filtering is done here, from the URL, so a filtered link shows the
-same rows to whoever opens it.
+"""The Overview and Monitors tabs: the read models (app/monitors.py, and app/status.py for
+the alerts and the SLO budgets) shaped for templates/overview.html and
+templates/monitors.html, and for the shell around both (templates/base.html). Filtering is
+done here, from the URL, so a filtered link shows the same rows to whoever opens it.
 
 A monitor has a problem when it has a target that isn't up, no target at all, or targets
 nobody knows (Prometheus never answered): unknown is never shown as healthy. So does one
 with an alert firing on a job it scrapes, or an SLO with no error budget left. An alert
 that is only in a namespace it scrapes is shown, dimmed, and is not the monitor's problem.
+The Overview's tiles are marked by the same rules, over each namespace's rows.
 """
 
 import json
@@ -89,6 +90,7 @@ def _budget(slo: dict[str, Any] | None) -> dict[str, Any] | None:
     return {
         "left": _percent(lowest["remaining"]),
         "name": lowest["slo"],
+        "remaining": lowest["remaining"],
         "width": round(min(max(lowest["remaining"], 0), 1) * 100),  # the bar never overflows
         "spent": lowest["remaining"] <= 0,
     }
@@ -113,14 +115,13 @@ def _row(
             "summary": alert["summary"],
             "href": PROMETHEUS + alert["prometheus_path"],
             "dim": alert["match"] == "namespace",
+            "labels": alert["labels"],
         }
         for alert in state["alerts"]
     ]
     slo = _budget(state.get("slo"))
-    problem = (
-        tone != "ok"
-        or any(not alert["dim"] for alert in alerts or [])
-        or bool(slo and slo["left"] and slo["spent"])
+    alerting = any(not alert["dim"] for alert in alerts or []) or bool(
+        slo and slo["left"] and slo["spent"]
     )
     # Where its targets are, which is where its alerts are: not always where it lives.
     # Prometheus's alerts page searches rule names, not an alert's labels: the ALERTS
@@ -133,8 +134,9 @@ def _row(
         "kind": monitor["kind"],
         "status": status,
         "tone": tone,
-        "dot": "warn" if problem and tone == "ok" else tone,
-        "problem": problem,
+        "dot": "warn" if alerting and tone == "ok" else tone,
+        "problem": tone != "ok" or alerting,
+        "alerting": alerting,
         "alerts": alerts,
         "slo": slo,
         "last": _ago(max(t["last_scrape"] for t in targets), now) if targets else "—",
@@ -263,6 +265,7 @@ def view(
             )
     return {
         **_shell(model, status, [row for _, rows in namespaces for row in rows]),
+        "tab": "monitors",
         "groups": groups,
         "shown": sum(len(group["monitors"]) for group in groups),
         "app": app,
@@ -278,4 +281,73 @@ def view(
             }
             for key, label in SHOW.items()
         ],
+    }
+
+
+def _tile(ns: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """A namespace on the Overview: its tile, marked by its worst monitor, and a square for
+    each of its targets. What the page doesn't know is unknown, never healthy."""
+    targets_known = all(row["tone"] != "unknown" for row in rows)
+    alerts_known = all(row["alerts"] is not None for row in rows)
+    budgets_known = all(row["slo"] is not None for row in rows)
+    if any(row["tone"] in ("down", "warn") for row in rows):  # a target down, or none
+        word, tone = "Down", "down"
+    elif any(row["alerting"] for row in rows):
+        word, tone = "Alert", "warn"
+    elif not (targets_known and alerts_known and budgets_known):
+        word, tone = "Unknown", "unknown"
+    else:
+        word, tone = "Healthy", "ok"
+
+    targets = [t for row in rows for t in row["targets"]]
+    facts = ["targets unknown"]
+    if targets_known:
+        facts = [f"{sum(t['health'] == 'up' for t in targets)}/{len(targets)} up"]
+        if empty := sum(row["tone"] == "warn" for row in rows):
+            facts.append(f"{empty} {'monitor' if empty == 1 else 'monitors'} without targets")
+    # An alert is on the row of every monitor that scrapes its namespace: counted once.
+    alerts = {
+        tuple(sorted(alert["labels"].items())) for row in rows for alert in row["alerts"] or []
+    }
+    facts.append(
+        f"{len(alerts)} {'alert' if len(alerts) == 1 else 'alerts'}"
+        if alerts_known
+        else "alerts unknown"
+    )
+    budgets = [row["slo"] for row in rows if row["slo"] and row["slo"]["left"]]
+    if not budgets_known:
+        facts.append("SLO unknown")
+    elif budgets:
+        facts.append(f"SLO {min(budgets, key=lambda slo: slo['remaining'])['left']}")
+    monitors = f"/monitors?q={quote(ns['name'])}"
+    return {
+        "name": ns["name"],
+        "owner": ns["owner"],
+        "word": word,
+        "tone": tone,
+        "facts": " · ".join(facts),
+        "href": monitors,
+        # None: unknown, Prometheus never said which targets there are.
+        "squares": [
+            {
+                "label": f"{row['name']} · {t['endpoint']} · {t['health']}",
+                # Prometheus's own "unknown": a target it hasn't scraped yet.
+                "health": t["health"] if t["health"] in ("up", "down") else "unknown",
+                "href": f"{monitors}#{row['id']}",  # its monitor's row
+            }
+            for row in rows
+            for t in row["targets"]
+        ]
+        if targets_known
+        else None,
+    }
+
+
+def overview(model: dict[str, Any], status: dict[str, Any], now: datetime) -> dict[str, Any]:
+    """The Overview tab: every namespace as a tile and as a row of squares."""
+    namespaces = _namespaces(model, status, now)
+    return {
+        **_shell(model, status, [row for _, rows in namespaces for row in rows]),
+        "tab": "overview",
+        "namespaces": [_tile(ns, rows) for ns, rows in namespaces],
     }
