@@ -2,7 +2,8 @@
 
 links' platform e2e runs the whole platform and shortly on one kind node with 4000m CPU
 allocatable. The scheduler places a pod only where its CPU *request* fits, so the requests
-must leave room for prod's canary: 2 old and 2 new pods at 500m each. When they didn't, the
+must leave room for prod's canary: 2 old and 2 new pods (400m each in the e2e, links #171;
+500m in prod). When they didn't, the
 canary's last pod stayed Pending (`Insufficient cpu`) and the e2e failed on links' lock PR,
 not on the platform PR that added the request (links #169).
 
@@ -11,10 +12,11 @@ The platform's share, from what the e2e measured (links run 44029453438's node d
     4000m  the node's allocatable CPU
   -  950m  kind's own pods: kube-apiserver 250, kube-controller-manager 200, coredns 2 x 100,
            etcd, kindnet and kube-scheduler 100 each (kubeadm's and kind's; not set here)
-  - 2045m  one app at its canary's peak: shortly's 4 prod pods at 500m, its staging pod 25m,
-           a database in each namespace 10m
-  -  250m  left free at that step (PT-71 aims for 500m: kind's pods or the app must ask less)
-  =  755m  what everything the platform installs may request, summed (BUDGET)
+  - 1645m  one app at its canary's peak: shortly's 4 prod pods at 400m (the e2e's request,
+           E2E_PROD_CPU in links' scripts/k8s-e2e.sh), its staging pod 25m, a database in
+           each namespace 10m
+  -  500m  left free at that step: room for one more app pod (PT-71)
+  =  905m  what everything the platform installs may request, summed (BUDGET)
 
 The test renders what the e2e installs (POLICIES=1, BACKUPS=1, monitoring on): Argo CD, and
 every child Application of the platform chart, Helm charts with our values and the git
@@ -40,8 +42,8 @@ from tests.test_platform import ROOT, _render, _sources
 
 ALLOCATABLE = 4000
 KIND_OWN = 950
-APP_AT_CANARY = 4 * 500 + 25 + 2 * 10
-HEADROOM = 250
+APP_AT_CANARY = 4 * 400 + 25 + 2 * 10
+HEADROOM = 500
 BUDGET = ALLOCATABLE - KIND_OWN - APP_AT_CANARY - HEADROOM
 # Envoy Gateway adds a shutdown-manager container to each proxy pod with this request (its
 # default; the e2e's diagnostics show the proxy pod at 50m,10m).
