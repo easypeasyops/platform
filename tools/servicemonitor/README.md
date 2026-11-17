@@ -40,8 +40,8 @@ alerts and its Argo CD Application, at `GRAFANA_LINK_URL`, `PROMETHEUS_LINK_URL`
 
 `/api/status` (`app/status.py`) adds, for each of those monitors, the alerts firing on it
 and the error budget its SLOs have left (the series the platform's SLO dashboard shows),
-and the summary line: monitors, targets up and down, alerts firing, lowest budget. It
-reads Prometheus only (`/api/v1/alerts`, one query). The Monitors tab shows both on each
+and the summary line: monitors, targets up and down, alerts firing, lowest budget, and
+each namespace's replicas. It reads Prometheus only (`/api/v1/alerts`, five queries). The Monitors tab shows both on each
 monitor's row: an alert on a job the monitor scrapes, and one that is only in a namespace
 it scrapes, dimmed; the lowest budget as a bar, below zero as its real number.
 
@@ -53,6 +53,13 @@ links to its monitor's row. Below them, the last 24 hours (`app/history.py`): pe
 most targets down and alerts firing at any moment in it (two range queries, cached a
 minute), an hour Prometheus has no data for marked as such, not as 0. What the page doesn't
 know is Unknown, never Healthy.
+
+Each tile, and each namespace's group on the Monitors tab, also says "pods R/D ready": its
+Deployments' and StatefulSets' ready replicas against desired, from kube-state-metrics in
+Prometheus (four queries, `REPLICAS` in `app/status.py`; Jobs, CronJobs and Argo Rollouts
+are left out). A workload with none ready makes it Down at once; one short for the whole
+last minute makes it Alert (`min_over_time` over a 1m subquery, in PromQL), so a rollout's
+brief dip shows in the count only.
 
 The Overview's platform components panel has a line per component (Argo CD, the front
 door, Kyverno, ...): its monitors' targets up, its alerts firing, a dashboard link and one

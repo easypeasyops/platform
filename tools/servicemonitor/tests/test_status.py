@@ -41,7 +41,8 @@ class Cluster:
 
     def __init__(self) -> None:
         self.bodies: dict[str, Any] = {
-            name: json.loads((FIXTURES / f"{name}.json").read_text()) for name in PATHS.values()
+            name: json.loads((FIXTURES / f"{name}.json").read_text())
+            for name in [*PATHS.values(), "replicas"]
         }
         more = json.loads((FIXTURES / "more_monitors.json").read_text())
         self.bodies["namespaces"]["items"] += more["namespaces"]
@@ -53,8 +54,15 @@ class Cluster:
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
         name = PATHS[request.url.path]
+        replicas = {query: key for key, query in status.REPLICAS.items()}
+        if name == "slo_budget" and request.url.params["query"] in replicas:
+            name = "replicas"  # tests/test_replicas.py
         if name in self.down:
             raise httpx.ConnectError("connection refused")
+        if name == "replicas":
+            return httpx.Response(
+                200, json=self.bodies[name][replicas[request.url.params["query"]]]
+            )
         if name == "history":
             key = {query: key for key, query in history.QUERIES.items()}[
                 request.url.params["query"]
@@ -119,6 +127,7 @@ def test_the_summary_line() -> None:
         "prometheus": False,
         "alerts": False,
         "slo": False,
+        "replicas": False,
     }
     assert model["summary"] == {
         "monitors": 9,
@@ -340,15 +349,15 @@ def test_the_queries_are_cached(cluster: Cluster) -> None:
     read()
     read()
     paths = [r.url.path for r in cluster.requests]
-    assert len(paths) == 7
-    (query,) = (r for r in cluster.requests if r.url.path == "/api/v1/query")
-    assert query.url.params["query"] == status.BUDGET
+    assert len(paths) == 11
+    queries = [r.url.params["query"] for r in cluster.requests if r.url.path == "/api/v1/query"]
+    assert queries == [status.BUDGET, *status.REPLICAS.values()]
 
 
 def test_the_route_serves_the_model() -> None:
     response = TestClient(app).get("/api/status")
     assert response.status_code == 200
-    assert set(response.json()) == {"sources", "summary", "namespaces", "unattached"}
+    assert set(response.json()) == {"sources", "summary", "namespaces", "replicas", "unattached"}
     assert response.json()["summary"]["alerts_firing"] == 2
 
 

@@ -35,6 +35,7 @@ An app with no ServiceMonitor isn't scraped at all: the service chart creates on
 <h2 class="group">
 <span class="mono">{{ group.name }}</span>
 <span class="tag {{ group.owner }}">{{ group.owner | capitalize }}</span>
+{% if group.pods.text %}<span class="pill {{ group.pods.tone }}">{{ group.pods.text }}{% if group.pods.tone in ("down", "warn") %} · {{ group.pods.word }}{% endif %}</span>{% endif %}
 <span class="spacer"></span>
 <span>{{ group.monitors | length }} {{ "monitor" if group.monitors | length == 1 else "monitors" }}</span>
 </h2>

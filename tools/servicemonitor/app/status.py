@@ -17,8 +17,16 @@ its `scripts/gen_slo_rules.py` generates (a test reads the name from the generat
 output). It carries `namespace` and `slo`, no job: every monitor that scrapes the
 namespace gets its SLOs.
 
+The replicas are each namespace's Deployments and StatefulSets, as kube-state-metrics sees
+them (Jobs and CronJobs left out; no Argo Rollout exports its numbers): ready against
+desired, the workloads short for the whole last minute, and those with none ready of one or
+more. The minute is Prometheus's, not the app's: `min_over_time` of a workload's shortfall
+over a 1m subquery, at the evaluation interval (15 s), is above 0 only if every point in it
+was, so a rollout's brief dip shows in the count but isn't "short".
+
 Like `monitors`: a query that fails keeps its last good answer and is marked stale; one
-that has never answered leaves `alerts` or `slo` `null`, never "no alerts" or a full budget.
+that has never answered leaves `alerts`, `slo` or `replicas` `null`, never "no alerts", a
+full budget or every pod ready.
 """
 
 import math
@@ -37,6 +45,16 @@ ENV_LABEL = "easypeasyops.github.io/env"
 # Fires all the time by design, so Alertmanager's receiver can tell alerting is alive: never
 # a problem, so never counted or shown (history's alerts row leaves it out too).
 ALWAYS_FIRING = "Watchdog"
+_WORKLOAD = "namespace, deployment, statefulset"
+_DESIRED = "(kube_deployment_spec_replicas or kube_statefulset_replicas)"
+_READY = "(kube_deployment_status_replicas_ready or kube_statefulset_status_replicas_ready)"
+_SHORTFALL = f"({_DESIRED} - on ({_WORKLOAD}) {_READY})"
+REPLICAS = {  # each answers per namespace; a namespace it doesn't name has 0
+    "ready": f"sum by (namespace) ({_READY})",
+    "desired": f"sum by (namespace) ({_DESIRED})",
+    "short": f"count by (namespace) (min_over_time({_SHORTFALL}[1m:]) > 0)",
+    "none": f"count by (namespace) ({_DESIRED} >= 1 and on ({_WORKLOAD}) {_READY} == 0)",
+}
 
 _last_good: dict[str, tuple[str, Any]] = {}  # source -> (when it answered, what)
 _cache: tuple[float, dict[str, Any]] | None = None  # the sources' state, for monitors.TTL
@@ -83,12 +101,23 @@ async def _budgets() -> list[dict[str, Any]]:
     return sorted(budgets, key=lambda b: (str(b["namespace"]), b["slo"]))
 
 
+async def _replicas() -> dict[str, dict[str, int]]:
+    """Per namespace with a Deployment or a StatefulSet: `ready`, `desired`, `short` and
+    `none` (workloads)."""
+    found: dict[str, dict[str, int]] = {}
+    for key, query in REPLICAS.items():
+        for series in (await _get("/api/v1/query", query=query))["result"]:
+            counts = found.setdefault(series["metric"]["namespace"], dict.fromkeys(REPLICAS, 0))
+            counts[key] = int(float(series["value"][1]))
+    return found
+
+
 async def _sources() -> dict[str, Any]:
     global _cache
     if _cache and time.monotonic() - _cache[0] < monitors.TTL:
         return _cache[1]
     sources = {}
-    for source, fetch in (("alerts", _alerts), ("slo", _budgets)):
+    for source, fetch in (("alerts", _alerts), ("slo", _budgets), ("replicas", _replicas)):
         error = None
         try:
             _last_good[source] = (datetime.now(UTC).isoformat(timespec="seconds"), await fetch())
@@ -147,6 +176,7 @@ async def read() -> dict[str, Any]:
     sources = await _sources()
     alerts = _last_good["alerts"][1] if "alerts" in _last_good else None
     budgets = _last_good["slo"][1] if "slo" in _last_good else None
+    replicas = _last_good["replicas"][1] if "replicas" in _last_good else None
     # What the monitors' model leaves out: each namespace's labels, each target's labels.
     labels = (monitors.last_good("kubernetes") or {}).get("labels", {})
     targets = monitors.last_good("prometheus")
@@ -201,6 +231,7 @@ async def read() -> dict[str, Any]:
             "lowest_budget": None if budgets is None else _lowest(budgets),
         },
         "namespaces": namespaces,
+        "replicas": replicas,
         "unattached": None
         if alerts is None or namespaces is None
         else [alert for i, alert in enumerate(alerts) if i not in attached],

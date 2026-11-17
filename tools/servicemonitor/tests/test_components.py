@@ -47,6 +47,9 @@ class Cluster:
 
     def __init__(self) -> None:
         self.bodies: dict[str, Any] = json.loads((FIXTURES / "components.json").read_text())
+        # The pods ready aren't in this recording: tests/test_replicas.py's, by query.
+        replicas = json.loads((FIXTURES / "replicas.json").read_text())
+        self.bodies["queries"] |= {q: replicas[key] for key, q in status.REPLICAS.items()}
         self.down: set[str] = set()
         self.queries: list[str] = []
 
