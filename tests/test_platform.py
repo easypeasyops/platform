@@ -619,6 +619,41 @@ def test_the_stack_ships_node_rules_and_dashboards_but_no_exporter_of_its_own() 
 
 
 @pytest.mark.integration
+def test_the_operator_starts_after_its_crds_and_before_what_it_runs() -> None:
+    """The Prometheus operator runs the controller of a CRD only if the CRD was there when
+    it started, and never looks again: inside the monitoring Application, its CRDs are in
+    an earlier wave than its Deployment. What it runs (Prometheus, Alertmanager) is healthy
+    only once it runs, so it can't be in a wave before the operator's."""
+    chart = VALUES["charts"]["kubePrometheusStack"]
+    _render()  # skips without helm
+    out = subprocess.run(
+        [
+            *("helm", "template", "monitoring", f"{chart['repo']}@{chart['digest']}"),
+            *("--namespace", "monitoring", "--include-crds"),
+            *("--values", str(ROOT / "deploy/kind/monitoring-values.yaml")),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    wave = {
+        (d["kind"], d["metadata"]["name"]): int(
+            (d["metadata"].get("annotations") or {}).get("argocd.argoproj.io/sync-wave", 0)
+        )
+        # Strings only: a CRD's schema has a "=" key, which safe_load can't read.
+        for d in yaml.load_all(out, Loader=yaml.BaseLoader)
+        if d
+    }
+    operator = wave[("Deployment", "kps-operator")]
+    crds = [w for (kind, _), w in wave.items() if kind == "CustomResourceDefinition"]
+    assert len(crds) == 10
+    assert max(crds) < operator
+    run = {"Prometheus", "Alertmanager", "ThanosRuler", "PrometheusAgent"}
+    assert {k for k, _ in wave if k in run} == {"Prometheus", "Alertmanager"}
+    assert all(w >= operator for (kind, _), w in wave.items() if kind in run)
+
+
+@pytest.mark.integration
 def test_no_rule_or_dashboard_reads_an_api_server_series_the_scrape_drops() -> None:
     """The API server's scrape drops the buckets of histograms nothing reads (PT-37). A
     stack bump, or a rule or dashboard of ours, that starts reading one must fail here, not

@@ -4,6 +4,16 @@
 
 fullnameOverride: kps # predictable Service names: kps-prometheus, kps-alertmanager
 
+# The operator starts after its CRDs: at start-up it turns off, for good, the controller of
+# each CRD not yet installed (prometheus-operator's checkPrerequisites, "not installed in
+# the cluster"), and on a fresh cluster the big Prometheus CRD can land after the operator
+# runs. Its Deployment is in wave 1 of this Application, so Argo CD starts it once wave 0's
+# CRDs are Established. Prometheus and Alertmanager go with it: wave 0 waits for its
+# resources to be healthy, which they never are without the operator. (The CRDs come from
+# the chart's crds/ directory, which takes no annotation: they stay in wave 0.)
+prometheusOperator:
+  annotations: { argocd.argoproj.io/sync-wave: "1" }
+
 # The control-plane components aren't reachable for scraping in kind; their targets and
 # rules would only produce permanent TargetDown noise.
 kubeEtcd: { enabled: false }
@@ -205,6 +215,7 @@ kube-state-metrics:
                     valueFrom: [conditions, "[type=Accepted]", status]
 
 prometheus:
+  annotations: { argocd.argoproj.io/sync-wave: "1" } # with the operator (prometheusOperator)
   prometheusSpec:
     scrapeInterval: 15s
     evaluationInterval: 15s
@@ -235,6 +246,7 @@ prometheus:
       limits: { memory: 1536Mi }
 
 alertmanager:
+  annotations: { argocd.argoproj.io/sync-wave: "1" } # with the operator (prometheusOperator)
   alertmanagerSpec:
     externalUrl: http://alertmanager.localhost:8090 # links in notifications point here
     # The Slack webhooks (deploy/secrets/alertmanager-slack.yaml), mounted at
