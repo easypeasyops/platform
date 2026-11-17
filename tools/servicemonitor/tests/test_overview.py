@@ -54,20 +54,24 @@ def test_one_tile_per_namespace_apps_first_marked_by_its_worst_monitor() -> None
         "aipostit-prod": (
             "warn",
             "/monitors?q=aipostit-prod",
-            "aipostit-prod Alert App · 2/2 up · 1 alert · SLO -1501%",
+            "aipostit-prod Alert App · 2/2 up · pods 4/4 ready · 1 alert · SLO -1501%",
         ),
         "aipostit-staging": (
             "warn",
             "/monitors?q=aipostit-staging",
-            "aipostit-staging Alert App · 1/1 up · 0 alerts · SLO -769%",
+            "aipostit-staging Alert App · 1/1 up · pods 3/3 ready · 0 alerts · SLO -769%",
         ),
-        "argocd": ("ok", "/monitors?q=argocd", "argocd Healthy Platform · 6/6 up · 0 alerts"),
+        "argocd": (
+            "ok",
+            "/monitors?q=argocd",
+            "argocd Healthy Platform · 6/6 up · pods 5/5 ready · 0 alerts",
+        ),
         # PrometheusDuplicateTimestamps, on kps-prometheus's job: on the other monitors'
         # rows too, and one alert.
         "monitoring": (
             "warn",
             "/monitors?q=monitoring",
-            "monitoring Alert Platform · 5/5 up · 1 alert",
+            "monitoring Alert Platform · 5/5 up · pods 7/7 ready · 1 alert",
         ),
     }
     assert list(tiles(text)) == ["aipostit-prod", "aipostit-staging", "argocd", "monitoring"]
@@ -128,7 +132,7 @@ def test_a_target_down_turns_its_tile_down_and_its_square_down_with_a_cross(
     assert tiles(text)["argocd"] == (
         "down",
         "/monitors?q=argocd",
-        "argocd Down Platform · 5/6 up · 0 alerts",
+        "argocd Down Platform · 5/6 up · pods 5/5 ready · 0 alerts",
     )
     assert '<span class="pill down">Down</span>' in text
     marks = [
@@ -142,7 +146,7 @@ def test_a_target_down_turns_its_tile_down_and_its_square_down_with_a_cross(
 def test_down_wins_over_an_alert_and_a_spent_budget(cluster: Cluster) -> None:
     next(t for t in cluster.targets if t["labels"]["job"] == "aipostit")["health"] = "down"
     assert tiles(page())["aipostit-prod"][2] == (
-        "aipostit-prod Down App · 1/2 up · 1 alert · SLO -1501%"
+        "aipostit-prod Down App · 1/2 up · pods 4/4 ready · 1 alert · SLO -1501%"
     )
 
 
@@ -151,7 +155,7 @@ def test_a_monitor_with_no_targets_turns_its_tile_down(cluster: Cluster) -> None
     text = page()
     assert tiles(text)["argocd"][::2] == (
         "down",
-        "argocd Down Platform · 5/5 up · 1 monitor without targets · 0 alerts",
+        "argocd Down Platform · 5/5 up · 1 monitor without targets · pods 5/5 ready · 0 alerts",
     )
     assert len(squares(text, "argocd")) == 5  # a square is a target: it has none
 
@@ -161,7 +165,7 @@ def test_an_alert_that_is_only_in_the_namespace_leaves_the_tile_healthy(cluster:
     cluster.budgets[:] = [b for b in cluster.budgets if b["metric"]["namespace"] != "aipostit-prod"]
     assert tiles(page())["aipostit-prod"][::2] == (
         "ok",
-        "aipostit-prod Healthy App · 2/2 up · 1 alert",
+        "aipostit-prod Healthy App · 2/2 up · pods 4/4 ready · 1 alert",
     )
 
 
@@ -198,13 +202,17 @@ def test_every_tile_and_square_is_a_link_whose_text_says_its_state(cluster: Clus
 
 
 def test_prometheus_never_answering_shows_nothing_as_healthy(cluster: Cluster) -> None:
-    cluster.down = {"targets", "alerts", "slo_budget"}
+    cluster.down = {"targets", "alerts", "slo_budget", "replicas"}
     text = page()
     assert "Stale: see below" in text
     assert "Prometheus has not answered yet: the targets are unknown." in text
     assert "Prometheus's alerts API has not answered yet: the alerts are unknown." in text
     assert {tile[::2] for tile in tiles(text).values()} >= {
-        ("unknown", "argocd Unknown Platform · targets unknown · alerts unknown · SLO unknown")
+        (
+            "unknown",
+            "argocd Unknown Platform · targets unknown · pods unknown · alerts unknown"
+            " · SLO unknown",
+        )
     }
     assert {tone for tone, _, _ in tiles(text).values()} == {"unknown"}
     assert "Healthy" not in text
@@ -220,7 +228,7 @@ def test_alerts_never_answering_leaves_a_tile_with_every_target_up_unknown(
     text = page()
     assert tiles(text)["argocd"][::2] == (
         "unknown",
-        "argocd Unknown Platform · 6/6 up · alerts unknown",
+        "argocd Unknown Platform · 6/6 up · pods 5/5 ready · alerts unknown",
     )
     assert tiles(text)["aipostit-prod"][2].startswith("aipostit-prod Alert ")  # its budget
     assert len(squares(text, "argocd")) == 6  # the targets are known

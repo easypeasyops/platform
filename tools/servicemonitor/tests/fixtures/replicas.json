@@ -1,0 +1,320 @@
+{
+  "desired": {
+    "status": "success",
+    "data": {
+      "resultType": "vector",
+      "result": [
+        {
+          "metric": {
+            "namespace": "argo-rollouts"
+          },
+          "value": [
+            1794900852.395,
+            "1"
+          ]
+        },
+        {
+          "metric": {
+            "namespace": "external-secrets"
+          },
+          "value": [
+            1794900852.395,
+            "3"
+          ]
+        },
+        {
+          "metric": {
+            "namespace": "kyverno"
+          },
+          "value": [
+            1794900852.395,
+            "3"
+          ]
+        },
+        {
+          "metric": {
+            "namespace": "event-exporter"
+          },
+          "value": [
+            1794900852.395,
+            "1"
+          ]
+        },
+        {
+          "metric": {
+            "namespace": "envoy-gateway-system"
+          },
+          "value": [
+            1794900852.395,
+            "2"
+          ]
+        },
+        {
+          "metric": {
+            "namespace": "monitoring"
+          },
+          "value": [
+            1794900852.395,
+            "7"
+          ]
+        },
+        {
+          "metric": {
+            "namespace": "deploybot-ops"
+          },
+          "value": [
+            1794900852.395,
+            "1"
+          ]
+        },
+        {
+          "metric": {
+            "namespace": "argocd"
+          },
+          "value": [
+            1794900852.395,
+            "5"
+          ]
+        },
+        {
+          "metric": {
+            "namespace": "aipostit-prod"
+          },
+          "value": [
+            1794900852.395,
+            "4"
+          ]
+        },
+        {
+          "metric": {
+            "namespace": "cert-manager"
+          },
+          "value": [
+            1794900852.395,
+            "3"
+          ]
+        },
+        {
+          "metric": {
+            "namespace": "cnpg-system"
+          },
+          "value": [
+            1794900852.395,
+            "2"
+          ]
+        },
+        {
+          "metric": {
+            "namespace": "local-path-storage"
+          },
+          "value": [
+            1794900852.395,
+            "1"
+          ]
+        },
+        {
+          "metric": {
+            "namespace": "aipostit-staging"
+          },
+          "value": [
+            1794900852.395,
+            "3"
+          ]
+        },
+        {
+          "metric": {
+            "namespace": "kube-system"
+          },
+          "value": [
+            1794900852.395,
+            "3"
+          ]
+        },
+        {
+          "metric": {
+            "namespace": "servicemonitor-ops"
+          },
+          "value": [
+            1794900852.395,
+            "1"
+          ]
+        },
+        {
+          "metric": {
+            "namespace": "backups"
+          },
+          "value": [
+            1794900852.395,
+            "1"
+          ]
+        }
+      ]
+    }
+  },
+  "ready": {
+    "status": "success",
+    "data": {
+      "resultType": "vector",
+      "result": [
+        {
+          "metric": {
+            "namespace": "argo-rollouts"
+          },
+          "value": [
+            1794900852.399,
+            "1"
+          ]
+        },
+        {
+          "metric": {
+            "namespace": "external-secrets"
+          },
+          "value": [
+            1794900852.399,
+            "3"
+          ]
+        },
+        {
+          "metric": {
+            "namespace": "kyverno"
+          },
+          "value": [
+            1794900852.399,
+            "3"
+          ]
+        },
+        {
+          "metric": {
+            "namespace": "event-exporter"
+          },
+          "value": [
+            1794900852.399,
+            "1"
+          ]
+        },
+        {
+          "metric": {
+            "namespace": "envoy-gateway-system"
+          },
+          "value": [
+            1794900852.399,
+            "2"
+          ]
+        },
+        {
+          "metric": {
+            "namespace": "monitoring"
+          },
+          "value": [
+            1794900852.399,
+            "7"
+          ]
+        },
+        {
+          "metric": {
+            "namespace": "deploybot-ops"
+          },
+          "value": [
+            1794900852.399,
+            "1"
+          ]
+        },
+        {
+          "metric": {
+            "namespace": "argocd"
+          },
+          "value": [
+            1794900852.399,
+            "5"
+          ]
+        },
+        {
+          "metric": {
+            "namespace": "aipostit-prod"
+          },
+          "value": [
+            1794900852.399,
+            "4"
+          ]
+        },
+        {
+          "metric": {
+            "namespace": "cert-manager"
+          },
+          "value": [
+            1794900852.399,
+            "3"
+          ]
+        },
+        {
+          "metric": {
+            "namespace": "cnpg-system"
+          },
+          "value": [
+            1794900852.399,
+            "2"
+          ]
+        },
+        {
+          "metric": {
+            "namespace": "local-path-storage"
+          },
+          "value": [
+            1794900852.399,
+            "1"
+          ]
+        },
+        {
+          "metric": {
+            "namespace": "aipostit-staging"
+          },
+          "value": [
+            1794900852.399,
+            "3"
+          ]
+        },
+        {
+          "metric": {
+            "namespace": "kube-system"
+          },
+          "value": [
+            1794900852.399,
+            "3"
+          ]
+        },
+        {
+          "metric": {
+            "namespace": "servicemonitor-ops"
+          },
+          "value": [
+            1794900852.399,
+            "1"
+          ]
+        },
+        {
+          "metric": {
+            "namespace": "backups"
+          },
+          "value": [
+            1794900852.399,
+            "1"
+          ]
+        }
+      ]
+    }
+  },
+  "short": {
+    "status": "success",
+    "data": {
+      "resultType": "vector",
+      "result": []
+    }
+  },
+  "none": {
+    "status": "success",
+    "data": {
+      "resultType": "vector",
+      "result": []
+    }
+  }
+}

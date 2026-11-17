@@ -7,8 +7,9 @@ A monitor has a problem when it has a target that isn't up, no target at all, or
 nobody knows (Prometheus never answered): unknown is never shown as healthy. So does one
 with an alert firing on a job it scrapes, or an SLO with no error budget left. An alert
 that is only in a namespace it scrapes is shown, dimmed, and is not the monitor's problem.
-The Overview's tiles are marked by the same rules, over each namespace's rows, and so are
-its platform components' lines, over their monitors' rows and their own alerts.
+The Overview's tiles are marked by the same rules, over each namespace's rows and its pods
+(a workload with none ready is Down, one short for over a minute Alert), and so are its
+platform components' lines, over their monitors' rows and their own alerts.
 """
 
 import json
@@ -30,7 +31,9 @@ SOURCES = {
     "prometheus": ("Prometheus", "the targets"),
     "alerts": ("Prometheus's alerts API", "the alerts"),
     "slo": ("Prometheus's query API", "the error budgets"),
+    "replicas": ("Prometheus's query API", "the pods ready"),
 }
+NO_PODS = {"ready": 0, "desired": 0, "short": 0, "none": 0}  # no Deployment or StatefulSet
 
 
 def _ago(then: str, now: datetime) -> str:
@@ -262,6 +265,7 @@ def view(
                 {
                     "name": ns["name"],
                     "owner": ns["owner"],
+                    "pods": _pods(status["replicas"], ns["name"]),
                     "monitors": sorted(shown, key=lambda row: not row["problem"]),
                 }
             )
@@ -286,28 +290,50 @@ def view(
     }
 
 
-def _mark(down: bool, alerting: bool, known: bool) -> tuple[str, str]:
-    """A tile's or a component's word and tone: Down wins over Alert, Alert over Unknown,
-    and Healthy only when everything is known."""
-    if down:
+def _mark(
+    down: bool, alerting: bool, known: bool, pods: dict[str, int] | None = NO_PODS
+) -> tuple[str, str]:
+    """A tile's, a component's or a namespace's pods' word and tone: Down wins over Alert,
+    Alert over Unknown, and Healthy only when everything is known. `pods` (app/status.py's
+    replicas; None: unknown) are Down with a workload none ready, Alert with one short for
+    over a minute."""
+    if down or (pods is not None and pods["none"]):
         return "Down", "down"
-    if alerting:
+    if alerting or (pods is not None and pods["short"]):
         return "Alert", "warn"
-    if not known:
+    if not known or pods is None:
         return "Unknown", "unknown"
     return "Healthy", "ok"
 
 
-def _tile(ns: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """A namespace on the Overview: its tile, marked by its worst monitor, and a square for
-    each of its targets. What the page doesn't know is unknown, never healthy."""
+def _pods(replicas: dict[str, dict[str, int]] | None, namespace: str) -> dict[str, Any]:
+    """A namespace's pods: their counts (None: unknown), what its tile and its group say
+    (None: it has no Deployment or StatefulSet) and their tone, by _mark."""
+    counts = None if replicas is None else replicas.get(namespace, NO_PODS)
+    text = "pods unknown" if counts is None else f"pods {counts['ready']}/{counts['desired']} ready"
+    word, tone = _mark(False, False, True, counts)
+    return {
+        "counts": counts,
+        "text": None if counts == NO_PODS else text,
+        "word": word,
+        "tone": tone,
+    }
+
+
+def _tile(
+    ns: dict[str, Any], rows: list[dict[str, Any]], replicas: dict[str, dict[str, int]] | None
+) -> dict[str, Any]:
+    """A namespace on the Overview: its tile, marked by its worst monitor and its pods, and
+    a square for each of its targets. What the page doesn't know is unknown, never healthy."""
     targets_known = all(row["tone"] != "unknown" for row in rows)
     alerts_known = all(row["alerts"] is not None for row in rows)
     budgets_known = all(row["slo"] is not None for row in rows)
+    pods = _pods(replicas, ns["name"])
     word, tone = _mark(
         any(row["tone"] in ("down", "warn") for row in rows),  # a target down, or none
         any(row["alerting"] for row in rows),
         targets_known and alerts_known and budgets_known,
+        pods["counts"],
     )
 
     targets = [t for row in rows for t in row["targets"]]
@@ -316,6 +342,8 @@ def _tile(ns: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any]:
         facts = [f"{sum(t['health'] == 'up' for t in targets)}/{len(targets)} up"]
         if empty := sum(row["tone"] == "warn" for row in rows):
             facts.append(f"{empty} {'monitor' if empty == 1 else 'monitors'} without targets")
+    if pods["text"]:
+        facts.append(pods["text"])
     # An alert is on the row of every monitor that scrapes its namespace: counted once.
     alerts = {
         tuple(sorted(alert["labels"].items())) for row in rows for alert in row["alerts"] or []
@@ -411,6 +439,6 @@ def overview(
     return {
         **_shell(model, status, every),
         "tab": "overview",
-        "namespaces": [_tile(ns, rows) for ns, rows in namespaces],
+        "namespaces": [_tile(ns, rows, status["replicas"]) for ns, rows in namespaces],
         "components": [_component(c, every, firing) for c in components],
     }
