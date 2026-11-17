@@ -1,0 +1,117 @@
+name: kind e2e (reusable)
+
+# One app in one environment on the platform its repo pins (PT-81): a kind cluster with the
+# platform from this repo at the caller's platform.lock commit (scripts/cluster.sh up, Argo
+# CD, monitoring and policies on, no backups), the app's image built from its repo, the
+# service chart at the caller's pin with the app's values for that environment, then checks
+# (scripts/kind-e2e.sh): workloads Ready, the front door routes each hostname, metrics
+# targets up, PrometheusRules loaded. With `run: false` the job reports success without
+# doing the work: the caller decides which changes need it (a lock or chart pin move).
+on:
+  workflow_call:
+    inputs:
+      run:
+        description: "false: report success without doing the work"
+        type: boolean
+        default: true
+      app:
+        description: "The app (apps/<app>/ in this repo, its Helm release and store)"
+        type: string
+        required: true
+      env:
+        description: "The environment whose values it deploys with (apps/<app>/envs/<env>.yaml)"
+        type: string
+        required: true
+      context:
+        description: "The app image's Docker build context in the caller's repo"
+        type: string
+        required: true
+      chart:
+        description: "The service chart the caller renders with (oci://...@sha256:...)"
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: kind e2e (${{ inputs.app }} ${{ inputs.env }})
+    runs-on: ubuntu-latest
+    # The platform takes about 10 minutes to come up on a runner; the app a few more.
+    timeout-minutes: 30
+    env:
+      IMAGE: ${{ inputs.app }}:e2e
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: inputs.run
+        with:
+          persist-credentials: false
+
+      - name: Which platform (platform.lock)
+        if: inputs.run
+        id: platform
+        run: |
+          sha=$(sed -nE 's/^easypeasyops\/platform@([0-9a-f]{40})$/\1/p' platform.lock)
+          [[ -n "$sha" ]] || { echo "::error::platform.lock names no easypeasyops/platform@<sha>"; exit 1; }
+          echo "sha=$sha" >>"$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: inputs.run
+        with:
+          repository: easypeasyops/platform
+          ref: ${{ steps.platform.outputs.sha }}
+          path: .platform
+          persist-credentials: false
+
+      - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
+        if: inputs.run
+        with:
+          version: v4.3.1
+
+      - uses: helm/kind-action@ea822c7bf1874f08e5a491df991c228edffc3376 # v1.15.2
+        if: inputs.run
+        with:
+          cluster_name: shortly
+          config: .platform/deploy/kind/cluster.yaml
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        if: inputs.run
+
+      - name: Build image
+        if: inputs.run
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ inputs.context }}
+          load: true
+          tags: ${{ env.IMAGE }}
+          cache-from: type=gha # what the caller's image job (reusable-image.yml) cached
+
+      - name: Load image into kind
+        if: inputs.run
+        run: kind load docker-image "$IMAGE" --name shortly
+
+      - name: Platform through Argo CD
+        if: inputs.run
+        run: .platform/scripts/cluster.sh up
+        env:
+          PLATFORM_REVISION: ${{ steps.platform.outputs.sha }}
+          ARGOCD_APPS: "0" # the app is deployed by the next step, as Argo CD would
+          BACKUPS: "0" # no database here; CI's node has little CPU to spare (PT-71)
+
+      # When a sync never finishes, the job's timeout kills the wait before it can explain.
+      - name: Argo CD state (on failure)
+        if: (failure() || cancelled()) && inputs.run
+        run: |
+          kubectl -n argocd get applications -o wide || true
+          kubectl -n argocd get applications -o jsonpath='{range .items[*]}{"== "}{.metadata.name}{" "}{.status.sync.status}/{.status.health.status}{"\n"}{range .status.conditions[*]}  {.type}: {.message}{"\n"}{end}{range .status.resources[?(@.health.status!="Healthy")]}  {.health.status}: {.kind}/{.namespace}/{.name} {.health.message}{"\n"}{end}{.status.operationState.phase}: {.status.operationState.message}{"\n"}{end}' || true
+          kubectl get pods -A | grep -vE "Running|Completed" || true
+
+      - name: Deploy and check
+        if: inputs.run
+        run: .platform/scripts/kind-e2e.sh "$APP" "$APP_ENV"
+        env:
+          APP: ${{ inputs.app }}
+          APP_ENV: ${{ inputs.env }}
+          CHART: ${{ inputs.chart }}
+          APP_REPO: ${{ github.workspace }}

@@ -26,7 +26,7 @@ checkout here, and an app's repo uses it at the commit its `platform.lock` names
 | --- | --- |
 | `apps/` | Every app's environments: `apps/applicationset.yaml` generates one Argo CD Application per `apps/<app>/envs/<env>.yaml` (the service chart pinned by digest, values from the app's repo); `apps/<app>/project.yaml` is the app's AppProject. Applied by the `apps` root (`deploy/argocd/apps-{root,project}.yaml`) |
 | `charts/service/` | The chart every app deploys with (3.2): Deployment or canary Rollout, HPA, PDB, probes, network policies, monitoring; workers, Redis and secret env beside the app. `tests/<app>/` holds an app's values and the golden render CI checks |
-| `.github/workflows/reusable-*.yml` | Reusable workflows (`workflow_call`) an app's CI calls: Python check, image build/scan/smoke test |
+| `.github/workflows/reusable-*.yml` | Reusable workflows (`workflow_call`) an app's CI calls: Python check, image build/scan/smoke test, an app's kind e2e on the platform it pins |
 | `deploy/argocd/platform/` | The platform chart (app-of-apps): External Secrets and the secret store, cert-manager, CloudNativePG and its Barman Cloud plugin, Envoy Gateway, Argo Rollouts, metrics-server, kube-prometheus-stack, the blackbox exporter, VictoriaLogs and its log collector, Kyverno and its policies, the backup bucket |
 | `deploy/argocd/platform-{root,project}.yaml` | The root Application and the AppProject it runs in |
 | `deploy/policies/` | Kyverno admission policies: allowed registries, release provenance |
