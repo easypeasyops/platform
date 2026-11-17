@@ -242,7 +242,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      CHART: oci://ghcr.io/easypeasyops/charts/service@sha256:514c85572c0141e16fd1dc9d8a38505034e8dd27a1866c5794645cd6a4955584 # 1.5.0
+      CHART: oci://ghcr.io/easypeasyops/charts/service@sha256:df51161143266cc5d10dc92148e1baae931d5c65adfa7a46ecba8e5ef866f8ff # 1.6.0
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

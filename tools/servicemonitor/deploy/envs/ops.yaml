@@ -4,9 +4,27 @@
 # merged PR IS the deploy. The digest is in the release's notes.
 environment: ops
 image:
-  digest: "" # no release deployed yet
+  digest: sha256:29f50b68f52eee5fe9417660811354a9a08d37f06de8ee2f9b1bdbe9de929ac5 # servicemonitor/v0.1.0
 gateway:
+  # The tools listener (the laptop's port 8090), not the users': it admits this namespace
+  # by name (the platform's deploy/kind/gateway.yaml).
+  sectionName: tools
   hostnames: ["servicemonitor.localhost"]
 monitoring:
   # The one release per cluster that ships the alert rules and the SLO dashboard.
   clusterWide: true
+rbac:
+  # Read access, in every namespace, to the monitors, probes, rules and namespaces the page
+  # lists (the platform allows it by name: CLUSTER_READ_APPS, apps/servicemonitor/project.yaml).
+  # The chart adds the egress rule to the API server with it.
+  clusterRead: true
+networkPolicy:
+  extraEgress:
+    # Prometheus, for each monitor's scrape targets.
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: monitoring }
+          podSelector:
+            matchLabels: { app.kubernetes.io/name: prometheus }
+      ports:
+        - { protocol: TCP, port: 9090 }
