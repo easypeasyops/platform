@@ -167,6 +167,15 @@ is 3 days). The retention stays at 10 days (PT-27: 30 days of today's series are
 39 GB on the laptop, by how long it is awake), so the dashboard says what it shows instead:
 "Budget looks back" is the days of data there are, beside the budgets.
 
+On low traffic the budget is a ratio of a handful of requests. Nothing guards it the way
+the alerts' minimum of bad events guards them: aipostit's prod had 25 valid requests in
+the window and 4 slow ones, and with a 0.99 objective allowing 0.25 of a request, its
+latency budget read -1501% while no alert fired (PT-62). The budget stays as it is (it is
+right, and servicemonitor reads it), but the rules also record the window's valid events,
+`slo:sli_events:increase30d`, and "Requests in the budget" shows them beside it with the
+bad ones (`slo:sli_error:ratio_rate30d` times that). So a budget far below 0 reads as how
+many requests it really is (PT-70).
+
 The rules are one set per app, for all its environments: every rule selects by the app's
 `job` and aggregates `by (namespace)`, and only the one `clusterWide` release (prod, or a
 tool's single environment) ships them, so staging and prod get separate budgets and burn

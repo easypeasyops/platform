@@ -89,7 +89,7 @@
       "id": 1,
       "type": "stat",
       "title": "Error budget remaining",
-      "description": "Share of each SLO's error budget still unspent. 100% = untouched; below 0 = overspent (freeze features, fix reliability). The budget is for 30 days, counted over the days Prometheus has (\"Budget looks back\"): with fewer than 30, an older incident no longer counts against it.",
+      "description": "Share of each SLO's error budget still unspent. 100% = untouched; below 0 = overspent (freeze features, fix reliability). The budget is for 30 days, counted over the days Prometheus has (\"Budget looks back\"): with fewer than 30, an older incident no longer counts against it. How many requests it is made of: \"Requests in the budget\".",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -97,7 +97,7 @@
       "gridPos": {
         "x": 0,
         "y": 1,
-        "w": 19,
+        "w": 13,
         "h": 5
       },
       "targets": [
@@ -149,6 +149,62 @@
           "values": false
         },
         "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "orientation": "horizontal"
+      }
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "Requests in the budget",
+      "description": "How many valid requests each budget is counted from, over the days Prometheus has (\"Budget looks back\"), and how many of them were bad. On low traffic a few bad requests overspend a budget: 4 slow requests out of 25 are 16%, sixteen times the 1% a 0.99 objective allows, and the budget reads -1500%. No burn-rate alert fires on fewer than 5 bad events in its window.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 13,
+        "y": 1,
+        "w": 6,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "round(slo:sli_events:increase30d{namespace=\"$namespace\"})",
+          "legendFormat": "{{slo}} valid"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "round(slo:sli_error:ratio_rate30d{namespace=\"$namespace\"} * slo:sli_events:increase30d{namespace=\"$namespace\"})",
+          "legendFormat": "{{slo}} bad"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
         "graphMode": "none",
         "textMode": "value_and_name",
         "orientation": "horizontal"

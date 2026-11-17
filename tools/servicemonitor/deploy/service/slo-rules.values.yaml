@@ -69,6 +69,10 @@ monitoring:
           expr: sum by (namespace) (increase(http_requests_total{job="servicemonitor", route!~"/healthz|/readyz|unmatched"}[3d]))
           labels:
             slo: servicemonitor-availability
+        - record: slo:sli_events:increase30d
+          expr: sum by (namespace) (increase(http_requests_total{job="servicemonitor", route!~"/healthz|/readyz|unmatched"}[30d]))
+          labels:
+            slo: servicemonitor-availability
         - record: slo:error_budget_remaining:ratio
           expr: 1 - slo:sli_error:ratio_rate30d{slo="servicemonitor-availability"} / 0.005
           labels:
@@ -157,6 +161,10 @@ monitoring:
             slo: servicemonitor-latency
         - record: slo:sli_events:increase3d
           expr: sum by (namespace) (increase(http_request_duration_seconds_count{job="servicemonitor", route!~"/healthz|/readyz|unmatched"}[3d]))
+          labels:
+            slo: servicemonitor-latency
+        - record: slo:sli_events:increase30d
+          expr: sum by (namespace) (increase(http_request_duration_seconds_count{job="servicemonitor", route!~"/healthz|/readyz|unmatched"}[30d]))
           labels:
             slo: servicemonitor-latency
         - record: slo:error_budget_remaining:ratio

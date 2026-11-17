@@ -53,6 +53,9 @@ MIN_BAD_EVENTS = 5
 LONG_WINDOWS = sorted(
     {long for _, pairs, _ in BURN_ALERTS for long, _, _ in pairs}, key=WINDOWS.index
 )
+# The events are also counted over the budget's window, so the dashboard can say how many
+# requests a budget is made of (on low traffic, a handful of slow ones overspend it).
+EVENT_WINDOWS = [*LONG_WINDOWS, "30d"]
 
 # Per-namespace, so staging and prod scraped by one Prometheus get separate budgets. Without a
 # namespace label (local compose) the result is one series with no namespace.
@@ -127,7 +130,7 @@ def build(spec: dict[str, Any]) -> dict[str, Any]:
                 "expr": events(slo["sli"], w),
                 "labels": labels(),
             }
-            for w in LONG_WINDOWS
+            for w in EVENT_WINDOWS
         ]
         rules.append(
             {

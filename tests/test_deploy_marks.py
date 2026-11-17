@@ -132,6 +132,20 @@ def test_the_slo_dashboard_says_how_far_back_a_budget_looks() -> None:
     assert looks_back["title"] in (ROOT / "docs/RUNBOOK.md").read_text()
 
 
+def test_the_slo_dashboard_says_how_many_requests_a_budget_is_made_of() -> None:
+    # On low traffic a budget is a ratio of a handful of requests (PT-62: 4 slow out of 25
+    # read as -1501%). The panel beside it counts them, from series the generator records.
+    panels = {p["title"]: p for p in json.loads(SLO.read_text())["panels"]}
+    requests = panels["Requests in the budget"]
+    exprs = " ".join(t["expr"] for t in requests["targets"])
+    rules = ROOT / "charts/service/tests/shortly/slo-rules.values.yaml"
+    recorded = re.findall(r"record: (\S+)", rules.read_text())
+    used = set(re.findall(r"slo:[a-z_:0-9]+", exprs))
+    assert used == {"slo:sli_events:increase30d", "slo:sli_error:ratio_rate30d"}
+    assert used <= set(recorded)
+    assert requests["title"] in panels["Error budget remaining"]["description"]
+
+
 def _series(name: str, app: str, revision: str) -> str:
     # As kube-state-metrics gives them, with its own pod's namespace.
     return (

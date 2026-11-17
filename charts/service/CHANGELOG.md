@@ -7,6 +7,18 @@ an app that doesn't set it) is a major version; a new optional value is a minor 
 that changes no render an app relies on is a patch. Each release's digest is in its GitHub
 Release.
 
+## 1.7.1
+
+The SLO dashboard says how many requests each error budget is made of (PT-70). On low
+traffic a budget is a ratio of a handful of requests: aipostit's prod had 25 in the window
+and 4 slow ones, and its latency budget read -1501% (PT-62). A new panel between "Error
+budget remaining" and "Budget looks back", "Requests in the budget", shows each SLO's valid
+requests in the window and how many were bad. It reads `slo:sli_events:increase30d`, a new
+recording rule from `scripts/gen_slo_rules.py` (bad = `slo:sli_error:ratio_rate30d` times
+it). Nothing for an app to set: only the slo.json render differs from 1.7.0. An app's panel
+shows "No data" until it regenerates its SLO rules with a platform at or after this change
+(its next `platform.lock` move); the rest of the dashboard is unchanged.
+
 ## 1.7.0
 
 A values schema (`values.schema.json`, PT-73): a value the chart doesn't know now fails the
