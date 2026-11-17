@@ -113,6 +113,9 @@ def test_front_door_ports_match_the_pinned_node_ports() -> None:
     assert service["type"] == "NodePort"
     pinned = {p["nodePort"]: p["port"] for p in service["patch"]["value"]["spec"]["ports"]}
     assert set(pinned.values()) == set(listeners), "every listener needs a pinned node port"
+    # Local makes the Gateway's address depend on a ready proxy endpoint, which a laptop
+    # sleep takes away until the controller restarts (PT-68).
+    assert service["externalTrafficPolicy"] == "Cluster"
 
     script = (ROOT / "scripts/cluster.sh").read_text()
     match = re.search(r"^FRONT_DOOR_PORTS=\(([^)]*)\)", script, re.M)
