@@ -53,6 +53,60 @@
       "evidence": "Everything except Argo CD itself is GitOps, with self-heal and prune. cluster.sh up is idempotent. Passwords are generated into immutable Secrets. Upstream charts are pinned by digest and bumped by bots. A 957-line runbook pairs each alert with a procedure, break-glass steps included.",
       "gaps": "Slack webhooks and app keys are loaded by hand. After the laptop sleeps, cluster.sh wake is manual. Tools use the admin login with no SSO. A change to Argo CD's own values needs cluster.sh up by hand.",
       "next": "Alert when a hand-loaded secret the platform expects is missing from the store."
+    },
+    {
+      "week": "2026-11-17",
+      "commit": "fbecda6",
+      "axis": "Supply-chain security",
+      "score": 4.5,
+      "evidence": "Two layers enforce one rule: images by digest, with keyless SLSA provenance signed by the app's own release.yml at an app tag (verify-image.sh at deploy, Kyverno at admission). Both fail closed and refuse tags. The platform's own tool, servicemonitor, goes through the same path: release.yml builds, scans and attests it from a servicemonitor/vX.Y.Z tag and runs verify-image.sh on the digest. Trivy scans every image, actions are pinned by SHA, and the chart is signed and pinned by digest.",
+      "gaps": "The allowlist policy is still Audit in kind, so a foreign image in an app namespace is reported, not refused. The Argo Rollouts plugin checksums were computed here, not published upstream.",
+      "next": "Run app-allowed-images in Deny, with a named exception for local builds."
+    },
+    {
+      "week": "2026-11-17",
+      "commit": "fbecda6",
+      "axis": "Reliability and recovery",
+      "score": 2.5,
+      "evidence": "The chart's defaults are production-shaped: probes, maxUnavailable 0, a preStop sleep, PDB and HPA, and a canary that aborts on failed analysis. Kyverno now runs two admission replicas with a PDB (PT-46), so one restart no longer blocks app pods. The API server and Argo CD's controller have a GOMEMLIMIT, and Prometheus and Grafana have memory limits from measured use (PT-39, PT-50). Postgres runs on CloudNativePG with WAL archiving and hourly base backups.",
+      "gaps": "The Kyverno gap from the last scoring is fixed, but the bigger ones remain. One kind node: every replica, every database and the backup bucket share one failure domain. Each Argo CD component still runs one replica. No restore drill runs from this repo, so nothing here proves a backup restores.",
+      "next": "A scheduled restore drill into the restore-drill namespace, with an alert when it fails."
+    },
+    {
+      "week": "2026-11-17",
+      "commit": "fbecda6",
+      "axis": "Observability",
+      "score": 4.0,
+      "evidence": "Metrics, logs (VictoriaLogs) and Kubernetes events in one place, with blackbox probes through the front door and generated multi-window burn-rate SLO alerts, tested with promtool. New: the ServiceMonitor page shows every monitor with its targets, firing alerts, SLO budget and pods ready per namespace. SLO rules are one set per app, by namespace (PT-61). Deploy marks no longer drop duplicate series (PT-63), and unused API server buckets are dropped (PT-37).",
+      "gaps": "No trace backend: the chart has an otel endpoint, but nothing receives traces. The 30-day error budget looks back at most 10 days, because that's how long Prometheus keeps data.",
+      "next": "Run an OpenTelemetry collector and a trace store, and set otel.endpoint for every app."
+    },
+    {
+      "week": "2026-11-17",
+      "commit": "fbecda6",
+      "axis": "Delivery safety",
+      "score": 4.0,
+      "evidence": "One required ci gate covers kubeconform, golden renders, a release rehearsal, ruff, mypy, pytest, shellcheck and actionlint, and now each tool's own checks, image smoke test and rendered deploy values. Renovate moves each app's chart pin in its own PR, checked by check-apps.py; prod's PR opens only once staging runs that version and never auto-merges. Breaking changes go expand, migrate, contract.",
+      "gaps": "A merge to main still reaches the cluster, prod included, within a minute, with auto-merge on. There is no staging for the platform itself: an app's e2e only catches a platform regression when the app moves its lock, after the change is already live.",
+      "next": "A kind e2e in this repo's CI that deploys a fixture app on the PR's commit."
+    },
+    {
+      "week": "2026-11-17",
+      "commit": "fbecda6",
+      "axis": "Developer experience",
+      "score": 3.5,
+      "evidence": "The last scoring's next step is done: easypeasyops/app-template is a template repo with the whole contract filled in (release workflow, reusable CI, platform.lock, values per environment, an SLO spec, a hardened image), proven by its own CI, and the README starts onboarding from it (PT-47). Chart pins no longer move by hand: Renovate opens one PR per environment and auto-merges staging and ops. A third app, servicemonitor, runs on the contract.",
+      "gaps": "No app has been created from the template yet, and all running apps come from one domain repo or this one. The README still opens with \"Status: moving in (Phase 3)\".",
+      "next": "Onboard one new app from app-template end to end, and fix what it trips on."
+    },
+    {
+      "week": "2026-11-17",
+      "commit": "fbecda6",
+      "axis": "Operability and automation",
+      "score": 4.0,
+      "evidence": "Everything except Argo CD itself is GitOps, with self-heal and prune. cluster.sh up is idempotent. Passwords are generated into immutable Secrets. Upstream charts are pinned by digest and bumped by bots, and apps' chart pins now move on their own up to prod. The runbook pairs each alert with a procedure and gained node memory and front door entries.",
+      "gaps": "Slack webhooks and app keys are still loaded by hand, and nothing alerts when one is missing. After the laptop sleeps, cluster.sh wake is manual. Tools use the admin login with no SSO. A change to Argo CD's own values needs cluster.sh up by hand.",
+      "next": "Alert when a hand-loaded secret the platform expects is missing from the store."
     }
   ],
   "meta": [
