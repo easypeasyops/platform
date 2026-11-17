@@ -151,6 +151,22 @@ a.tile:hover { border-color: var(--ink-2) }
 .cell.lnone { background: none; border: 1px dashed var(--border-strong) }
 .axis > :last-child { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted) }
 .history .legend .cell { display: inline-block; width: 10px; height: 10px; margin-right: 1px }
+.radar-head { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px }
+.radar-head a { text-transform: none; letter-spacing: 0; font-weight: 500 }
+.radar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; padding: 6px 12px }
+.radar svg { flex: 0 1 400px; max-width: 100%; height: auto }
+.radar .ring { fill: none; stroke: var(--border) } .radar .ring.outer { fill: var(--head); stroke: var(--border-strong) }
+.radar .ring.target { stroke: var(--link); stroke-dasharray: 4 3 }
+.radar .spokes { stroke: var(--border) }
+.radar .now { fill: var(--link); fill-opacity: 0.16; stroke: var(--link); stroke-width: 2; stroke-linejoin: round }
+.radar .last { fill: none; stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 5 4 }
+.radar text { font-size: 11px; fill: var(--ink-2) } .radar .v { font-weight: 700; fill: var(--ink) }
+.rscores { flex: 1 1 320px; min-width: 0; max-width: 720px; display: grid; gap: 4px; color: var(--muted) }
+.rscores p { margin: 0 } .rscores p b { font-size: 20px; color: var(--ink) }
+.raxes { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px }
+.raxes li { display: grid; grid-template-columns: minmax(0, 13em) 2.5em minmax(40px, 1fr) 72px; gap: 8px; align-items: center; font-size: 12px; color: var(--ink-2) }
+.raxes .bar { height: 6px } .raxes .bar .low { background: var(--warn-dot) }
+.radar-off { margin: 0; font-size: 12px; color: var(--muted) }
 @media (max-width: 600px) {
   .lane { grid-template-columns: minmax(0, 1fr) auto }
   .lane .cells, .lane .error, .axis > :last-child { grid-column: 1 / -1; grid-row: 2 }

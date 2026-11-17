@@ -60,7 +60,16 @@ key signal, a PromQL query's number (`app/components.py`). Which monitors, alert
 and queries are a component's is `app/components.toml`, not code: a new component is a new
 `[[component]]` there. The app checks the file when it starts and stops on a mistake,
 saying what it is. A line is marked by the tiles' rules (Down also for a monitor the file
-names that doesn't exist); a query that fails leaves its line Unknown, with the error. Both tabs
+names that doesn't exist); a query that fails leaves its line Unknown, with the error.
+
+The Overview's Platform Radar (`app/radar.py`) is the platform's weekly self-assessment,
+read from `docs/radar/scores.json` on `main` (`RADAR_URL`, by default its
+raw.githubusercontent.com address), cached for an hour, so a week merged there shows within
+the hour without a release. The newest week is a radar over the target ring at 4, the week
+before it dashed, and a list weakest first (what a screen reader gets), with a link to the
+full radar (`RADAR_LINK_URL`). A file that can't be fetched or read hides the panel, with
+one line saying why, and is asked for again after a minute. In the cluster that takes egress
+to GitHub on 443 (`deploy/envs/ops.yaml`). Both tabs
 share `templates/base.html`: the header, the tab bar, the notices for a source that doesn't
 answer, the summary line and the 15 s refresh.
 
