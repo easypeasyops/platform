@@ -81,7 +81,7 @@
 <ul class="raxes" aria-label="Scores out of 5, weakest first">
 {% for a in r.axes %}<li><span>{{ a.name }}</span><b>{{ a.score }}</b><span class="bar" aria-hidden="true"><span{% if a.below %} class="low"{% endif %} style="width: {{ a.width }}%"></span></span><span class="pill {{ 'warn' if a.below else 'ok' }}">{{ "below 4" if a.below else "at target" }}</span>{% if a.last %}<span class="sr">, the scoring before: {{ a.last }}</span>{% endif %}</li>
 {% endfor %}</ul>
-<span class="note">Re-scored every Monday from the repo, out of 5.</span>
+<span class="note">Re-scored from the repo on each day it changes, out of 5.</span>
 </div>
 </div>
 </section>
