@@ -1,0 +1,56 @@
+name: Java checks (reusable)
+
+# Format, lint and test a Maven project: the `check` job any Java app's CI calls, as
+# reusable-python-check.yml is for Python. The project's own build defines the checks
+# (`./mvnw verify`: formatting, compiler warnings, tests, a coverage floor read from
+# `-Dcoverage.min`); this job pins the JDK and caches the dependencies. With `run: false`
+# the job still reports success, so required checks never wait on a docs-only change.
+on:
+  workflow_call:
+    inputs:
+      run:
+        description: "false: report success without doing the work (docs-only change)"
+        type: boolean
+        default: true
+      java-version:
+        description: "The JDK (Temurin) to build and test with"
+        type: string
+        default: "21"
+      coverage-min:
+        description: "Passed to the build as -Dcoverage.min (a fraction: 0.90)"
+        type: string
+        default: "0.90"
+      working-directory:
+        description: "The project's directory (its pom.xml and mvnw): an app in a domain repo is apps/<app>"
+        type: string
+        default: .
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: format, lint, test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      # Actions pinned to commit SHAs: tags are mutable, SHAs are not.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: inputs.run
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        if: inputs.run
+        with:
+          distribution: temurin
+          java-version: ${{ inputs.java-version }}
+          cache: maven
+          cache-dependency-path: ${{ inputs.working-directory }}/pom.xml
+
+      - name: Verify (format, compile, test, coverage)
+        if: inputs.run
+        run: ./mvnw --batch-mode --no-transfer-progress verify -Dcoverage.min=${{ inputs.coverage-min }}
