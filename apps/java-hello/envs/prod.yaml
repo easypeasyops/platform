@@ -1,0 +1,16 @@
+# java-hello in prod: the Application java-hello-prod, in namespace java-hello-prod. Same
+# chart and image digest as staging; a change here is merged by Emrah.
+app: java-hello
+env: prod
+chart:
+  version: 1.7.1
+  digest: sha256:11a7ca25f34cd7a16bf2fbd4a5ad86e3bbc556f19f9ab236e1c2b05f50fb6a7f
+values:
+  repoURL: https://github.com/easypeasyops/java-hello.git
+  revision: main
+  files:
+    - apps/java-hello/deploy/service/values.yaml
+    # The SLO rules, generated from java-hello's SLO spec. Prod only: the one release per
+    # cluster that ships rules (monitoring.clusterWide); the SLO dashboard comes with them.
+    - apps/java-hello/deploy/service/slo-rules.values.yaml
+    - apps/java-hello/deploy/envs/prod.yaml
