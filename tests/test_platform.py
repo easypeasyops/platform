@@ -874,3 +874,10 @@ def test_waits_read_a_fresh_comparison() -> None:
     body = script[start : script.index("\n}\n", start)]
     refresh = body.index("argocd.argoproj.io/refresh=normal")
     assert refresh < body.index("while ((SECONDS - t0 < timeout))")
+
+
+def test_waits_for_the_children_run_side_by_side() -> None:
+    """The platform's children are waited for at once, and any one failing fails `up`."""
+    script = (ROOT / "scripts/cluster.sh").read_text()
+    assert 'wait_synced "${app#*/}" 300 & pids+=("$!")' in script
+    assert 'wait "$pid" || failed=1' in script

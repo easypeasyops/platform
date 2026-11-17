@@ -234,7 +234,14 @@ json.dump(app, sys.stdout)' \
   # wasn't enough (links #170, 2026-11-17; 555 s at the pin before).
   wait_synced platform 900 || exit 1
   children=$(kubectl -n argocd get applications -l app.kubernetes.io/part-of=platform -o name)
-  for app in $children; do wait_synced "${app#*/}" 300 || exit 1; done
+  # Side by side: each wait asks for a refresh, waits for it, then polls every 3 s. One
+  # after another, those add up even when every child is already Synced/Healthy (21
+  # children took 80 s after the root on links #171); side by side, the whole takes the
+  # slowest child's time.
+  local pids=() failed=0 pid
+  for app in $children; do wait_synced "${app#*/}" 300 & pids+=("$!"); done
+  for pid in "${pids[@]}"; do wait "$pid" || failed=1; done
+  ((failed == 0)) || exit 1
   kubectl -n argocd get applications -l app.kubernetes.io/part-of=platform
   # Argo CD's health says the pods run; these say they do their job.
   kubectl -n gateway wait gateway/front-door --for=condition=Programmed --timeout=180s >/dev/null
