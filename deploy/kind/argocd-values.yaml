@@ -16,6 +16,16 @@ configs:
     # failure output and CI's "Argo CD state" step read it to say what is Degraded and why.
     # Costs more Application updates; nothing at this size.
     controller.resource.health.persist: "true"
+    # Apply each watch event to the controller's cache in the watch's own goroutine, in
+    # order, not in batches from a queue. With batches (the default), a CRD event holds the
+    # cache lock for discovery and an OpenAPI reload; a watch the API server ends meanwhile
+    # (it does when a CRD's storage changes) re-lists, and the queued, older events are then
+    # applied on top: the cache keeps a stale copy until the watch restarts, 10 minutes
+    # later, and no refresh clears it (argoproj/argo-cd#30381). On a fresh cluster, with
+    # about 100 CRDs arriving at once, that was CRDs shown OutOfSync, "not established" or
+    # Missing, and kube-prometheus-stack's Prometheus "Waiting for initialization", for
+    # minutes after the API server had them ready (links' kind e2e, PT-71).
+    controller.cluster.cache.batch.events.processing: "false"
   cm:
     # Check the repository for changes every 60 s instead of 180 s: a merged promotion PR
     # reaches the cluster within a minute. (A webhook from GitHub would make it instant;
