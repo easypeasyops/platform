@@ -5,22 +5,20 @@
 How every easypeasyops app is built, released, admitted and run. An app team changes only
 its own code, values and the release each environment runs; this repo owns everything else.
 
-## Status: moving in (Phase 3)
+## Status
 
-The files here came from [easypeasyops/links](https://github.com/easypeasyops/links)
-(formerly `statsguy/shortly`) with their history, as plan step 3.1. Since 3.4 this repo is
-the only copy: Argo CD syncs the platform from here, the laptop cluster is started from a
-checkout here, and an app's repo uses it at the commit its `platform.lock` names. shortly
-left the cluster in #80; the apps here today are aipostit and deploybot
-([easypeasyops/hotel_social_posts](https://github.com/easypeasyops/hotel_social_posts)).
+Four apps run on the platform, each in its own namespaces and from its own repo's values:
+aipostit and deploybot
+([easypeasyops/hotel_social_posts](https://github.com/easypeasyops/hotel_social_posts)),
+java-hello ([easypeasyops/java-hello](https://github.com/easypeasyops/java-hello)), and
+the platform's own servicemonitor. java-hello is the first app started from
+[app-template](https://github.com/easypeasyops/app-template): from an empty repo it was live
+in staging in 17 minutes and in prod 7 minutes later (PT-48).
 
-| Step | Change | State |
-| --- | --- | --- |
-| 3.1 | Platform files copied here with history | done |
-| 3.2 | A generic `service` chart, released to GHCR as a signed OCI chart | done: 0.1.0; 1.0.0 since 4.2; 1.1.0 scrapes the databases; 1.2.1 adds workers, Redis and secret env (5.4–5.6) |
-| 3.3 | An ApplicationSet over `apps/*`; `apps/shortly/` points at links | done; `apps/shortly/` removed in #80 |
-| 3.4 | links drops what moved and pins this repo's workflows and chart | done |
-| 3.5 | Releases per app (`shortly/vX.Y.Z`, `ghcr.io/easypeasyops/links/shortly`) | done: links since `shortly/v0.7.2`; hotel_social_posts releases this way too (`aipostit/vX.Y.Z`, `deploybot/vX.Y.Z`) |
+The platform moved here from [easypeasyops/links](https://github.com/easypeasyops/links)
+(formerly `statsguy/shortly`) with its history, plan steps 3.1 to 3.5, all done. This repo
+is the only copy: Argo CD syncs the platform from here, the laptop cluster is started from a
+checkout here, and an app's repo uses it at the commit its `platform.lock` names.
 
 ## What's here
 
@@ -73,7 +71,9 @@ What the app still decides:
   canaries): each is documented in [charts/service/values.yaml](charts/service/values.yaml).
 
 Then one folder, reviewed here: `apps/<app>/project.yaml` (the app's repo and its `<app>-<env>`
-namespaces) and `apps/<app>/envs/<env>.yaml` per environment:
+namespaces) and `apps/<app>/envs/<env>.yaml` per environment. The project lists exactly the
+namespaces that have an env file (`tests/test_namespaces.py`), so staging goes in first, and
+prod's namespace joins the project in the PR that adds `envs/prod.yaml`:
 
 ```yaml
 app: <app>
