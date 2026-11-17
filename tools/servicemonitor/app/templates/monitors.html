@@ -1,129 +1,6 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ServiceMonitors</title>
-{# Without JavaScript the whole page reloads instead (and closes the open rows). #}
-<noscript><meta http-equiv="refresh" content="15"></noscript>
-<style>
-:root {
-  color-scheme: light dark;
-  --bg: #F6F7F9; --surface: #FFFFFF; --head: #FAFBFC; --group: #F1F3F6;
-  --border: #E2E5EA; --border-soft: #EDEFF2; --border-strong: #C9CED6;
-  --ink: #15181E; --ink-2: #3D4350; --muted: #4A5160;
-  --link: #1F4FBF; --link-hover: #163A8C;
-  --ok-ink: #145A33; --ok-bg: #E3F2E9; --ok-dot: #17663A;
-  --down-ink: #9B1C12; --down-bg: #FDE8E6; --down-dot: #B42318; --down-row: #FFF7F6;
-  --warn-ink: #7A3E00; --warn-bg: #FFF1DC; --warn-dot: #B86E00;
-  --app-ink: #163A8C; --app-bg: #E3EAFB; --platform-ink: #3D4350; --platform-bg: #E2E5EA;
-  --on-bg: #15181E; --on-ink: #FFFFFF;
-  --columns: 28px minmax(230px, 2.2fr) 110px 120px 110px minmax(170px, 1.4fr) minmax(160px, 1.2fr) minmax(210px, 1.5fr);
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0F1115; --surface: #171A20; --head: #1C2027; --group: #20242C;
-    --border: #2B303A; --border-soft: #232831; --border-strong: #3A404C;
-    --ink: #E8EAEE; --ink-2: #C2C7D0; --muted: #A3AAB6;
-    --link: #8FB0FF; --link-hover: #B5CBFF;
-    --ok-ink: #7FD6A4; --ok-bg: #12301F; --ok-dot: #3E9B66;
-    --down-ink: #FF9C92; --down-bg: #3A1512; --down-dot: #E5534B; --down-row: #231514;
-    --warn-ink: #F2B866; --warn-bg: #33240C; --warn-dot: #E8A23A;
-    --app-ink: #A9C1FF; --app-bg: #1B2748; --platform-ink: #C2C7D0; --platform-bg: #2B303A;
-    --on-bg: #E8EAEE; --on-ink: #15181E;
-  }
-}
-body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/18px Inter, system-ui, sans-serif; }
-a { color: var(--link); text-decoration: none }
-a:hover { color: var(--link-hover); text-decoration: underline }
-:focus-visible { outline: 2px solid var(--link); outline-offset: 2px }
-.mono { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px }
-.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap }
-.wrap { max-width: 1600px; margin: 0 auto; padding: 0 16px }
-header { background: var(--surface); border-bottom: 1px solid var(--border) }
-header .wrap { display: flex; flex-wrap: wrap; align-items: center; padding-block: 6px; gap: 6px 14px }
-h1 { margin: 0; font-size: 15px; display: flex; align-items: center; gap: 8px }
-.logo rect { fill: var(--ink) } .logo path { stroke: var(--surface) }
-.spacer { flex: 1 1 auto }
-.dot { width: 8px; height: 8px; flex: none; border-radius: 50%; display: inline-block; background: var(--border-strong) }
-.dot.ok { background: var(--ok-dot) } .dot.down { background: var(--down-dot) } .dot.warn { background: var(--warn-dot) }
-.live { display: flex; align-items: center; gap: 8px; color: var(--muted) }
-/* One column no wider than the screen: the table scrolls in its own box. */
-main.wrap { padding-block: 10px 16px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px }
-#live { display: contents }
-.banner { margin: 0; background: var(--down-bg); color: var(--down-ink); border-radius: 8px; padding: 6px 12px; font-weight: 500 }
-.summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; color: var(--muted) }
-.summary b { font-size: 16px; color: var(--ink) } .summary b.down { color: var(--down-ink) } .summary b.warn { color: var(--warn-ink) }
-.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border) }
-.tabs a { padding: 7px 14px; margin-bottom: -1px; font-weight: 500; color: var(--muted); border-bottom: 2px solid transparent }
-.tabs a[aria-current] { font-weight: 600; color: var(--ink); border-color: var(--ink) }
-.filter { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px }
-.filter form { flex: 1 1 240px; max-width: 360px; display: flex }
-.filter input { flex: 1; min-width: 0; height: 30px; box-sizing: border-box; border: 1px solid var(--border-strong); border-radius: 6px; padding: 0 10px; font: inherit; background: var(--surface); color: var(--ink) }
-.chips { display: flex; flex-wrap: wrap; gap: 6px }
-.chips a { line-height: 28px; padding: 0 12px; border-radius: 999px; font-size: 12px; font-weight: 500; background: var(--surface); color: var(--ink); border: 1px solid var(--border-strong) }
-.chips a[aria-current] { background: var(--on-bg); color: var(--on-ink); border-color: var(--on-bg) }
-.count { font-size: 12px; color: var(--muted) }
-.empty { background: var(--surface); border: 1px dashed var(--border-strong); border-radius: 8px; padding: 14px; text-align: center; color: var(--muted) }
-.empty strong { display: block; color: var(--ink); margin-bottom: 4px }
-.scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 10px }
-.table { min-width: 1190px }
-.columns { display: grid; grid-template-columns: var(--columns); align-items: center; padding-right: 12px }
-.head { padding-block: 5px; border-bottom: 1px solid var(--border); font-size: 11px; font-weight: 600; color: var(--muted); background: var(--head) }
-.group { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; margin: 0; padding: 4px 12px; background: var(--group); border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 400; color: var(--muted) }
-.group .mono { font-weight: 600; color: var(--ink) }
-.tag { font-size: 11px; font-weight: 600; border-radius: 4px; padding: 1px 8px; color: var(--platform-ink); background: var(--platform-bg) }
-.tag.app { color: var(--app-ink); background: var(--app-bg) }
-details { border-bottom: 1px solid var(--border-soft) }
-details.down { background: var(--down-row) }
-summary { min-height: 28px; cursor: pointer; font-size: 12px; color: var(--ink-2); list-style: none }
-summary::-webkit-details-marker { display: none }
-summary svg { justify-self: center; color: var(--muted); transition: transform 120ms }
-details[open] summary svg { transform: rotate(90deg) }
-.name { display: flex; align-items: center; gap: 10px; min-width: 0; color: var(--ink) }
-.name .mono { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
-.pill { justify-self: start; font-weight: 600; border-radius: 999px; padding: 0 8px; color: var(--muted); background: var(--group) }
-.pill.ok { color: var(--ok-ink); background: var(--ok-bg) }
-.pill.down { color: var(--down-ink); background: var(--down-bg) }
-.pill.warn { color: var(--warn-ink); background: var(--warn-bg) }
-.alerts { display: flex; flex-wrap: wrap; gap: 4px; padding-right: 10px }
-a.alert, a.alert:hover { font-size: 11px; font-weight: 600; border-radius: 4px; padding: 0 6px; color: var(--warn-ink); background: var(--warn-bg) }
-/* Fires in a namespace the monitor scrapes, not on a job of its own. */
-a.alert.dim, a.alert.dim:hover { font-weight: 400; color: var(--muted); background: none; box-shadow: inset 0 0 0 1px var(--border-strong) }
-.note { font-size: 11px; color: var(--muted) }
-.slo { display: grid; gap: 2px; padding-right: 12px; font-size: 11px; line-height: 14px; color: var(--muted) }
-.slo .figures { display: flex; justify-content: space-between; gap: 8px }
-.slo .figures span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
-.slo b { color: var(--ink); white-space: nowrap } .slo.spent b { color: var(--down-ink) }
-.bar { height: 4px; border-radius: 3px; overflow: hidden; background: var(--border) }
-.bar span { display: block; height: 100%; background: var(--link) }
-.links { display: flex; flex-wrap: wrap; gap: 2px 10px }
-.targets { margin: 0 12px 6px 28px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--surface); font-size: 12px; color: var(--ink-2) }
-.target { display: grid; grid-template-columns: minmax(260px, 2fr) 70px 90px 80px minmax(260px, 3fr); gap: 10px; padding: 3px 10px; align-items: start; border-bottom: 1px solid var(--border-soft) }
-.target.head { align-items: center }
-.target .mono { color: var(--ink); overflow-wrap: anywhere }
-.target .error { color: var(--down-ink) }
-.spec { padding: 3px 10px; font-size: 11px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 2px 14px }
-.spec .mono { font-size: 11px }
-</style>
-</head>
-<body>
-<header>
-<div class="wrap">
-<h1><svg class="logo" width="20" height="20" viewBox="0 0 26 26" aria-hidden="true"><rect x="0.5" y="0.5" width="25" height="25" rx="6"></rect><path d="M5 14h4l2-5 4 9 2-4h4" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>ServiceMonitors</h1>
-<div class="spacer"></div>
-<div class="live" id="status">
-{% if stale %}<span class="dot down" aria-hidden="true"></span>Stale: see below
-{% else %}<span class="dot ok" aria-hidden="true"></span><span>Live · updated <time datetime="{{ as_of }}">{{ as_of }}</time>, refreshes every 15 s</span>{% endif %}
-</div>
-<a href="{{ prometheus }}/targets">Prometheus targets ↗</a>
-</div>
-</header>
+{% extends "base.html" %}
 
-<main class="wrap">
-{# PT-57 adds Overview, at /. #}
-<nav class="tabs" aria-label="View"><a href="/monitors" aria-current="page">Monitors</a></nav>
-
+{% block controls %}
 <section class="filter" aria-label="Filter">
 <form method="get" role="search">
 <label for="q" class="sr">Filter by app, namespace or monitor</label>
@@ -136,42 +13,13 @@ a.alert.dim, a.alert.dim:hover { font-weight: 400; color: var(--muted); backgrou
 </nav>
 {% if app %}<span>App <span class="mono">{{ app }}</span> only · <a href="/monitors">every monitor</a></span>{% endif %}
 </section>
+{% endblock %}
 
-{# Everything below is replaced on each refresh. #}
-<div id="live">
-{% for source in stale %}
-<p class="banner" role="alert">
-{% if source.as_of %}{{ source.name }} has not answered since <time datetime="{{ source.as_of }}">{{ source.as_of }}</time>: {{ source.what }} below are what it said then.
-{% else %}{{ source.name }} has not answered yet: {{ source.what }} are unknown.{% endif %}
-<span class="mono">{{ source.error }}</span>
-</p>
-{% endfor %}
-
-{% if known %}
-<section class="summary" aria-label="Summary">
-<span><b>{{ summary.monitors }}</b> monitors ({{ summary.kinds }})</span>
-{% if summary.targets_known %}
-<span><b>{{ summary.up }} / {{ summary.targets }}</b> targets up</span>
-<span><b{% if summary.down %} class="down"{% endif %}>{{ summary.targets - summary.up }}</b> down: {{ summary.down | join(", ") or "every target answers" }}</span>
-{% else %}
-<span><b>?</b> targets unknown</span>
-{% endif %}
-{% if summary.alerts is none %}
-<span><b>?</b> alerts unknown</span>
-{% else %}
-<span><b{% if summary.alerts %} class="warn"{% endif %}>{{ summary.alerts }}</b> alerts firing{% if summary.unattached %} ({{ summary.unattached | length }} on no monitor:{% for alert in summary.unattached %} <a href="{{ alert.href }}">{{ alert.name }}</a>{% endfor %}){% endif %}</span>
-{% endif %}
-{% if not summary.budgets_known %}
-<span><b>?</b> error budgets unknown</span>
-{% elif summary.lowest %}
-<span><b{% if summary.lowest.spent %} class="down"{% endif %}>{{ summary.lowest.left }}</b> lowest error budget ({{ summary.lowest.where }})</span>
-{% else %}
-<span><b>—</b> no SLO has an error budget</span>
-{% endif %}
-<span class="spacer"></span>
+{% block count %}
 <span class="count" aria-live="polite">{% if shown == summary.monitors %}Showing all {{ shown }} monitors{% else %}Showing {{ shown }} of {{ summary.monitors }} monitors{% endif %}</span>
-</section>
+{% endblock %}
 
+{% block live %}
 {% if not groups %}
 <div class="empty">
 <strong>No monitor matches.</strong>
@@ -241,35 +89,4 @@ An app with no ServiceMonitor isn't scraped at all: the service chart creates on
 </div>
 </div>
 {% endif %}
-{% endif %}
-</div>
-</main>
-<script>
-// Times in the reader's own time zone, not UTC.
-const localTimes = () => document.querySelectorAll("time").forEach((t) => {
-  t.textContent = new Date(t.dateTime).toLocaleTimeString();
-});
-localTimes();
-// Every 15 s: this same URL again, and its #live swapped in, keeping the rows that are
-// open and the keyboard's place.
-setInterval(async () => {
-  const status = document.getElementById("status");
-  try {
-    const response = await fetch(location.href);
-    if (!response.ok) throw new Error(response.status);
-    const fresh = new DOMParser().parseFromString(await response.text(), "text/html");
-    const live = document.getElementById("live");
-    const open = [...live.querySelectorAll("details[open]")].map((d) => d.id);
-    const focus = [...live.querySelectorAll("summary, a")].indexOf(document.activeElement);
-    live.replaceWith(fresh.getElementById("live"));
-    status.replaceWith(fresh.getElementById("status"));
-    open.forEach((id) => document.getElementById(id)?.setAttribute("open", ""));
-    document.getElementById("live").querySelectorAll("summary, a")[focus]?.focus();
-    localTimes();
-  } catch {
-    status.innerHTML = '<span class="dot down" aria-hidden="true"></span>Not refreshing: this page\'s own server does not answer';
-  }
-}, 15000);
-</script>
-</body>
-</html>
+{% endblock %}
