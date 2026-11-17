@@ -85,6 +85,7 @@ async def _kubernetes() -> dict[str, Any]:
             ns["metadata"]["name"]: ns["metadata"].get("labels", {}).get(APP_LABEL)
             for ns in namespaces
         },
+        "labels": {ns["metadata"]["name"]: ns["metadata"].get("labels", {}) for ns in namespaces},
         "monitors": sorted(
             # Sorted by the first three, which are unique: the detail is never compared.
             (item["metadata"]["namespace"], item["metadata"]["name"], kind, _detail(item))
@@ -140,6 +141,12 @@ def _join(
         # Targets of a scrape pool that is no monitor's: a scrape config of Prometheus's own.
         "unclaimed": None if targets is None else [t for ts in by_monitor.values() for t in ts],
     }
+
+
+def last_good(source: str) -> Any:
+    """What a source (kubernetes, prometheus) last answered, before the join: `None` if it
+    never has."""
+    return _last_good[source][1] if source in _last_good else None
 
 
 async def read() -> dict[str, Any]:

@@ -1,9 +1,11 @@
-"""The Monitors tab: the read model (app/monitors.py) shaped for templates/monitors.html.
-Filtering is done here, from the URL, so a filtered link shows the same rows to whoever
-opens it.
+"""The Monitors tab: the read models (app/monitors.py, and app/status.py for the alerts and
+the SLO budgets) shaped for templates/monitors.html. Filtering is done here, from the URL,
+so a filtered link shows the same rows to whoever opens it.
 
 A monitor has a problem when it has a target that isn't up, no target at all, or targets
-nobody knows (Prometheus never answered): unknown is never shown as healthy.
+nobody knows (Prometheus never answered): unknown is never shown as healthy. So does one
+with an alert firing on a job it scrapes, or an SLO with no error budget left. An alert
+that is only in a namespace it scrapes is shown, dimmed, and is not the monitor's problem.
 """
 
 import json
@@ -22,6 +24,8 @@ SHOW = {"all": "All", "problems": "Problems only", "apps": "Apps", "platform": "
 SOURCES = {
     "kubernetes": ("The Kubernetes API", "the monitors"),
     "prometheus": ("Prometheus", "the targets"),
+    "alerts": ("Prometheus's alerts API", "the alerts"),
+    "slo": ("Prometheus's query API", "the error budgets"),
 }
 
 
@@ -68,7 +72,30 @@ def _selector(monitor: dict[str, Any], namespace: str) -> str:
     return text
 
 
-def _row(ns: dict[str, Any], monitor: dict[str, Any], now: datetime) -> dict[str, Any]:
+def _percent(remaining: float) -> str:
+    return f"{round(remaining * 100)}%"  # the real number, below zero too: -1501%
+
+
+def _budget(slo: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The SLO cell: the lowest budget (`left`), or why there is none (`reason`). None:
+    unknown, the query never answered."""
+    if slo is None:
+        return None
+    lowest = slo["lowest"]
+    if lowest is None:
+        # Budgets without a number: no request in the SLO's window to compute one from.
+        return {"left": None, "reason": slo["reason"] or "no requests in the SLO's window"}
+    return {
+        "left": _percent(lowest["remaining"]),
+        "name": lowest["slo"],
+        "width": round(min(max(lowest["remaining"], 0), 1) * 100),  # the bar never overflows
+        "spent": lowest["remaining"] <= 0,
+    }
+
+
+def _row(
+    ns: dict[str, Any], monitor: dict[str, Any], state: dict[str, Any], now: datetime
+) -> dict[str, Any]:
     targets = monitor["targets"]
     up = [t for t in targets or [] if t["health"] == "up"]
     if targets is None:
@@ -78,13 +105,37 @@ def _row(ns: dict[str, Any], monitor: dict[str, Any], now: datetime) -> dict[str
     else:
         status = f"{len(up)}/{len(targets)} up"
         tone = "ok" if len(up) == len(targets) else "down"
+    # None: unknown, Prometheus never said which alerts fire.
+    alerts = state.get("alerts") and [
+        {
+            "name": alert["name"],
+            "summary": alert["summary"],
+            "href": PROMETHEUS + alert["prometheus_path"],
+            "dim": alert["match"] == "namespace",
+        }
+        for alert in state["alerts"]
+    ]
+    slo = _budget(state.get("slo"))
+    problem = (
+        tone != "ok"
+        or any(not alert["dim"] for alert in alerts or [])
+        or bool(slo and slo["left"] and slo["spent"])
+    )
+    # Where its targets are, which is where its alerts are: not always where it lives.
+    # Prometheus's alerts page searches rule names, not an alert's labels: the ALERTS
+    # series has the namespace.
+    scrapes = "|".join(state.get("scrapes", [ns["name"]]))
+    alerts_query = quote(f'ALERTS{{namespace=~"{scrapes}"}}')
     return {
         "id": f"{monitor['kind']}/{ns['name']}/{monitor['name']}",
         "name": monitor["name"],
         "kind": monitor["kind"],
         "status": status,
         "tone": tone,
-        "problem": tone != "ok",
+        "dot": "warn" if problem and tone == "ok" else tone,
+        "problem": problem,
+        "alerts": alerts,
+        "slo": slo,
         "last": _ago(max(t["last_scrape"] for t in targets), now) if targets else "—",
         "targets": [
             {
@@ -103,7 +154,7 @@ def _row(ns: dict[str, Any], monitor: dict[str, Any], now: datetime) -> dict[str
         "links": {
             "Dashboard": f"{GRAFANA}/dashboards?query={quote(ns['app'] or monitor['name'])}",
             "Logs": _logs(monitor["namespaces"]) if monitor["namespaces"] else None,
-            "Alerts": f"{PROMETHEUS}/alerts?search={quote(ns['name'])}",
+            "Alerts": f"{PROMETHEUS}/query?g0.tab=table&g0.expr={alerts_query}",
             "Argo CD": f"{ARGOCD}/applications/argocd/{monitor['application']}"
             if monitor["application"]
             else None,
@@ -112,15 +163,32 @@ def _row(ns: dict[str, Any], monitor: dict[str, Any], now: datetime) -> dict[str
 
 
 def view(
-    model: dict[str, Any], path: str, q: str, show: str, app: str | None, now: datetime
+    model: dict[str, Any],
+    status: dict[str, Any],
+    path: str,
+    q: str,
+    show: str,
+    app: str | None,
+    now: datetime,
 ) -> dict[str, Any]:
+    """`status` is status.read()'s answer over `model`, monitors.read()'s."""
     q = q.strip().lower()
     show = show if show in SHOW else "all"
     every: list[dict[str, Any]] = []
     groups = []
+    # A monitor the status doesn't have (it appeared between the two reads): unknown.
+    statuses = {
+        (ns["name"], monitor["kind"], monitor["name"]): monitor
+        for ns in status["namespaces"] or []
+        for monitor in ns["monitors"]
+    }
+    lowest = status["summary"]["lowest_budget"]
     # Apps first, then the platform; the model has each in name order.
     for ns in sorted(model["namespaces"] or [], key=lambda ns: ns["owner"] != "app"):
-        rows = [_row(ns, monitor, now) for monitor in ns["monitors"]]
+        rows = [
+            _row(ns, m, statuses.get((ns["name"], m["kind"], m["name"]), {}), now)
+            for m in ns["monitors"]
+        ]
         every += rows
         shown = [
             row
@@ -143,10 +211,10 @@ def view(
         "known": model["namespaces"] is not None,
         "stale": [
             {"name": SOURCES[name][0], "what": SOURCES[name][1], **source}
-            for name, source in model["sources"].items()
+            for name, source in status["sources"].items()
             if source["stale"]
         ],
-        "as_of": min((s["as_of"] for s in model["sources"].values() if s["as_of"]), default=None),
+        "as_of": min((s["as_of"] for s in status["sources"].values() if s["as_of"]), default=None),
         "summary": {
             "monitors": len(every),
             "kinds": " · ".join(
@@ -157,6 +225,19 @@ def view(
             "up": sum(t["health"] == "up" for t in targets),
             "targets": len(targets),
             "down": [row["id"].split("/", 1)[1] for row in every if row["tone"] == "down"],
+            "alerts": status["summary"]["alerts_firing"],  # None: unknown
+            # Firing, and on no monitor's row: counted, so named here.
+            "unattached": [
+                {"name": alert["name"], "href": PROMETHEUS + alert["prometheus_path"]}
+                for alert in status["unattached"] or []
+            ],
+            "budgets_known": status["sources"]["slo"]["as_of"] is not None,
+            "lowest": lowest
+            and {
+                "left": _percent(lowest["remaining"]),
+                "where": f"{lowest['namespace']} · {lowest['slo']}",
+                "spent": lowest["remaining"] <= 0,
+            },
         },
         "groups": groups,
         "shown": sum(len(group["monitors"]) for group in groups),

@@ -18,9 +18,7 @@
   --warn-ink: #7A3E00; --warn-bg: #FFF1DC; --warn-dot: #B86E00;
   --app-ink: #163A8C; --app-bg: #E3EAFB; --platform-ink: #3D4350; --platform-bg: #E2E5EA;
   --on-bg: #15181E; --on-ink: #FFFFFF;
-  /* PT-56 adds "Alerts firing" and "SLO budget left" between "Last scrape" and "Go to":
-     minmax(170px, 1.4fr) minmax(160px, 1.2fr), and 330px more on .table's min-width. */
-  --columns: 28px minmax(230px, 2.2fr) 110px 120px 110px minmax(210px, 1.5fr);
+  --columns: 28px minmax(230px, 2.2fr) 110px 120px 110px minmax(170px, 1.4fr) minmax(160px, 1.2fr) minmax(210px, 1.5fr);
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -55,7 +53,7 @@ main.wrap { padding-block: 10px 16px; display: grid; grid-template-columns: minm
 #live { display: contents }
 .banner { margin: 0; background: var(--down-bg); color: var(--down-ink); border-radius: 8px; padding: 6px 12px; font-weight: 500 }
 .summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; color: var(--muted) }
-.summary b { font-size: 16px; color: var(--ink) } .summary b.down { color: var(--down-ink) }
+.summary b { font-size: 16px; color: var(--ink) } .summary b.down { color: var(--down-ink) } .summary b.warn { color: var(--warn-ink) }
 .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border) }
 .tabs a { padding: 7px 14px; margin-bottom: -1px; font-weight: 500; color: var(--muted); border-bottom: 2px solid transparent }
 .tabs a[aria-current] { font-weight: 600; color: var(--ink); border-color: var(--ink) }
@@ -69,7 +67,7 @@ main.wrap { padding-block: 10px 16px; display: grid; grid-template-columns: minm
 .empty { background: var(--surface); border: 1px dashed var(--border-strong); border-radius: 8px; padding: 14px; text-align: center; color: var(--muted) }
 .empty strong { display: block; color: var(--ink); margin-bottom: 4px }
 .scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 10px }
-.table { min-width: 860px }
+.table { min-width: 1190px }
 .columns { display: grid; grid-template-columns: var(--columns); align-items: center; padding-right: 12px }
 .head { padding-block: 5px; border-bottom: 1px solid var(--border); font-size: 11px; font-weight: 600; color: var(--muted); background: var(--head) }
 .group { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; margin: 0; padding: 4px 12px; background: var(--group); border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 400; color: var(--muted) }
@@ -88,6 +86,17 @@ details[open] summary svg { transform: rotate(90deg) }
 .pill.ok { color: var(--ok-ink); background: var(--ok-bg) }
 .pill.down { color: var(--down-ink); background: var(--down-bg) }
 .pill.warn { color: var(--warn-ink); background: var(--warn-bg) }
+.alerts { display: flex; flex-wrap: wrap; gap: 4px; padding-right: 10px }
+a.alert, a.alert:hover { font-size: 11px; font-weight: 600; border-radius: 4px; padding: 0 6px; color: var(--warn-ink); background: var(--warn-bg) }
+/* Fires in a namespace the monitor scrapes, not on a job of its own. */
+a.alert.dim, a.alert.dim:hover { font-weight: 400; color: var(--muted); background: none; box-shadow: inset 0 0 0 1px var(--border-strong) }
+.note { font-size: 11px; color: var(--muted) }
+.slo { display: grid; gap: 2px; padding-right: 12px; font-size: 11px; line-height: 14px; color: var(--muted) }
+.slo .figures { display: flex; justify-content: space-between; gap: 8px }
+.slo .figures span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.slo b { color: var(--ink); white-space: nowrap } .slo.spent b { color: var(--down-ink) }
+.bar { height: 4px; border-radius: 3px; overflow: hidden; background: var(--border) }
+.bar span { display: block; height: 100%; background: var(--link) }
 .links { display: flex; flex-wrap: wrap; gap: 2px 10px }
 .targets { margin: 0 12px 6px 28px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--surface); font-size: 12px; color: var(--ink-2) }
 .target { display: grid; grid-template-columns: minmax(260px, 2fr) 70px 90px 80px minmax(260px, 3fr); gap: 10px; padding: 3px 10px; align-items: start; border-bottom: 1px solid var(--border-soft) }
@@ -147,7 +156,18 @@ details[open] summary svg { transform: rotate(90deg) }
 {% else %}
 <span><b>?</b> targets unknown</span>
 {% endif %}
-{# PT-56: alerts firing, lowest error budget. #}
+{% if summary.alerts is none %}
+<span><b>?</b> alerts unknown</span>
+{% else %}
+<span><b{% if summary.alerts %} class="warn"{% endif %}>{{ summary.alerts }}</b> alerts firing{% if summary.unattached %} ({{ summary.unattached | length }} on no monitor:{% for alert in summary.unattached %} <a href="{{ alert.href }}">{{ alert.name }}</a>{% endfor %}){% endif %}</span>
+{% endif %}
+{% if not summary.budgets_known %}
+<span><b>?</b> error budgets unknown</span>
+{% elif summary.lowest %}
+<span><b{% if summary.lowest.spent %} class="down"{% endif %}>{{ summary.lowest.left }}</b> lowest error budget ({{ summary.lowest.where }})</span>
+{% else %}
+<span><b>—</b> no SLO has an error budget</span>
+{% endif %}
 <span class="spacer"></span>
 <span class="count" aria-live="polite">{% if shown == summary.monitors %}Showing all {{ shown }} monitors{% else %}Showing {{ shown }} of {{ summary.monitors }} monitors{% endif %}</span>
 </section>
@@ -161,7 +181,7 @@ An app with no ServiceMonitor isn't scraped at all: the service chart creates on
 <div class="scroll">
 <div class="table">
 <div class="columns head" aria-hidden="true">
-<span></span><span>Monitor</span><span>Kind</span><span>Targets</span><span>Last scrape</span>{# PT-56: <span>Alerts firing</span><span>SLO budget left</span> #}<span>Go to</span>
+<span></span><span>Monitor</span><span>Kind</span><span>Targets</span><span>Last scrape</span><span>Alerts firing</span><span>SLO budget left</span><span>Go to</span>
 </div>
 {% for group in groups %}
 <h2 class="group">
@@ -172,13 +192,25 @@ An app with no ServiceMonitor isn't scraped at all: the service chart creates on
 </h2>
 {% for m in group.monitors %}
 <details id="{{ m.id }}" class="{{ m.tone }}">
-<summary class="columns" aria-label="{{ m.kind }} {{ m.name }}, targets {{ m.status }}">
+<summary class="columns" aria-label="{{ m.kind }} {{ m.name }}, targets {{ m.status }}{% if m.alerts %}, firing {{ m.alerts | map(attribute='name') | join(', ') }}{% endif %}{% if m.slo and m.slo.left %}, error budget {{ m.slo.left }} left{% endif %}">
 <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>
-<span class="name"><span class="dot {{ m.tone }}" aria-hidden="true"></span><span class="mono">{{ m.name }}</span></span>
+<span class="name"><span class="dot {{ m.dot }}" aria-hidden="true"></span><span class="mono">{{ m.name }}</span></span>
 <span>{{ m.kind }}</span>
 <span class="pill {{ m.tone }}">{{ m.status }}</span>
 <span>{{ m.last }}</span>
-{# PT-56: the alerts firing on this monitor, then its SLO budget left. #}
+<span class="alerts">
+{% for alert in m.alerts or [] %}<a class="alert{% if alert.dim %} dim{% endif %}" href="{{ alert.href }}" title="{{ 'In a namespace this monitor scrapes' if alert.dim else 'On a job this monitor scrapes' }}{% if alert.summary %}: {{ alert.summary }}{% endif %}">{{ alert.name }}</a>
+{% else %}<span class="note">{{ "unknown" if m.alerts is none else "—" }}</span>
+{% endfor %}
+</span>
+{% if m.slo and m.slo.left %}
+<span class="slo{% if m.slo.spent %} spent{% endif %}">
+<span class="figures"><b>{{ m.slo.left }} left</b><span>{{ m.slo.name }}</span></span>
+<span class="bar" aria-hidden="true"><span style="width: {{ m.slo.width }}%"></span></span>
+</span>
+{% else %}
+<span class="note">{{ m.slo.reason if m.slo else "unknown" }}</span>
+{% endif %}
 <span class="links">
 {% for label, href in m.links.items() if href %}<a href="{{ href }}">{{ label }}</a>
 {% endfor %}

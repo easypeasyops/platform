@@ -1,0 +1,169 @@
+{
+  "namespaces": [
+    {
+      "metadata": {
+        "name": "aipostit-staging",
+        "labels": {
+          "easypeasyops.github.io/app": "aipostit",
+          "easypeasyops.github.io/env": "staging",
+          "kubernetes.io/metadata.name": "aipostit-staging",
+          "pod-security.kubernetes.io/enforce": "restricted",
+          "pod-security.kubernetes.io/warn": "restricted"
+        }
+      }
+    }
+  ],
+  "servicemonitors": [
+    {
+      "apiVersion": "monitoring.coreos.com/v1",
+      "kind": "ServiceMonitor",
+      "metadata": {
+        "name": "aipostit",
+        "namespace": "aipostit-staging"
+      },
+      "spec": {
+        "endpoints": [
+          {
+            "interval": "15s",
+            "path": "/metrics",
+            "port": "metrics"
+          }
+        ],
+        "podTargetLabels": [
+          "rollouts-pod-template-hash"
+        ],
+        "selector": {
+          "matchLabels": {
+            "app.kubernetes.io/instance": "aipostit",
+            "app.kubernetes.io/name": "aipostit"
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "monitoring.coreos.com/v1",
+      "kind": "ServiceMonitor",
+      "metadata": {
+        "name": "kps-prometheus",
+        "namespace": "monitoring"
+      },
+      "spec": {
+        "endpoints": [
+          {
+            "path": "/metrics",
+            "port": "http-web"
+          },
+          {
+            "path": "/metrics",
+            "port": "reloader-web"
+          }
+        ],
+        "namespaceSelector": {
+          "matchNames": [
+            "monitoring"
+          ]
+        },
+        "selector": {
+          "matchLabels": {
+            "app": "kube-prometheus-stack-prometheus",
+            "release": "monitoring",
+            "self-monitor": "true"
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "monitoring.coreos.com/v1",
+      "kind": "ServiceMonitor",
+      "metadata": {
+        "name": "kube-state-metrics",
+        "namespace": "monitoring"
+      },
+      "spec": {
+        "endpoints": [
+          {
+            "honorLabels": true,
+            "port": "http"
+          }
+        ],
+        "jobLabel": "app.kubernetes.io/name",
+        "selector": {
+          "matchLabels": {
+            "app.kubernetes.io/instance": "monitoring",
+            "app.kubernetes.io/name": "kube-state-metrics"
+          }
+        }
+      }
+    }
+  ],
+  "targets": [
+    {
+      "labels": {
+        "container": "app",
+        "endpoint": "metrics",
+        "instance": "10.244.0.6:9100",
+        "job": "aipostit",
+        "namespace": "aipostit-staging",
+        "pod": "aipostit-68b9b856bb-wlqck",
+        "service": "aipostit"
+      },
+      "scrapePool": "serviceMonitor/aipostit-staging/aipostit/0",
+      "scrapeUrl": "http://10.244.0.6:9100/metrics",
+      "lastError": "",
+      "lastScrape": "2026-11-16T22:09:09.654933166Z",
+      "lastScrapeDuration": 0.011344209,
+      "health": "up"
+    },
+    {
+      "labels": {
+        "container": "prometheus",
+        "endpoint": "http-web",
+        "instance": "10.244.0.48:9090",
+        "job": "kps-prometheus",
+        "namespace": "monitoring",
+        "pod": "prometheus-kps-prometheus-0",
+        "service": "kps-prometheus"
+      },
+      "scrapePool": "serviceMonitor/monitoring/kps-prometheus/0",
+      "scrapeUrl": "http://10.244.0.48:9090/metrics",
+      "lastError": "",
+      "lastScrape": "2026-11-16T22:09:01.41506401Z",
+      "lastScrapeDuration": 0.007143542,
+      "health": "up"
+    },
+    {
+      "labels": {
+        "container": "config-reloader",
+        "endpoint": "reloader-web",
+        "instance": "10.244.0.48:8080",
+        "job": "kps-prometheus",
+        "namespace": "monitoring",
+        "pod": "prometheus-kps-prometheus-0",
+        "service": "kps-prometheus"
+      },
+      "scrapePool": "serviceMonitor/monitoring/kps-prometheus/1",
+      "scrapeUrl": "http://10.244.0.48:8080/metrics",
+      "lastError": "",
+      "lastScrape": "2026-11-16T22:09:00.807148093Z",
+      "lastScrapeDuration": 0.007176833,
+      "health": "up"
+    },
+    {
+      "labels": {
+        "container": "kube-state-metrics",
+        "endpoint": "http",
+        "instance": "10.244.0.36:8080",
+        "job": "kube-state-metrics",
+        "namespace": "monitoring",
+        "pod": "kube-state-metrics-785764d86f-jqxtl",
+        "service": "kube-state-metrics"
+      },
+      "scrapePool": "serviceMonitor/monitoring/kube-state-metrics/0",
+      "scrapeUrl": "http://10.244.0.36:8080/metrics",
+      "lastError": "",
+      "lastScrape": "2026-11-16T22:08:56.298017049Z",
+      "lastScrapeDuration": 0.019492125,
+      "health": "up"
+    }
+  ]
+}

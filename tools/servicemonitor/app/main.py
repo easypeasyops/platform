@@ -23,7 +23,7 @@ from fastapi.templating import Jinja2Templates
 from prometheus_client import Counter, Histogram, start_http_server
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from app import monitors, pages
+from app import monitors, pages, status
 
 REQUESTS = Counter("http_requests_total", "Requests served", ["method", "route", "status"])
 # The default buckets; an SLO's latency threshold must be one of their edges
@@ -48,13 +48,26 @@ async def monitors_tab(
 ) -> HTMLResponse:
     """`q` filters by app, namespace or monitor name; `show` is all, problems, apps or
     platform. Both are in the URL, so a filtered page can be shared."""
-    view = pages.view(await monitors.read(), request.url.path, q, show, app, datetime.now(UTC))
+    view = pages.view(
+        await monitors.read(),
+        await status.read(),
+        request.url.path,
+        q,
+        show,
+        app,
+        datetime.now(UTC),
+    )
     return templates.TemplateResponse(request, "monitors.html", view)
 
 
 @api.get("/api/monitors")
 async def api_monitors() -> dict[str, Any]:
     return await monitors.read()
+
+
+@api.get("/api/status")
+async def api_status() -> dict[str, Any]:
+    return await status.read()
 
 
 @api.get("/healthz", response_class=PlainTextResponse)
