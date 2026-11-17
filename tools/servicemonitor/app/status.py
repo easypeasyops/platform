@@ -132,10 +132,12 @@ def _slo(
         reason = "no SLO"
         apps = {labels.get(ns, {}).get(monitors.APP_LABEL) for ns in covers} - {None}
         for budget in budgets:
-            # Another environment of the same app has a budget: the rules ship there.
+            # Another environment of the same app has a budget, so its rules exist, and they
+            # cover every environment (cluster-wide, by namespace: docs/DESIGN.md, SLO rules):
+            # this one just has no requests to count.
             other = labels.get(budget["namespace"], {})
             if other.get(monitors.APP_LABEL) in apps and ENV_LABEL in other:
-                reason = f"SLO rules ship in {other[ENV_LABEL]} only"
+                reason = "no requests in the SLO's window"
                 break
     return {"budgets": mine, "lowest": _lowest(mine), "reason": reason}
 

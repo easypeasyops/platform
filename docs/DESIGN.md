@@ -167,6 +167,15 @@ is 3 days). The retention stays at 10 days (PT-27: 30 days of today's series are
 39 GB on the laptop, by how long it is awake), so the dashboard says what it shows instead:
 "Budget looks back" is the days of data there are, beside the budgets.
 
+The rules are one set per app, for all its environments: every rule selects by the app's
+`job` and aggregates `by (namespace)`, and only the one `clusterWide` release (prod, or a
+tool's single environment) ships them, so staging and prod get separate budgets and burn
+alerts from one copy of the rules (PT-61, Emrah, 2026-11-16). Two copies would record every
+series twice. Alertmanager routes each environment's alerts by `namespace`: staging's go to
+its own channel and never notify anyone (deploy/kind/monitoring-values.yaml). So an
+environment without an SLO series has had no requests in the window; it doesn't mean it has
+no rules.
+
 ### Canary releases
 
 Probes and a rolling update only stop a release whose pods never become ready. A release

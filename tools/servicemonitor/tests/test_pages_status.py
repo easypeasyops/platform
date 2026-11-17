@@ -111,7 +111,7 @@ def test_without_a_budget_the_cell_says_why(cluster: Cluster) -> None:
     ]
     text = page()
     assert '<span class="note">no SLO</span>' in row(text, "ServiceMonitor/argocd/kyverno")
-    assert '<span class="note">SLO rules ship in prod only</span>' in row(
+    assert '<span class="note">no requests in the SLO\'s window</span>' in row(
         text, "ServiceMonitor/aipostit-staging/aipostit"
     )
     assert '<span class="note">no requests in the SLO\'s window</span>' in row(

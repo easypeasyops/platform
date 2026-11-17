@@ -253,7 +253,8 @@ def test_without_an_slo_the_reason(cluster: Cluster) -> None:
     assert monitor(read(), "aipostit-staging", "aipostit")["slo"] == {
         "budgets": [],
         "lowest": None,
-        "reason": "SLO rules ship in prod only",
+        # Prod's rules cover staging too: without a series it has had no requests.
+        "reason": "no requests in the SLO's window",
     }
 
 
