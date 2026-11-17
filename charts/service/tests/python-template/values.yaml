@@ -1,0 +1,41 @@
+# python-template's values for the platform's service chart (easypeasyops/platform
+# charts/service), shared by every environment. Argo CD renders the app from that chart,
+# pinned by digest in the platform's apps/python-template/envs/<env>.yaml, with these values
+# from this repo, layered as
+#   deploy/service/values.yaml             this file
+#   deploy/service/slo-rules.values.yaml   prod only: the SLO rules (generated)
+#   deploy/envs/<env>.yaml                 the environment's settings and image digest
+# CI renders every environment with the chart and validates the result (ci.yml, deploy).
+# The chart's own values.yaml documents everything an app can set: a database, Redis,
+# workers, cron jobs, secret env, canary releases.
+
+app:
+  name: python-template
+
+image:
+  # ghcr.io/easypeasyops/<repo>/<app>: the admission policy reads the repo and the app from
+  # this name. Each environment names its release's digest (deploy/envs/).
+  repository: ghcr.io/easypeasyops/app-template/python-template
+
+# Start small and fixed; size from a load test before turning the chart's autoscaling on.
+autoscaling:
+  enabled: false
+replicaCount: 1
+resources:
+  requests: { cpu: 10m, memory: 64Mi }
+  limits: { memory: 128Mi }
+
+# The app's environment. Keys that can't be in git come from the app's store in the
+# platform (the chart's `secretEnv`).
+env:
+  - { name: METRICS_PORT, value: "{{ .Values.config.metricsPort }}" }
+
+gateway:
+  enabled: true
+  hostnames: [] # each environment's (deploy/envs/)
+
+monitoring:
+  enabled: true # Prometheus scrapes /metrics on 9100
+  # The platform's SLO dashboard comes with the SLO rules; its Runbook link.
+  sloDashboard:
+    runbookUrl: https://github.com/easypeasyops/app-template/blob/main/README.md#slo-burn-rate-alerts
