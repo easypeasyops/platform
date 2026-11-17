@@ -58,7 +58,8 @@ spec:
             tcpSocket: { port: s3 }
             periodSeconds: 3
           resources:
-            requests: { cpu: 50m, memory: 128Mi }
+            # Peak 8m on the laptop (5-minute rate, a day of use, 2026-11-17; PT-71).
+            requests: { cpu: 15m, memory: 128Mi }
             limits: { memory: 512Mi }
           volumeMounts:
             - { name: data, mountPath: /data }

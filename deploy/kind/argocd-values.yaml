@@ -119,7 +119,8 @@ controller:
 server:
   replicas: 1
   resources:
-    requests: { cpu: 25m, memory: 64Mi }
+    # Peak 9m on the laptop (5-minute rate, a day of use, 2026-11-17; PT-71).
+    requests: { cpu: 15m, memory: 64Mi }
     limits: { memory: 256Mi }
 repoServer:
   replicas: 1
