@@ -6,6 +6,9 @@
       "apiVersion": "monitoring.coreos.com/v1",
       "kind": "Probe",
       "metadata": {
+        "annotations": {
+          "argocd.argoproj.io/tracking-id": "platform:monitoring.coreos.com/Probe:argocd/front-door-aipostit-localhost"
+        },
         "name": "front-door-aipostit-localhost",
         "namespace": "argocd"
       },
@@ -34,6 +37,9 @@
       "apiVersion": "monitoring.coreos.com/v1",
       "kind": "Probe",
       "metadata": {
+        "annotations": {
+          "argocd.argoproj.io/tracking-id": "platform:monitoring.coreos.com/Probe:argocd/front-door-grafana-localhost"
+        },
         "name": "front-door-grafana-localhost",
         "namespace": "argocd"
       },

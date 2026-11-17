@@ -1,6 +1,6 @@
 """The read model behind `/api/monitors`: every ServiceMonitor, PodMonitor and Probe (the
 Kubernetes API) joined with the targets Prometheus scrapes for it (`/api/v1/targets`),
-grouped by the monitor's namespace, with the namespace's owner.
+grouped by the monitor's namespace, with the namespace's owner and, for an app's, the app.
 
 The join key is each target's `scrapePool`, which the Prometheus operator names after the
 monitor: `serviceMonitor/<namespace>/<name>/<endpoint index>`, `podMonitor/...` the same,
@@ -31,6 +31,8 @@ PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", "http://kps-prometheus.monitor
 SERVICE_ACCOUNT = Path("/var/run/secrets/kubernetes.io/serviceaccount")
 # The platform's ApplicationSet puts it on every app namespace; one without it is platform.
 APP_LABEL = "easypeasyops.github.io/app"
+# Argo CD's, on everything it deploys: `<Application>:<group>/<kind>:<namespace>/<name>`.
+TRACKING = "argocd.argoproj.io/tracking-id"
 KINDS = {"ServiceMonitor": "servicemonitors", "PodMonitor": "podmonitors", "Probe": "probes"}
 TTL = 15.0  # seconds: a page load doesn't hit both APIs every time
 
@@ -40,8 +42,26 @@ _last_good: dict[str, tuple[str, Any]] = {}  # source -> (when it answered, what
 _cache: tuple[float, dict[str, Any]] | None = None
 
 
+def _detail(item: dict[str, Any]) -> dict[str, Any]:
+    """What a monitor's own object says: what it selects and where, how often it scrapes,
+    and the Argo CD Application it came from."""
+    spec, metadata = item["spec"], item["metadata"]
+    where = spec.get("namespaceSelector", {})
+    endpoints = spec.get("endpoints") or spec.get("podMetricsEndpoints") or [spec]  # a Probe
+    return {
+        "selector": spec.get("selector"),  # None: a Probe, which names its targets
+        # None: every namespace, or a Probe (the prober's pods aren't the monitor's).
+        "namespaces": None
+        if where.get("any") or "selector" not in spec
+        else where.get("matchNames") or [metadata["namespace"]],
+        # Empty: Prometheus's own default interval.
+        "intervals": sorted({e["interval"] for e in endpoints if "interval" in e}),
+        "application": metadata.get("annotations", {}).get(TRACKING, "").split(":")[0] or None,
+    }
+
+
 async def _kubernetes() -> dict[str, Any]:
-    """Each namespace's owner, and every monitor as (kind, namespace, name)."""
+    """Each namespace's owner and app, and every monitor as (namespace, name, kind, detail)."""
     headers = {}
     verify: ssl.SSLContext | bool = True
     if SERVICE_ACCOUNT.exists():
@@ -61,8 +81,13 @@ async def _kubernetes() -> dict[str, Any]:
             else "platform"
             for ns in namespaces
         },
+        "apps": {
+            ns["metadata"]["name"]: ns["metadata"].get("labels", {}).get(APP_LABEL)
+            for ns in namespaces
+        },
         "monitors": sorted(
-            (item["metadata"]["namespace"], item["metadata"]["name"], kind)
+            # Sorted by the first three, which are unique: the detail is never compared.
+            (item["metadata"]["namespace"], item["metadata"]["name"], kind, _detail(item))
             for kind, items in zip(KINDS, monitors, strict=True)
             for item in items
         ),
@@ -87,6 +112,7 @@ def _join(
             {
                 "scrape_pool": target["scrapePool"],
                 "endpoint": target["scrapeUrl"],
+                "job": target["labels"]["job"],
                 "health": target["health"],
                 "last_scrape": target["lastScrape"],
                 "duration_seconds": target["lastScrapeDuration"],
@@ -96,17 +122,18 @@ def _join(
     if kubernetes is None:
         return {"namespaces": None, "unclaimed": None}
     namespaces: dict[str, dict[str, Any]] = {}
-    for namespace, name, kind in kubernetes["monitors"]:
+    for namespace, name, kind, detail in kubernetes["monitors"]:
         claimed = by_monitor.pop(f"{kind[0].lower()}{kind[1:]}/{namespace}/{name}", [])
         namespaces.setdefault(
             namespace,
             {
                 "name": namespace,
                 "owner": kubernetes["owners"].get(namespace, "platform"),
+                "app": kubernetes["apps"].get(namespace),
                 "monitors": [],
             },
         )["monitors"].append(
-            {"kind": kind, "name": name, "targets": None if targets is None else claimed}
+            {"kind": kind, "name": name, **detail, "targets": None if targets is None else claimed}
         )
     return {
         "namespaces": list(namespaces.values()),

@@ -2,8 +2,10 @@
 
 A page that shows, at a glance, whether Prometheus sees every app and platform tool on the
 cluster: every ServiceMonitor, PodMonitor and Probe, its scrape targets, alerts and SLO
-error budget (PT-51). For now it serves a placeholder page, and `/api/monitors`: every
-monitor joined with its scrape targets, as JSON.
+error budget (PT-51). For now it serves the Monitors tab (`/monitors`, rendered on the
+server from `app/templates/`; `?q=` and `?show=problems|apps|platform` filter it;
+`/apps/<app>` is a link to one app's monitors), and `/api/monitors`: every monitor joined
+with its scrape targets, as JSON.
 
 It lives in the platform repo, and is built, released, admitted and run like any other
 app: the image `ghcr.io/easypeasyops/platform/servicemonitor`, deployed with a released
@@ -29,6 +31,12 @@ KUBERNETES_URL=http://127.0.0.1:8001 \
 PROMETHEUS_URL=http://127.0.0.1:8001/api/v1/namespaces/monitoring/services/kps-prometheus:9090/proxy \
   uv run uvicorn app.main:app --port 8000
 ```
+
+The page links each monitor to Grafana (dashboards, and the logs in Explore), Prometheus's
+alerts and its Argo CD Application, at `GRAFANA_LINK_URL`, `PROMETHEUS_LINK_URL` and
+`ARGOCD_LINK_URL`: where a browser reaches them, by default the laptop's front door
+(`http://grafana.localhost:8090`, `http://prometheus.localhost:8090`,
+`http://argocd.localhost:8090`).
 
 ## Release and deploy
 

@@ -38,6 +38,13 @@ code=$(curl -s -o /dev/null -w '%{http_code}' -m 10 http://127.0.0.1:8000/readyz
 [[ "$code" == 200 ]] || fail "/readyz returned $code (want 200)"
 pass "/readyz 200"
 
+# The page renders from the templates in the image. Nothing here answers for the
+# Kubernetes API or Prometheus, so it says so instead of showing monitors.
+page=$(curl -s -m 30 -w '\n%{http_code}' http://127.0.0.1:8000/monitors)
+[[ "${page##*$'\n'}" == 200 ]] || fail "/monitors returned ${page##*$'\n'} (want 200)"
+grep -q 'has not answered yet' <<<"$page" || fail "/monitors is not the Monitors tab"
+pass "/monitors renders, with no source answering"
+
 # Metrics on their own port, with the probe counted by route.
 metrics=$(curl -s http://127.0.0.1:9100/metrics) # captured: grep -q would SIGPIPE curl
 grep -q 'http_requests_total{method="GET",route="/readyz",status="200"}' <<<"$metrics" \

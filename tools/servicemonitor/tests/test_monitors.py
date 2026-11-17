@@ -96,11 +96,24 @@ def test_every_monitor_with_its_targets_up() -> None:
     assert aipostit["targets"][0] == {
         "scrape_pool": "serviceMonitor/aipostit-prod/aipostit/0",
         "endpoint": "http://10.244.0.32:9100/metrics",
+        "job": "aipostit",
         "health": "up",
         "last_scrape": "2026-11-16T22:04:29.08962205Z",
         "duration_seconds": 0.007227333,
         "last_error": "",
     }
+    assert {k: v for k, v in aipostit.items() if k not in ("kind", "name", "targets")} == {
+        "selector": {
+            "matchLabels": {
+                "app.kubernetes.io/instance": "aipostit",
+                "app.kubernetes.io/name": "aipostit",
+            }
+        },
+        "namespaces": ["aipostit-prod"],
+        "intervals": ["15s"],
+        "application": "aipostit-prod",
+    }
+    assert [ns["app"] for ns in model["namespaces"]] == ["aipostit", None, None]
     assert model["unclaimed"] == []
     every = [t for ns in model["namespaces"] for m in ns["monitors"] for t in m["targets"]]
     assert len(every) == 10

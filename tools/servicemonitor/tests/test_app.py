@@ -11,11 +11,10 @@ def _count(route: str, status: str) -> float:
     return REGISTRY.get_sample_value("http_requests_total", labels) or 0.0
 
 
-def test_the_placeholder_page() -> None:
-    response = client.get("/")
-    assert response.status_code == 200
-    assert response.headers["content-type"].startswith("text/html")
-    assert "servicemonitor" in response.text
+def test_the_front_page_is_the_monitors_tab_for_now() -> None:
+    response = client.get("/", follow_redirects=False)
+    assert response.status_code == 307
+    assert response.headers["location"] == "/monitors"
 
 
 def test_the_probes_answer() -> None:
@@ -24,10 +23,10 @@ def test_the_probes_answer() -> None:
 
 
 def test_requests_are_counted_by_route_and_status() -> None:
-    before = _count("/", "200")
-    client.get("/")
-    assert _count("/", "200") == before + 1
-    labels = {"method": "GET", "route": "/"}
+    before = _count("/healthz", "200")
+    client.get("/healthz")
+    assert _count("/healthz", "200") == before + 1
+    labels = {"method": "GET", "route": "/healthz"}
     assert REGISTRY.get_sample_value("http_request_duration_seconds_count", labels)
 
 
