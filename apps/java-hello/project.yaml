@@ -1,0 +1,27 @@
+# java-hello's Argo CD project: what its Applications may deploy, and where. Least
+# privilege, as aipostit's: the platform's service chart, java-hello's repo (its values, in
+# easypeasyops/java-hello apps/java-hello/deploy/) and the platform's repo (the namespace's
+# baseline, deploy/app-namespace), its two namespaces, and one cluster-scoped thing: those
+# two namespaces themselves, which its Applications create (CreateNamespace in
+# apps/applicationset.yaml; Argo CD checks the namespace it creates against this project).
+
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: java-hello
+  namespace: argocd
+spec:
+  description: java-hello's environments (apps/java-hello/envs)
+  sourceRepos:
+    - oci://ghcr.io/easypeasyops/charts/service
+    - https://github.com/easypeasyops/java-hello.git
+    - https://github.com/easypeasyops/platform.git
+  destinations:
+    # One namespace per app and environment.
+    - { server: https://kubernetes.default.svc, namespace: java-hello-staging }
+    - { server: https://kubernetes.default.svc, namespace: java-hello-prod }
+  clusterResourceWhitelist: # by name: its own namespaces, no other
+    - { group: "", kind: Namespace, name: java-hello-staging }
+    - { group: "", kind: Namespace, name: java-hello-prod }
+  namespaceResourceWhitelist:
+    - { group: "*", kind: "*" }
