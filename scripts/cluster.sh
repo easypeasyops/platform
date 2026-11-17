@@ -60,6 +60,7 @@ up() {
     kind create cluster --config "$ROOT/deploy/kind/cluster.yaml" --wait 120s
   fi
   kubectl config use-context "kind-$CLUSTER" >/dev/null
+  trap startup_report EXIT # on success and on failure
   install_argocd
   platform
   take_over_from_helm
@@ -124,6 +125,67 @@ wait_synced() {
       -o jsonpath='{range .status.conditions[*]}{.type}={.status} {end}' 2>&1)" >&2
   done < <(kubectl -n argocd get application "$app" -o jsonpath='{range .status.resources[?(@.health.status!="Healthy")]}{.kind}.{.group}|{.namespace}|{.name}{"\n"}{end}' 2>/dev/null)
   return 1
+}
+
+# Where a start-up's time went, per pod: seconds from the pod's creation to scheduled,
+# initialized, its containers started and Ready, and the seconds its image pulls took
+# (kubelet's Pulled events; pulls overlap, so they don't add up to wall time). Slowest
+# first, then the node's CPU requests and use: on CI's 4-CPU node, a pod that waits for CPU
+# shows as a late "sched". Printed when `up` ends, failed or not; never fails it.
+startup_report() {
+  echo "== start-up, seconds after each pod's creation, pods of the last hour (slowest to Ready first)"
+  python3 - <<'EOF' || true
+import json, re, subprocess, time
+from datetime import datetime
+
+def get(*args):
+    return json.loads(subprocess.run(["kubectl", "get", *args, "-o", "json"], capture_output=True,
+                                     text=True, check=True).stdout)["items"]
+
+def ts(s):
+    return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
+
+def secs(d):  # kubelet's durations: 850ms, 3.2s, 1m2.5s
+    m = re.fullmatch(r"(?:(\d+)m(?!s))?([\d.]+)(ms|s)", d)
+    return 0.0 if not m else int(m[1] or 0) * 60 + float(m[2]) / (1000 if m[3] == "ms" else 1)
+
+pulls, size = {}, 0
+for e in get("events", "-A", "--field-selector", "reason=Pulled"):
+    m = re.search(r" in ([\dmsh.]+) .*Image size: (\d+) bytes", e.get("message", ""))
+    if m:
+        key = f"{e['involvedObject'].get('namespace')}/{e['involvedObject']['name']}"
+        pulls[key] = pulls.get(key, 0.0) + secs(m[1])
+        size += int(m[2])
+
+rows, cpu = [], 0
+for p in get("pods", "-A"):
+    if p["status"].get("phase") in ("Succeeded", "Failed"):
+        continue
+    for c in p["spec"]["containers"]:
+        r = c.get("resources", {}).get("requests", {}).get("cpu", "0")
+        cpu += int(r[:-1]) if r.endswith("m") else int(float(r) * 1000)
+    t0, cond = ts(p["metadata"]["creationTimestamp"]), {}
+    if time.time() - t0 > 3600:  # not from this start-up (the laptop's long-running pods)
+        continue
+    for c in p["status"].get("conditions", []):
+        if c["status"] == "True" and c.get("lastTransitionTime"):
+            cond[c["type"]] = ts(c["lastTransitionTime"]) - t0
+    started = [ts(s["state"]["running"]["startedAt"]) - t0
+               for s in p["status"].get("containerStatuses", []) if "running" in s.get("state", {})]
+    name = f"{p['metadata']['namespace']}/{p['metadata']['name']}"
+    rows.append((cond.get("Ready", 1e9), cond.get("PodScheduled"), cond.get("Initialized"),
+                 pulls.get(name), max(started) if started else None, name))
+
+f = lambda v: "    -" if v is None or v >= 1e9 else f"{v:5.0f}"
+print("  sched  init  pull  start  ready  pod")
+for ready, sched, init, pull, start, name in sorted(rows, key=lambda r: -r[0])[:15]:
+    print(f"  {f(sched)} {f(init)} {f(pull)}  {f(start)}  {f(ready)}  {name}")
+print(f"  {len(pulls)} pods pulled {size / 1e9:.1f} GB in {sum(pulls.values()):.0f} s of pulls")
+node = get("nodes")[0]["status"]["allocatable"]["cpu"]
+alloc = int(node[:-1]) if node.endswith("m") else int(node) * 1000
+print(f"== node: CPU requested {cpu}m of {alloc}m allocatable ({100 * cpu // alloc}%)")
+EOF
+  kubectl top node 2>/dev/null || echo "  (no kubectl top: metrics-server not serving yet)"
 }
 
 # Apply the platform's root Application and wait until every child is Synced and Healthy.
