@@ -1,0 +1,26 @@
+# servicemonitor's Argo CD project (tools/servicemonitor in this repo): the page that shows
+# every monitor in the cluster and its scrape targets (PT-51). Least privilege, as
+# deploybot's: the platform's service chart and this repo (its values and the namespace's
+# baseline), its one namespace, and the namespace itself. Unlike the other apps it may also
+# create one ClusterRole and its binding, by name: read access to monitoring objects
+# (rbac.clusterRead; scripts/check-apps.py CLUSTER_READ_APPS names it).
+
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: servicemonitor
+  namespace: argocd
+spec:
+  description: servicemonitor's environment (apps/servicemonitor/envs)
+  sourceRepos:
+    - oci://ghcr.io/easypeasyops/charts/service
+    - https://github.com/easypeasyops/platform.git
+  destinations:
+    # One environment: a tool for the cluster, not a stage of a product.
+    - { server: https://kubernetes.default.svc, namespace: servicemonitor-ops }
+  clusterResourceWhitelist: # by name: its own namespace and its read-only ClusterRole
+    - { group: "", kind: Namespace, name: servicemonitor-ops }
+    - { group: rbac.authorization.k8s.io, kind: ClusterRole, name: servicemonitor-ops-cluster-read }
+    - { group: rbac.authorization.k8s.io, kind: ClusterRoleBinding, name: servicemonitor-ops-cluster-read }
+  namespaceResourceWhitelist:
+    - { group: "*", kind: "*" }

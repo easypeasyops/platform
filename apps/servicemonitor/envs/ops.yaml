@@ -1,0 +1,16 @@
+# servicemonitor: the Application servicemonitor-ops, in namespace servicemonitor-ops.
+app: servicemonitor
+env: ops
+# The platform's service chart, pinned by digest (the version is for people). 1.6.0 has
+# gateway.sectionName (the tools listener) and rbac.clusterRead, which this tool uses.
+chart:
+  version: 1.6.0
+  digest: sha256:df51161143266cc5d10dc92148e1baae931d5c65adfa7a46ecba8e5ef866f8ff
+# servicemonitor's values, from this repo at this revision, layered in this order.
+values:
+  repoURL: https://github.com/easypeasyops/platform.git
+  revision: main
+  files:
+    - tools/servicemonitor/deploy/service/values.yaml
+    - tools/servicemonitor/deploy/service/slo-rules.values.yaml
+    - tools/servicemonitor/deploy/envs/ops.yaml

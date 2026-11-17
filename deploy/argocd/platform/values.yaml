@@ -35,6 +35,7 @@ frontDoorProbes:
   - { hostname: grafana.localhost, listener: tools, path: /api/health }
   - { hostname: prometheus.localhost, listener: tools, path: /-/healthy }
   - { hostname: alertmanager.localhost, listener: tools, path: /-/healthy }
+  - { hostname: servicemonitor.localhost, listener: tools, path: /healthz } # servicemonitor-ops
 
 # Helm charts, pulled by Argo CD from their OCI registries by DIGEST: the tag says what it
 # is, the digest that it can't change. tests/test_platform.py (integration) checks each
