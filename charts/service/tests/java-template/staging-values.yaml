@@ -1,0 +1,8 @@
+# Staging, namespace java-template-staging: the same chart and image digest prod will get.
+# Argo CD deploys whatever is here on main, so changing the digest in a merged PR IS the
+# deploy. The digest is in the release's notes.
+environment: staging
+image:
+  digest: "" # no release deployed yet
+gateway:
+  hostnames: ["staging.java-template.localhost"]

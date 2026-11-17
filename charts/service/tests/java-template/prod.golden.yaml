@@ -1,0 +1,1072 @@
+---
+# Source: service/templates/networkpolicy.yaml
+# Least privilege on the network, for the app pods and the migration Job (both carry the
+# selector labels). Once a pod is selected, everything not listed here is denied:
+#   in:  the app port from httpFrom (anyone by default), the metrics port from Prometheus
+#   out: DNS, and the database. Nothing else: the app calls no other service.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: java-template
+  labels:
+    app.kubernetes.io/name: java-template
+    app.kubernetes.io/instance: java-template
+    app.kubernetes.io/version: "000000000000"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: service-<version>
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: java-template
+      app.kubernetes.io/instance: java-template
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - ports:
+        - { port: 8000, protocol: TCP }
+    - ports:
+        - { port: 9100, protocol: TCP }
+      from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }
+      ports:
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - { port: 5432, protocol: TCP }
+
+---
+# Source: service/templates/pdb.yaml
+# Voluntary disruptions (node drains, cluster upgrades) may evict pods only while at least
+# minAvailable stay up. Skipped for a single replica, where it would block every drain.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: java-template
+  labels:
+    app.kubernetes.io/name: java-template
+    app.kubernetes.io/instance: java-template
+    app.kubernetes.io/version: "000000000000"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: service-<version>
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: java-template
+      app.kubernetes.io/instance: java-template
+
+---
+# Source: service/templates/dashboards.yaml
+# Grafana's sidecar loads every ConfigMap labelled grafana_dashboard=1, in any namespace.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: java-template-dashboards
+  labels:
+    app.kubernetes.io/name: java-template
+    app.kubernetes.io/instance: java-template
+    app.kubernetes.io/version: "000000000000"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: service-<version>
+    grafana_dashboard: "1"
+data:
+  slo.json: |
+    {
+      "uid": "java-template-slo",
+      "title": "java-template / SLOs",
+      "tags": [
+        "java-template",
+        "slo"
+      ],
+      "timezone": "browser",
+      "description": "Error budgets, burn rates and their likely causes. Generated rules: the java-template-slo PrometheusRule (the platform's scripts/gen_slo_rules.py).",
+      "schemaVersion": 39,
+      "version": 1,
+      "editable": true,
+      "refresh": "30s",
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      },
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "type": "datasource",
+            "query": "prometheus",
+            "label": "Data source",
+            "current": {}
+          },
+          {
+            "name": "namespace",
+            "type": "query",
+            "label": "Environment",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "query": {
+              "query": "label_values(slo:sli_error:ratio_rate5m, namespace)",
+              "refId": "ns"
+            },
+            "definition": "label_values(slo:sli_error:ratio_rate5m, namespace)",
+            "refresh": 2,
+            "current": {
+              "text": "java-template-prod",
+              "value": "java-template-prod"
+            }
+          }
+        ]
+      },
+      "annotations": {
+        "list": [
+          {
+            "name": "Deploys",
+            "enable": true,
+            "iconColor": "blue",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "expr": "label_replace(label_replace(({__name__=~\"argocd_application_synced_revisions?_info\",job=\"kube-state-metrics\",name=\"$namespace\"} unless present_over_time({__name__=~\"argocd_application_synced_revisions?_info\",job=\"kube-state-metrics\",name=\"$namespace\"}[5m] offset 2m)) and on (name) present_over_time({__name__=~\"argocd_application_synced_revisions?_info\",job=\"kube-state-metrics\",name=\"$namespace\"}[5m] offset 2m), \"revision\", \"$1\", \"revision\", \"([0-9a-f]{7})[0-9a-f]{33}\"), \"revision\", \"sha256:$1\", \"revision\", \"sha256:([0-9a-f]{12})[0-9a-f]{52}\")",
+            "step": "60s",
+            "titleFormat": "{{name}} synced",
+            "textFormat": "{{revision}}",
+            "tagKeys": "project"
+          }
+        ]
+      },
+      "links": [
+        {
+          "title": "Runbook",
+          "type": "link",
+          "url": "https://github.com/easypeasyops/app-template/blob/main/README.md#slo-burn-rate-alerts",
+          "targetBlank": true
+        }
+      ],
+      "panels": [
+        {
+          "id": 100,
+          "type": "row",
+          "title": "Error budgets (30 days, or as far back as Prometheus keeps)",
+          "gridPos": {
+            "x": 0,
+            "y": 0,
+            "w": 24,
+            "h": 1
+          },
+          "collapsed": false,
+          "panels": []
+        },
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Error budget remaining",
+          "description": "Share of each SLO's error budget still unspent. 100% = untouched; below 0 = overspent (freeze features, fix reliability). The budget is for 30 days, counted over the days Prometheus has (\"Budget looks back\"): with fewer than 30, an older incident no longer counts against it. How many requests it is made of: \"Requests in the budget\".",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 1,
+            "w": 13,
+            "h": 5
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "slo:error_budget_remaining:ratio{namespace=\"$namespace\"}",
+              "legendFormat": "{{slo}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 0.25
+                  },
+                  {
+                    "color": "green",
+                    "value": 0.5
+                  }
+                ]
+              },
+              "min": -1,
+              "max": 1,
+              "unit": "percentunit"
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "orientation": "horizontal"
+          }
+        },
+        {
+          "id": 11,
+          "type": "stat",
+          "title": "Requests in the budget",
+          "description": "How many valid requests each budget is counted from, over the days Prometheus has (\"Budget looks back\"), and how many of them were bad. On low traffic a few bad requests overspend a budget: 4 slow requests out of 25 are 16%, sixteen times the 1% a 0.99 objective allows, and the budget reads -1500%. No burn-rate alert fires on fewer than 5 bad events in its window.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "x": 13,
+            "y": 1,
+            "w": 6,
+            "h": 5
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "round(slo:sli_events:increase30d{namespace=\"$namespace\"})",
+              "legendFormat": "{{slo}} valid"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "round(slo:sli_error:ratio_rate30d{namespace=\"$namespace\"} * slo:sli_events:increase30d{namespace=\"$namespace\"})",
+              "legendFormat": "{{slo}} bad"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "decimals": 0,
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "none",
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "orientation": "horizontal"
+          }
+        },
+        {
+          "id": 10,
+          "type": "stat",
+          "title": "Budget looks back",
+          "description": "Days of data Prometheus has, 30 at most: the window the budgets on the left are really counted over. Under 30, Prometheus keeps less than the SLO window (its retention, a size cap or a new volume), and an incident older than this shows as budget restored.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "x": 19,
+            "y": 1,
+            "w": 5,
+            "h": 5
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "clamp_max((time() - min(prometheus_tsdb_lowest_timestamp) / 1000) / 86400, 30)",
+              "legendFormat": "days"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "orange",
+                    "value": null
+                  },
+                  {
+                    "color": "green",
+                    "value": 30
+                  }
+                ]
+              },
+              "decimals": 1,
+              "unit": "d"
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "value"
+          }
+        },
+        {
+          "id": 2,
+          "type": "timeseries",
+          "title": "Burn rate (1h)",
+          "description": "How fast each budget is being spent. 1 = on pace to use exactly the 30-day budget. Pages need 14.4 (over 1h and 5m) or 6 (over 6h and 30m).",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 6,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "slo:sli_error:ratio_rate1h{namespace=\"$namespace\"} / on(slo) group_left () (1 - slo:objective:ratio)",
+              "legendFormat": "{{slo}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "thresholdsStyle": {
+                  "mode": "line+area"
+                }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 6
+                  },
+                  {
+                    "color": "red",
+                    "value": 14.4
+                  }
+                ]
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {}
+        },
+        {
+          "id": 3,
+          "type": "timeseries",
+          "title": "Error ratio (5m) vs budget",
+          "description": "Share of bad events right now, next to the share each SLO allows (dashed). Above its budget line, that SLO is burning.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 6,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "slo:sli_error:ratio_rate5m{namespace=\"$namespace\"}",
+              "legendFormat": "{{slo}} errors"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "1 - slo:objective:ratio",
+              "legendFormat": "{{slo}} budget"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "min": 0
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": ".* budget"
+                },
+                "properties": [
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        10,
+                        10
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {}
+        },
+        {
+          "id": 101,
+          "type": "row",
+          "title": "Traffic and causes",
+          "gridPos": {
+            "x": 0,
+            "y": 14,
+            "w": 24,
+            "h": 1
+          },
+          "collapsed": false,
+          "panels": []
+        },
+        {
+          "id": 4,
+          "type": "timeseries",
+          "title": "Requests by status",
+          "description": "User-facing requests per second (probes and scrapes excluded). 404 and 410 are good answers; 5xx burn the availability SLOs.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 15,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "sum by (status) (rate(http_requests_total{namespace=\"$namespace\", route!~\"/healthz|/readyz|/metrics\"}[$__rate_interval]))",
+              "legendFormat": "{{status}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          },
+          "options": {}
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "p99 latency by route",
+          "description": "The latency SLOs: redirects under 50 ms, creates under 100 ms, for 99% of requests.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 15,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "histogram_quantile(0.99, sum by (le, route) (rate(http_request_duration_seconds_bucket{namespace=\"$namespace\", route!~\"/healthz|/readyz|/metrics\"}[$__rate_interval])))",
+              "legendFormat": "{{route}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "thresholdsStyle": {
+                  "mode": "line"
+                }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.05
+                  }
+                ]
+              },
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "options": {}
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "Pods",
+          "description": "Available pods against the autoscaler's ceiling. Pinned at max with burn rising: raise maxReplicas (Capacity in the design doc).",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 23,
+            "w": 24,
+            "h": 7
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "sum(kube_replicaset_status_ready_replicas{namespace=\"$namespace\", replicaset=~\"java-template-[a-z0-9]+\"})",
+              "legendFormat": "available"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "kube_horizontalpodautoscaler_spec_max_replicas{namespace=\"$namespace\", horizontalpodautoscaler=\"java-template\"}",
+              "legendFormat": "HPA max"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "min": 0,
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {}
+        },
+        {
+          "id": 9,
+          "type": "table",
+          "title": "Firing alerts",
+          "description": "Alerts Prometheus is firing for this namespace. Routing, grouping and silences live in Alertmanager.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 30,
+            "w": 24,
+            "h": 6
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "ALERTS{alertstate=\"firing\", namespace=\"$namespace\"}",
+              "format": "table",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {},
+            "overrides": []
+          },
+          "options": {},
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "Value": true,
+                  "__name__": true,
+                  "alertstate": true,
+                  "job": true,
+                  "instance": true,
+                  "endpoint": true,
+                  "service": true,
+                  "pod": true,
+                  "container": true,
+                  "prometheus": true
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+
+---
+# Source: service/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: java-template
+  labels:
+    app.kubernetes.io/name: java-template
+    app.kubernetes.io/instance: java-template
+    app.kubernetes.io/version: "000000000000"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: service-<version>
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: java-template
+    app.kubernetes.io/instance: java-template
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+    - name: metrics # for Prometheus only; the NetworkPolicy admits nobody else
+      port: 9100
+      targetPort: metrics
+
+---
+# Source: service/templates/deployment.yaml
+# Staging and other non-canary environments. With canary.enabled the Rollout
+# (rollout.yaml) owns these pods instead.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: java-template
+  labels:
+    app.kubernetes.io/name: java-template
+    app.kubernetes.io/instance: java-template
+    app.kubernetes.io/version: "000000000000"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: service-<version>
+spec:
+  replicas: 2
+  # With autoscaling on, `replicas` is left out ON PURPOSE: the HPA owns it, and a value
+  # here would reset the live count on every `helm upgrade` (mid-spike, too).
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0 # never drop below desired capacity during a rollout
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: java-template
+      app.kubernetes.io/instance: java-template
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: java-template
+        app.kubernetes.io/instance: java-template
+        app.kubernetes.io/version: "000000000000"
+        app.kubernetes.io/part-of: java-template
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9100"
+        prometheus.io/path: /metrics
+    spec:
+      automountServiceAccountToken: false # the app never talks to the Kubernetes API
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      # Spread replicas across nodes so one node failure isn't an outage.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: java-template
+              app.kubernetes.io/instance: java-template
+      containers:
+        - name: app
+          image: ghcr.io/easypeasyops/app-template/java-template@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+            - name: metrics
+              containerPort: 9100
+          env:
+            - name: METRICS_PORT
+              value: "9100"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # startupProbe gates the other two, so a slow start isn't killed by liveness.
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 2
+            failureThreshold: 30
+          # Both probes are answered on the event loop, outside the request threadpool, so
+          # an overloaded pod is still "alive" and still reports its DB reachability. 2 s
+          # of timeout (default 1 s) absorbs CPU contention without hiding a wedged process.
+          livenessProbe: # "restart me if wedged" — never checks the DB (see api.py)
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          readinessProbe: # "send me traffic?" — DB down ⇒ out of rotation, not restarted
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 2
+          lifecycle:
+            preStop:
+              # Kubernetes sends SIGTERM and removes the pod from endpoints *concurrently*.
+              # Sleeping first lets routers stop sending traffic before uvicorn drains.
+              sleep:
+                seconds: 5
+          resources:
+            limits:
+              memory: 384Mi
+            requests:
+              cpu: 50m
+              memory: 256Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp # read-only root FS; give Python a writable /tmp
+          emptyDir:
+            sizeLimit: 16Mi
+
+---
+# Source: service/templates/httproute.yaml
+# Users reach the app through the cluster's Gateway (Gateway API), by hostname. In prod,
+# Argo Rollouts shifts this route's weights between the stable and canary Services during
+# a canary release.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: java-template
+  labels:
+    app.kubernetes.io/name: java-template
+    app.kubernetes.io/instance: java-template
+    app.kubernetes.io/version: "000000000000"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: service-<version>
+spec:
+  parentRefs:
+    - name: front-door
+      namespace: gateway
+  hostnames:
+    - java-template.localhost
+  rules:
+    - backendRefs:
+        - name: java-template
+          port: 80
+
+---
+# Source: service/templates/prometheusrule.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: java-template-slo
+  labels:
+    app.kubernetes.io/name: java-template
+    app.kubernetes.io/instance: java-template
+    app.kubernetes.io/version: "000000000000"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: service-<version>
+spec:
+  # GENERATED by scripts/gen_slo_rules.py from deploy/prometheus/slos.yaml. Do not edit:
+  # change the spec and re-run the script (a test fails if this file is stale).
+  groups:
+  - name: slo-java-template-availability
+    rules:
+    - record: slo:objective:ratio
+      expr: '0.995'
+      labels:
+        slo: java-template-availability
+    - record: slo:sli_error:ratio_rate5m
+      expr: (sum by (namespace) (rate(http_requests_total{job="java-template", route!~"/healthz|/readyz|unmatched", status=~"5.."}[5m])) or 0 * sum by (namespace) (rate(http_requests_total{job="java-template",
+        route!~"/healthz|/readyz|unmatched"}[5m]))) / sum by (namespace) (rate(http_requests_total{job="java-template", route!~"/healthz|/readyz|unmatched"}[5m]))
+      labels:
+        slo: java-template-availability
+    - record: slo:sli_error:ratio_rate30m
+      expr: (sum by (namespace) (rate(http_requests_total{job="java-template", route!~"/healthz|/readyz|unmatched", status=~"5.."}[30m])) or 0 * sum by (namespace) (rate(http_requests_total{job="java-template",
+        route!~"/healthz|/readyz|unmatched"}[30m]))) / sum by (namespace) (rate(http_requests_total{job="java-template", route!~"/healthz|/readyz|unmatched"}[30m]))
+      labels:
+        slo: java-template-availability
+    - record: slo:sli_error:ratio_rate1h
+      expr: (sum by (namespace) (rate(http_requests_total{job="java-template", route!~"/healthz|/readyz|unmatched", status=~"5.."}[1h])) or 0 * sum by (namespace) (rate(http_requests_total{job="java-template",
+        route!~"/healthz|/readyz|unmatched"}[1h]))) / sum by (namespace) (rate(http_requests_total{job="java-template", route!~"/healthz|/readyz|unmatched"}[1h]))
+      labels:
+        slo: java-template-availability
+    - record: slo:sli_error:ratio_rate2h
+      expr: (sum by (namespace) (rate(http_requests_total{job="java-template", route!~"/healthz|/readyz|unmatched", status=~"5.."}[2h])) or 0 * sum by (namespace) (rate(http_requests_total{job="java-template",
+        route!~"/healthz|/readyz|unmatched"}[2h]))) / sum by (namespace) (rate(http_requests_total{job="java-template", route!~"/healthz|/readyz|unmatched"}[2h]))
+      labels:
+        slo: java-template-availability
+    - record: slo:sli_error:ratio_rate6h
+      expr: (sum by (namespace) (rate(http_requests_total{job="java-template", route!~"/healthz|/readyz|unmatched", status=~"5.."}[6h])) or 0 * sum by (namespace) (rate(http_requests_total{job="java-template",
+        route!~"/healthz|/readyz|unmatched"}[6h]))) / sum by (namespace) (rate(http_requests_total{job="java-template", route!~"/healthz|/readyz|unmatched"}[6h]))
+      labels:
+        slo: java-template-availability
+    - record: slo:sli_error:ratio_rate1d
+      expr: (sum by (namespace) (rate(http_requests_total{job="java-template", route!~"/healthz|/readyz|unmatched", status=~"5.."}[1d])) or 0 * sum by (namespace) (rate(http_requests_total{job="java-template",
+        route!~"/healthz|/readyz|unmatched"}[1d]))) / sum by (namespace) (rate(http_requests_total{job="java-template", route!~"/healthz|/readyz|unmatched"}[1d]))
+      labels:
+        slo: java-template-availability
+    - record: slo:sli_error:ratio_rate3d
+      expr: (sum by (namespace) (rate(http_requests_total{job="java-template", route!~"/healthz|/readyz|unmatched", status=~"5.."}[3d])) or 0 * sum by (namespace) (rate(http_requests_total{job="java-template",
+        route!~"/healthz|/readyz|unmatched"}[3d]))) / sum by (namespace) (rate(http_requests_total{job="java-template", route!~"/healthz|/readyz|unmatched"}[3d]))
+      labels:
+        slo: java-template-availability
+    - record: slo:sli_error:ratio_rate30d
+      expr: (sum by (namespace) (rate(http_requests_total{job="java-template", route!~"/healthz|/readyz|unmatched", status=~"5.."}[30d])) or 0 * sum by (namespace) (rate(http_requests_total{job="java-template",
+        route!~"/healthz|/readyz|unmatched"}[30d]))) / sum by (namespace) (rate(http_requests_total{job="java-template", route!~"/healthz|/readyz|unmatched"}[30d]))
+      labels:
+        slo: java-template-availability
+    - record: slo:sli_events:increase1h
+      expr: sum by (namespace) (increase(http_requests_total{job="java-template", route!~"/healthz|/readyz|unmatched"}[1h]))
+      labels:
+        slo: java-template-availability
+    - record: slo:sli_events:increase6h
+      expr: sum by (namespace) (increase(http_requests_total{job="java-template", route!~"/healthz|/readyz|unmatched"}[6h]))
+      labels:
+        slo: java-template-availability
+    - record: slo:sli_events:increase1d
+      expr: sum by (namespace) (increase(http_requests_total{job="java-template", route!~"/healthz|/readyz|unmatched"}[1d]))
+      labels:
+        slo: java-template-availability
+    - record: slo:sli_events:increase3d
+      expr: sum by (namespace) (increase(http_requests_total{job="java-template", route!~"/healthz|/readyz|unmatched"}[3d]))
+      labels:
+        slo: java-template-availability
+    - record: slo:sli_events:increase30d
+      expr: sum by (namespace) (increase(http_requests_total{job="java-template", route!~"/healthz|/readyz|unmatched"}[30d]))
+      labels:
+        slo: java-template-availability
+    - record: slo:error_budget_remaining:ratio
+      expr: 1 - slo:sli_error:ratio_rate30d{slo="java-template-availability"} / 0.005
+      labels:
+        slo: java-template-availability
+    - alert: JavaTemplateAvailabilityBudgetBurn
+      expr: |-
+        (slo:sli_error:ratio_rate1h{slo="java-template-availability"} > 0.072 and slo:sli_error:ratio_rate5m{slo="java-template-availability"} > 0.072 and slo:sli_error:ratio_rate1h{slo="java-template-availability"} * slo:sli_events:increase1h{slo="java-template-availability"} >= 5)
+        or (slo:sli_error:ratio_rate6h{slo="java-template-availability"} > 0.03 and slo:sli_error:ratio_rate30m{slo="java-template-availability"} > 0.03 and slo:sli_error:ratio_rate6h{slo="java-template-availability"} * slo:sli_events:increase6h{slo="java-template-availability"} >= 5)
+      for: 2m
+      labels:
+        severity: page
+        slo: java-template-availability
+      annotations:
+        summary: 'java-template-availability: error budget burning fast (14.4x over 1h or 6x over 6h)'
+        description: 'The app answers without a server error: objective 0.995 over 30 days. At this pace the whole budget lasts only 2 to 5 days.'
+        runbook_url: https://github.com/easypeasyops/app-template/blob/main/README.md#slo-burn-rate-alerts
+    - alert: JavaTemplateAvailabilityBudgetBurn
+      expr: |-
+        (slo:sli_error:ratio_rate1d{slo="java-template-availability"} > 0.015 and slo:sli_error:ratio_rate2h{slo="java-template-availability"} > 0.015 and slo:sli_error:ratio_rate1d{slo="java-template-availability"} * slo:sli_events:increase1d{slo="java-template-availability"} >= 5)
+        or (slo:sli_error:ratio_rate3d{slo="java-template-availability"} > 0.005 and slo:sli_error:ratio_rate6h{slo="java-template-availability"} > 0.005 and slo:sli_error:ratio_rate3d{slo="java-template-availability"} * slo:sli_events:increase3d{slo="java-template-availability"} >= 5)
+      for: 15m
+      labels:
+        severity: ticket
+        slo: java-template-availability
+      annotations:
+        summary: 'java-template-availability: error budget burning steadily (3x over 1d or 1x over 3d)'
+        description: 'The app answers without a server error: objective 0.995 over 30 days. At this pace the whole budget lasts only 10 to 30 days.'
+        runbook_url: https://github.com/easypeasyops/app-template/blob/main/README.md#slo-burn-rate-alerts
+  - name: slo-java-template-latency
+    rules:
+    - record: slo:objective:ratio
+      expr: '0.99'
+      labels:
+        slo: java-template-latency
+    - record: slo:sli_error:ratio_rate5m
+      expr: 1 - (sum by (namespace) (rate(http_request_duration_seconds_bucket{job="java-template", route!~"/healthz|/readyz|unmatched", le="0.5"}[5m])) / sum by (namespace) (rate(http_request_duration_seconds_count{job="java-template",
+        route!~"/healthz|/readyz|unmatched"}[5m])))
+      labels:
+        slo: java-template-latency
+    - record: slo:sli_error:ratio_rate30m
+      expr: 1 - (sum by (namespace) (rate(http_request_duration_seconds_bucket{job="java-template", route!~"/healthz|/readyz|unmatched", le="0.5"}[30m])) / sum by (namespace) (rate(http_request_duration_seconds_count{job="java-template",
+        route!~"/healthz|/readyz|unmatched"}[30m])))
+      labels:
+        slo: java-template-latency
+    - record: slo:sli_error:ratio_rate1h
+      expr: 1 - (sum by (namespace) (rate(http_request_duration_seconds_bucket{job="java-template", route!~"/healthz|/readyz|unmatched", le="0.5"}[1h])) / sum by (namespace) (rate(http_request_duration_seconds_count{job="java-template",
+        route!~"/healthz|/readyz|unmatched"}[1h])))
+      labels:
+        slo: java-template-latency
+    - record: slo:sli_error:ratio_rate2h
+      expr: 1 - (sum by (namespace) (rate(http_request_duration_seconds_bucket{job="java-template", route!~"/healthz|/readyz|unmatched", le="0.5"}[2h])) / sum by (namespace) (rate(http_request_duration_seconds_count{job="java-template",
+        route!~"/healthz|/readyz|unmatched"}[2h])))
+      labels:
+        slo: java-template-latency
+    - record: slo:sli_error:ratio_rate6h
+      expr: 1 - (sum by (namespace) (rate(http_request_duration_seconds_bucket{job="java-template", route!~"/healthz|/readyz|unmatched", le="0.5"}[6h])) / sum by (namespace) (rate(http_request_duration_seconds_count{job="java-template",
+        route!~"/healthz|/readyz|unmatched"}[6h])))
+      labels:
+        slo: java-template-latency
+    - record: slo:sli_error:ratio_rate1d
+      expr: 1 - (sum by (namespace) (rate(http_request_duration_seconds_bucket{job="java-template", route!~"/healthz|/readyz|unmatched", le="0.5"}[1d])) / sum by (namespace) (rate(http_request_duration_seconds_count{job="java-template",
+        route!~"/healthz|/readyz|unmatched"}[1d])))
+      labels:
+        slo: java-template-latency
+    - record: slo:sli_error:ratio_rate3d
+      expr: 1 - (sum by (namespace) (rate(http_request_duration_seconds_bucket{job="java-template", route!~"/healthz|/readyz|unmatched", le="0.5"}[3d])) / sum by (namespace) (rate(http_request_duration_seconds_count{job="java-template",
+        route!~"/healthz|/readyz|unmatched"}[3d])))
+      labels:
+        slo: java-template-latency
+    - record: slo:sli_error:ratio_rate30d
+      expr: 1 - (sum by (namespace) (rate(http_request_duration_seconds_bucket{job="java-template", route!~"/healthz|/readyz|unmatched", le="0.5"}[30d])) / sum by (namespace) (rate(http_request_duration_seconds_count{job="java-template",
+        route!~"/healthz|/readyz|unmatched"}[30d])))
+      labels:
+        slo: java-template-latency
+    - record: slo:sli_events:increase1h
+      expr: sum by (namespace) (increase(http_request_duration_seconds_count{job="java-template", route!~"/healthz|/readyz|unmatched"}[1h]))
+      labels:
+        slo: java-template-latency
+    - record: slo:sli_events:increase6h
+      expr: sum by (namespace) (increase(http_request_duration_seconds_count{job="java-template", route!~"/healthz|/readyz|unmatched"}[6h]))
+      labels:
+        slo: java-template-latency
+    - record: slo:sli_events:increase1d
+      expr: sum by (namespace) (increase(http_request_duration_seconds_count{job="java-template", route!~"/healthz|/readyz|unmatched"}[1d]))
+      labels:
+        slo: java-template-latency
+    - record: slo:sli_events:increase3d
+      expr: sum by (namespace) (increase(http_request_duration_seconds_count{job="java-template", route!~"/healthz|/readyz|unmatched"}[3d]))
+      labels:
+        slo: java-template-latency
+    - record: slo:sli_events:increase30d
+      expr: sum by (namespace) (increase(http_request_duration_seconds_count{job="java-template", route!~"/healthz|/readyz|unmatched"}[30d]))
+      labels:
+        slo: java-template-latency
+    - record: slo:error_budget_remaining:ratio
+      expr: 1 - slo:sli_error:ratio_rate30d{slo="java-template-latency"} / 0.01
+      labels:
+        slo: java-template-latency
+    - alert: JavaTemplateLatencyBudgetBurn
+      expr: |-
+        (slo:sli_error:ratio_rate1h{slo="java-template-latency"} > 0.144 and slo:sli_error:ratio_rate5m{slo="java-template-latency"} > 0.144 and slo:sli_error:ratio_rate1h{slo="java-template-latency"} * slo:sli_events:increase1h{slo="java-template-latency"} >= 5)
+        or (slo:sli_error:ratio_rate6h{slo="java-template-latency"} > 0.06 and slo:sli_error:ratio_rate30m{slo="java-template-latency"} > 0.06 and slo:sli_error:ratio_rate6h{slo="java-template-latency"} * slo:sli_events:increase6h{slo="java-template-latency"} >= 5)
+      for: 2m
+      labels:
+        severity: page
+        slo: java-template-latency
+      annotations:
+        summary: 'java-template-latency: error budget burning fast (14.4x over 1h or 6x over 6h)'
+        description: 'The app answers in under 0.5 s: objective 0.99 over 30 days. At this pace the whole budget lasts only 2 to 5 days.'
+        runbook_url: https://github.com/easypeasyops/app-template/blob/main/README.md#slo-burn-rate-alerts
+    - alert: JavaTemplateLatencyBudgetBurn
+      expr: |-
+        (slo:sli_error:ratio_rate1d{slo="java-template-latency"} > 0.03 and slo:sli_error:ratio_rate2h{slo="java-template-latency"} > 0.03 and slo:sli_error:ratio_rate1d{slo="java-template-latency"} * slo:sli_events:increase1d{slo="java-template-latency"} >= 5)
+        or (slo:sli_error:ratio_rate3d{slo="java-template-latency"} > 0.01 and slo:sli_error:ratio_rate6h{slo="java-template-latency"} > 0.01 and slo:sli_error:ratio_rate3d{slo="java-template-latency"} * slo:sli_events:increase3d{slo="java-template-latency"} >= 5)
+      for: 15m
+      labels:
+        severity: ticket
+        slo: java-template-latency
+      annotations:
+        summary: 'java-template-latency: error budget burning steadily (3x over 1d or 1x over 3d)'
+        description: 'The app answers in under 0.5 s: objective 0.99 over 30 days. At this pace the whole budget lasts only 10 to 30 days.'
+        runbook_url: https://github.com/easypeasyops/app-template/blob/main/README.md#slo-burn-rate-alerts
+  
+
+---
+# Source: service/templates/servicemonitor.yaml
+# Prometheus finds the pods through the Service's endpoints and scrapes each one. The job
+# label becomes the Service name (the release name), which the alert rules select on.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: java-template
+  labels:
+    app.kubernetes.io/name: java-template
+    app.kubernetes.io/instance: java-template
+    app.kubernetes.io/version: "000000000000"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: service-<version>
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: java-template
+      app.kubernetes.io/instance: java-template
+  # Copied from each pod onto its series: tells a canary's metrics from the stable pods'
+  # (templates/analysistemplate.yaml). Pods without it (no Rollout) just don't get it.
+  podTargetLabels: [rollouts-pod-template-hash]
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 15s
