@@ -65,15 +65,19 @@ policies and `apps/` from `main` within a minute of a merge.
 
 ## Reusable workflows
 
-Two `workflow_call` workflows hold the checks every app's CI runs, so a fix to a check is
-made once. This repo's own tests run through the first, so it is exercised on every PR here.
+`workflow_call` workflows hold the checks every app's CI runs, so a fix to a check is made
+once: one check per language, and one image workflow for every language (the app contract is
+the image's behaviour, not its language). This repo's own tests run through the Python check,
+so it is exercised on every PR here; the Java check is exercised by app-template's
+`java-template`.
 
 | Workflow | Does | Inputs |
 | --- | --- | --- |
 | `reusable-python-check.yml` | `uv sync --locked` (fails on a stale lock), ruff format and lint, mypy, pytest with a coverage floor | `working-directory` (an app in a domain repo: `apps/<app>`), `coverage-min` (90), `typecheck-paths`, `helm-version`, `fetch-depth` |
+| `reusable-java-check.yml` | `./mvnw verify` on a pinned Temurin JDK, Maven dependencies cached. The project's build defines the checks (formatting, compile, tests) and enforces the coverage floor it is passed as `-Dcoverage.min` | `working-directory`, `java-version` (21), `coverage-min` (0.90) |
 | `reusable-image.yml` | Builds the image, scans it with Trivy (HIGH and CRITICAL with a fix available: failing on unfixable ones trains people to ignore the scanner), runs the app's smoke test against it | `context`, `smoke-command` (the image's tag is in `$IMAGE`) |
 
-Both take `run`: with `run: false` the job reports success without doing the work. A
+Each takes `run`: with `run: false` the job reports success without doing the work. A
 docs-only PR then passes its required checks in seconds; a workflow-level paths filter
 would leave them pending forever. The caller decides what counts as docs-only.
 
