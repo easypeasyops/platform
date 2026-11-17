@@ -4,7 +4,7 @@
 # merged PR IS the deploy. The digest is in the release's notes.
 environment: ops
 image:
-  digest: sha256:4904afcc7ada1b73e1436832c3798b24ef8c6bb25d76a982ab14be9b852c18ed # servicemonitor/v0.2.1
+  digest: sha256:8a1e044bdc8f3167af63e809d6fd8256ea1907a7cd39d67cdd6afe08547e71c9 # servicemonitor/v0.3.0
 gateway:
   # The tools listener (the laptop's port 8090), not the users': it admits this namespace
   # by name (the platform's deploy/kind/gateway.yaml).
