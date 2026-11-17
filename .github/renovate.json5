@@ -7,12 +7,16 @@
 // Upstream bumps never merge on their own: a chart bump reaches the cluster, prod included,
 // on merge, so a person reads the upstream release notes first. A chart's comment in
 // values.yaml names the app version it ships (e.g. "Argo Rollouts v1.10.0"); Renovate can't
-// see that, so update it in the bump PR.
+// see that, so update it in the bump PR. Their minor and patch updates come in one PR a
+// week, together.
+//
+// A major update, upstream or an app's pin, opens no PR until a person ticks it on the
+// Dependency Dashboard: it can break things, so someone decides when to take it on.
 //
 // The apps' service chart pins (apps/<app>/envs/<env>.yaml) move on their own, one PR per
-// env file. A new service/vX.Y.Z release opens a PR for every non-prod env (staging, ops)
-// that auto-merges once CI, check-apps.py included, is green; a major version waits for a
-// person, since an app must react to it. Prod follows the app's staging pin on main, so its
+// env file, never grouped, so staging and prod stay apart. A new service/vX.Y.Z release
+// opens a PR for every non-prod env (staging, ops) that auto-merges once CI, check-apps.py
+// included, is green; a major version waits for a person, since an app must react to it. Prod follows the app's staging pin on main, so its
 // PR opens only once staging runs that version, and it never auto-merges: Emrah merges it.
 {
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
@@ -83,6 +87,16 @@
     {
       matchFileNames: ["apps/*/envs/prod.yaml"],
       automerge: false,
+    },
+    {
+      // The upstream charts and the tool images: minor and patch updates in one PR.
+      matchFileNames: ["deploy/argocd/platform/values.yaml", ".github/workflows/ci.yml"],
+      matchUpdateTypes: ["minor", "patch"],
+      groupName: "upstream minor and patch",
+    },
+    {
+      matchUpdateTypes: ["major"],
+      dependencyDashboardApproval: true,
     },
     {
       // Envoy Gateway pushes every release under two tags (v1.9.2 and 1.9.2): stay on the v one.
