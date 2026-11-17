@@ -23,6 +23,10 @@ spec:
         revision: main
         files:
           - path: apps/*/envs/*.yaml
+        # Read the env files every 60 s, not the default 180 s: a merged env file becomes an
+        # Application within a minute, as Argo CD's own polling (timeout.reconciliation in
+        # deploy/kind/argocd-values.yaml) syncs one. No webhook: the laptop isn't reachable.
+        requeueAfterSeconds: 60
   syncPolicy:
     # Deleting this ApplicationSet (or an env file) removes the Application, never the app:
     # its resources are orphaned, as with the platform's own Applications.
