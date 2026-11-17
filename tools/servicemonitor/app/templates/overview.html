@@ -64,7 +64,7 @@
 <p class="radar-off">Platform Radar hidden: <span class="mono">docs/radar/scores.json</span> on main could not be read ({{ radar.error }}).</p>
 {% else %}{% set r = radar.radar %}
 <section class="panel" aria-labelledby="radar">
-<h2 id="radar" class="title radar-head"><span>Platform Radar · week of {{ r.week }} · commit {{ r.commit }}</span><a href="{{ r.link }}">Full radar ↗</a></h2>
+<h2 id="radar" class="title radar-head"><span>Platform Radar · scored {{ r.week }} · commit {{ r.commit }}</span><a href="{{ r.link }}">Full radar ↗</a></h2>
 <div class="radar">
 {# The same numbers as the list beside it, which is what a screen reader gets. #}
 <svg viewBox="0 0 400 260" width="400" height="260" aria-hidden="true" focusable="false">
@@ -77,9 +77,9 @@
 {% for label in r.labels %}<text x="{{ label.x }}" text-anchor="{{ label.anchor }}">{% for line in label.lines %}<tspan x="{{ label.x }}" y="{{ line.y }}">{{ line.text }}{% if loop.last %} <tspan class="v">{{ label.score }}</tspan>{% endif %}</tspan>{% endfor %}</text>
 {% endfor %}</svg>
 <div class="rscores">
-<p><b>{{ r.average }}</b> average of {{ r.count }} · target: every axis at 4 (dashed ring) · {% if r.before %}week of {{ r.before.week }}: {{ r.before.average }}{% if r.last %} (grey dashed shape){% endif %}{% else %}first week, nothing to compare yet{% endif %}</p>
+<p><b>{{ r.average }}</b> average of {{ r.count }} · target: every axis at 4 (dashed ring) · {% if r.before %}scored {{ r.before.week }}: {{ r.before.average }}{% if r.last %} (grey dashed shape){% endif %}{% else %}first scoring, nothing to compare yet{% endif %}</p>
 <ul class="raxes" aria-label="Scores out of 5, weakest first">
-{% for a in r.axes %}<li><span>{{ a.name }}</span><b>{{ a.score }}</b><span class="bar" aria-hidden="true"><span{% if a.below %} class="low"{% endif %} style="width: {{ a.width }}%"></span></span><span class="pill {{ 'warn' if a.below else 'ok' }}">{{ "below 4" if a.below else "at target" }}</span>{% if a.last %}<span class="sr">, the week before: {{ a.last }}</span>{% endif %}</li>
+{% for a in r.axes %}<li><span>{{ a.name }}</span><b>{{ a.score }}</b><span class="bar" aria-hidden="true"><span{% if a.below %} class="low"{% endif %} style="width: {{ a.width }}%"></span></span><span class="pill {{ 'warn' if a.below else 'ok' }}">{{ "below 4" if a.below else "at target" }}</span>{% if a.last %}<span class="sr">, the scoring before: {{ a.last }}</span>{% endif %}</li>
 {% endfor %}</ul>
 <span class="note">Re-scored every Monday from the repo, out of 5.</span>
 </div>
