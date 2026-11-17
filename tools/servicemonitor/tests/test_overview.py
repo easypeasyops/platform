@@ -73,7 +73,7 @@ def test_one_tile_per_namespace_apps_first_marked_by_its_worst_monitor() -> None
     assert list(tiles(text)) == ["aipostit-prod", "aipostit-staging", "argocd", "monitoring"]
     # The same shell as the Monitors tab: its summary line, and no notice.
     assert "<b>14 / 14</b> targets up" in text
-    assert '<b class="warn">3</b> alerts firing (1 on no monitor: <a href="' in text
+    assert '<b class="warn">2</b> alerts firing</span>' in text
     assert "has not answered" not in text
     assert "Showing" not in text  # the Monitors tab's count of filtered rows
 

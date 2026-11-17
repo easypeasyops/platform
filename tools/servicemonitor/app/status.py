@@ -9,7 +9,8 @@ can scrape pods in kyverno). The monitor that also scrapes the alert's `job` the
 match, the others as a "namespace" match. The job alone can't decide: an alert on a
 kube-state-metrics series carries kube-state-metrics's job with the namespace of the
 object it is about. An alert that reaches no monitor (no namespace, or one nothing is
-scraped in) is `unattached`; the summary counts it too.
+scraped in) is `unattached`; the summary counts it too. Watchdog is left out everywhere: it
+fires all the time by design (the dead man's switch), so it says nothing about the cluster.
 
 The budget is the series the platform's SLO dashboard shows, recorded by the rules that
 its `scripts/gen_slo_rules.py` generates (a test reads the name from the generator's
@@ -33,6 +34,9 @@ from app import monitors
 BUDGET = "slo:error_budget_remaining:ratio"  # 1 = untouched, below 0 = overspent
 # The platform's ApplicationSet puts it on every app namespace, next to monitors.APP_LABEL.
 ENV_LABEL = "easypeasyops.github.io/env"
+# Fires all the time by design, so Alertmanager's receiver can tell alerting is alive: never
+# a problem, so never counted or shown (history's alerts row leaves it out too).
+ALWAYS_FIRING = "Watchdog"
 
 _last_good: dict[str, tuple[str, Any]] = {}  # source -> (when it answered, what)
 _cache: tuple[float, dict[str, Any]] | None = None  # the sources' state, for monitors.TTL
@@ -60,6 +64,7 @@ async def _alerts() -> list[dict[str, Any]]:
         }
         for alert in (await _get("/api/v1/alerts"))["alerts"]
         if alert["state"] == "firing"  # not pending: nobody has been told yet
+        and alert["labels"]["alertname"] != ALWAYS_FIRING
     ]
 
 

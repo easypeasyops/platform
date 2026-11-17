@@ -42,9 +42,9 @@ def test_the_summary_line_has_the_alerts_firing_and_the_lowest_budget() -> None:
     text = page()
     assert "<b>9</b> monitors" in text
     assert "<b>14 / 14</b> targets up" in text
-    # Every firing alert is counted; the one on no monitor's row is named.
-    assert '<b class="warn">3</b> alerts firing (1 on no monitor: <a href="' in text
-    assert '<a href="http://prometheus.localhost:8090/alerts?search=Watchdog">Watchdog</a>)' in text
+    # Every firing alert is counted but Watchdog, which always fires: none is on no monitor.
+    assert '<b class="warn">2</b> alerts firing</span>' in text
+    assert "Watchdog" not in text
     assert (
         '<b class="down">-1501%</b> lowest error budget (aipostit-prod · aipostit-latency)' in text
     )
@@ -192,5 +192,5 @@ def test_a_query_that_went_down_keeps_its_last_answer_and_says_since_when(
     text = page()
     assert f'Prometheus\'s alerts API has not answered since <time datetime="{as_of}">' in text
     assert "the alerts below are what it said then." in text
-    assert '<b class="warn">3</b> alerts firing' in text
+    assert '<b class="warn">2</b> alerts firing' in text
     assert "query API" not in text
