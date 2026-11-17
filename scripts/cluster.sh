@@ -159,7 +159,11 @@ json.dump(app, sys.stdout)' \
   echo "platform: syncing deploy/argocd/platform at $revision ($arch) through Argo CD"
   # The root is Healthy once every wave is: Argo CD reports each child's health
   # (argocd-cm, deploy/kind/argocd-values.yaml) and syncs wave 1 only after wave 0.
-  wait_synced platform 600 || exit 1
+  # 15 minutes: on a fresh cluster Argo CD shows Envoy Gateway's CRDs OutOfSync, then not
+  # Established, for up to about 10 minutes after the API server has established them (its
+  # cached copy lags; argocd-values.yaml). When that tail falls inside this wait, 600 s
+  # wasn't enough (links #170, 2026-11-17; 555 s at the pin before).
+  wait_synced platform 900 || exit 1
   children=$(kubectl -n argocd get applications -l app.kubernetes.io/part-of=platform -o name)
   for app in $children; do wait_synced "${app#*/}" 300 || exit 1; done
   kubectl -n argocd get applications -l app.kubernetes.io/part-of=platform
