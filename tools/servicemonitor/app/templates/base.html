@@ -16,7 +16,7 @@
   --ok-ink: #145A33; --ok-bg: #E3F2E9; --ok-dot: #17663A;
   --down-ink: #9B1C12; --down-bg: #FDE8E6; --down-dot: #B42318; --down-row: #FFF7F6; --down-border: #F3C3BD;
   --warn-ink: #7A3E00; --warn-bg: #FFF1DC; --warn-dot: #B86E00; --warn-row: #FFFBF3; --warn-border: #F0D3A6;
-  --square-up: #3E9B66; --square-mark: #FFFFFF;
+  --square-up: #3E9B66; --square-mark: #FFFFFF; --down-2: #7A140D; --warn-2: #8A4F00;
   --app-ink: #163A8C; --app-bg: #E3EAFB; --platform-ink: #3D4350; --platform-bg: #E2E5EA;
   --on-bg: #15181E; --on-ink: #FFFFFF;
   --columns: 28px minmax(230px, 2.2fr) 110px 120px 110px minmax(170px, 1.4fr) minmax(160px, 1.2fr) minmax(210px, 1.5fr);
@@ -30,7 +30,7 @@
     --ok-ink: #7FD6A4; --ok-bg: #12301F; --ok-dot: #3E9B66;
     --down-ink: #FF9C92; --down-bg: #3A1512; --down-dot: #E5534B; --down-row: #231514; --down-border: #6B2A25;
     --warn-ink: #F2B866; --warn-bg: #33240C; --warn-dot: #E8A23A; --warn-row: #211B10; --warn-border: #5C4318;
-    --square-mark: #0F1115;
+    --square-mark: #0F1115; --down-2: #FF9C92; --warn-2: #FBD8A5;
     --app-ink: #A9C1FF; --app-bg: #1B2748; --platform-ink: #C2C7D0; --platform-bg: #2B303A;
     --on-bg: #E8EAEE; --on-ink: #15181E;
   }
@@ -130,6 +130,22 @@ a.tile:hover { border-color: var(--ink-2) }
 .square.down, a.square.down:hover { color: var(--square-mark); background: var(--down-dot) }
 .legend { gap: 4px 14px; padding-top: 2px; font-size: 11px; color: var(--muted) }
 .legend .square { width: 10px; height: 10px; border-radius: 2px; margin-right: 1px }
+.history { padding: 8px 12px; display: grid; gap: 4px }
+.lane { display: grid; grid-template-columns: 130px minmax(0, 1fr) 70px; gap: 8px; align-items: center; font-size: 12px; color: var(--ink-2) }
+.lane .error { color: var(--down-ink) }
+.cells { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(24, minmax(0, 1fr)); gap: 2px }
+.cell { height: 18px; box-sizing: border-box; border-radius: 2px; display: flex; align-items: center; justify-content: center; overflow: hidden; font-size: 10px; font-weight: 700; color: var(--square-mark); background: var(--border) }
+.cell.h-down.l1 { background: var(--down-dot) } .cell.h-down.l2 { background: var(--down-2) }
+.cell.h-alerts.l1 { background: var(--warn-dot) } .cell.h-alerts.l2 { background: var(--warn-2) }
+.cell.lnone { background: none; border: 1px dashed var(--border-strong) }
+.axis > :last-child { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted) }
+.history .legend .cell { display: inline-block; width: 10px; height: 10px; margin-right: 1px }
+@media (max-width: 600px) {
+  .lane { grid-template-columns: minmax(0, 1fr) auto }
+  .lane .cells, .lane .error, .axis > :last-child { grid-column: 1 / -1; grid-row: 2 }
+  .axis > :first-child { display: none }
+  .cell { font-size: 8px; letter-spacing: -0.5px } /* two digits in a 13 px cell */
+}
 </style>
 </head>
 <body>
@@ -194,9 +210,14 @@ a.tile:hover { border-color: var(--ink-2) }
 </main>
 <script>
 // Times in the reader's own time zone, not UTC.
-const localTimes = () => document.querySelectorAll("time").forEach((t) => {
-  t.textContent = new Date(t.dateTime).toLocaleTimeString();
-});
+const localTimes = () => {
+  document.querySelectorAll("time").forEach((t) => {
+    const hour = "hour" in t.dataset ? { hour: "numeric", minute: "2-digit" } : {};
+    t.textContent = new Date(t.dateTime).toLocaleTimeString([], hour);
+  });
+  // A cell of the last 24 hours: hovering shows what it says.
+  document.querySelectorAll(".cell .sr").forEach((s) => { s.parentElement.title = s.textContent; });
+};
 localTimes();
 // A link to a monitor's row (the Overview's squares) opens it.
 if (location.hash) document.getElementById(decodeURIComponent(location.hash.slice(1)))?.setAttribute("open", "");

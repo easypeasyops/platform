@@ -17,7 +17,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from app import monitors, status
+from app import history, monitors, status
 from app.main import app
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -29,6 +29,7 @@ PATHS = {
     "/api/v1/targets": "targets",
     "/api/v1/alerts": "alerts",
     "/api/v1/query": "slo_budget",
+    "/api/v1/query_range": "history",  # one recording per query: tests/test_history.py
 }
 DEPLOY = Path(__file__).parents[1] / "deploy"
 GENERATOR = Path(__file__).parents[3] / "scripts/gen_slo_rules.py"
@@ -54,6 +55,11 @@ class Cluster:
         name = PATHS[request.url.path]
         if name in self.down:
             raise httpx.ConnectError("connection refused")
+        if name == "history":
+            key = {query: key for key, query in history.QUERIES.items()}[
+                request.url.params["query"]
+            ]
+            return httpx.Response(200, json=self.bodies[name][key])
         return httpx.Response(200, json=self.bodies[name])
 
     @property
@@ -83,6 +89,7 @@ def cluster(monkeypatch: pytest.MonkeyPatch) -> Iterator[Cluster]:
     for module in (monitors, status):
         monkeypatch.setattr(module, "_cache", None)
         monkeypatch.setattr(module, "_last_good", {})
+    monkeypatch.setattr(history, "_cache", None)
     yield cluster
 
 
