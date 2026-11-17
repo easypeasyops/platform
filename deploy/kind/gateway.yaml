@@ -41,6 +41,13 @@ spec:
       envoyService:
         name: front-door
         type: NodePort
+        # Not Envoy Gateway's default, Local. With Local (v1.10), the Gateway's address is
+        # the nodes with a ready proxy endpoint, read only when the Gateway's status is
+        # written: after a laptop sleep the endpoint is briefly not ready, the Gateway is
+        # left with no address and Programmed=False (AddressNotAssigned) until the
+        # controller restarts (PT-68). Cluster gives it the node's address always. One
+        # node and no client IP logged, so nothing is lost.
+        externalTrafficPolicy: Cluster
         # Envoy Gateway picks random node ports; pin them (merged by port number).
         patch:
           type: StrategicMerge
