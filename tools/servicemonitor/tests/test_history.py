@@ -1,5 +1,6 @@
 """The Overview's last 24 hours over range queries recorded from the laptop cluster
-(tests/fixtures/history.json, both rows' queries at 20:09 local on 2026-11-16): the cluster
+(tests/fixtures/history.json, the down row's query at 20:09 local on 2026-11-16, the alerts
+row's over the same range at 22:05, once Watchdog was left out): the cluster
 started 23 h before, ran for 3 hours, was stopped for 11 and has run since, with targets
 down three hours before the end. `error` is a range query Prometheus refused, as it
 answered."""
@@ -56,7 +57,8 @@ def test_two_range_queries_of_24_hours_ending_with_the_hour_in_progress(
     sent = [r.url.params for r in cluster.requests]
     assert [p["query"] for p in sent] == [
         "max_over_time((count(up == 0) or count(up) * 0)[1h:])",
-        'max_over_time((count(ALERTS{alertstate="firing"}) or count(up) * 0)[1h:])',
+        'max_over_time((count(ALERTS{alertstate="firing", alertname!="Watchdog"}) or count(up) * 0)'
+        "[1h:])",
     ]
     assert {(p["start"], p["end"], p["step"]) for p in sent} == {
         (str(END - 23 * 3600), str(END), "3600")
@@ -77,8 +79,9 @@ def test_an_hour_with_a_target_down_is_its_worst_moment_and_the_last_is_now() ->
     assert cells[15]["text"] == "up to 1 target down"
     assert (cells[-1]["start"], cells[-1]["end"]) == ("2026-11-17T04:00:00+00:00", None)
     assert (cells[-1]["text"], cells[-1]["level"]) == ("no target down", "0")
-    # The alerts row counts Watchdog, which always fires: its quietest hour has 3.
-    assert min(c["value"] for c in read()["alerts"]["cells"] if c["value"] is not None) == 3
+    # The alerts row leaves out Watchdog, which always fires.
+    assert 'alertname!="Watchdog"' in history.QUERIES["alerts"]
+    assert min(c["value"] for c in read()["alerts"]["cells"] if c["value"] is not None) == 2
 
 
 def test_an_hour_without_data_is_no_data_not_zero() -> None:
@@ -116,7 +119,7 @@ def test_the_strip_says_each_hour_and_its_value_and_ends_with_the_summary_s_coun
     assert list(rows) == ["Targets down", "Alerts firing"]
     down, now = rows["Targets down"]
     assert now == "0 now"  # the summary line's: every target up
-    assert rows["Alerts firing"][1] == "3 now"  # the summary line's 3 alerts firing
+    assert rows["Alerts firing"][1] == "2 now"  # the summary line's 2 alerts firing
     assert len(down) == 24
     assert down[0] == "05:00 UTC – 06:00 UTC : up to 28 targets down"  # until the browser's time
     assert down[5] == "10:00 UTC – 11:00 UTC : no data: Prometheus wasn't running"
@@ -137,7 +140,7 @@ def test_a_query_that_never_answers_shows_unknown_never_zeros(
     cluster.down = {"history"}
     text = html.unescape(client.get("/").text)
     unknown = ["unknown: Prometheus's query API did not answer. connection refused"]
-    assert lanes(text) == {"Targets down": (unknown, "0 now"), "Alerts firing": (unknown, "3 now")}
+    assert lanes(text) == {"Targets down": (unknown, "0 now"), "Alerts firing": (unknown, "2 now")}
     assert '<li class="cell' not in text
 
 

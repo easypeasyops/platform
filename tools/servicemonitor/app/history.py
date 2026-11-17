@@ -8,7 +8,7 @@ is in its hour's cell.
 `count()` of nothing is nothing, not 0: an hour without a point could be "none down" or
 "Prometheus wasn't running" (the laptop asleep, the cluster stopped). `or count(up) * 0`
 makes it 0 while anything was scraped in that hour; an hour still without a point is
-"no data". The alerts row counts every firing alert, Watchdog too, like the summary line.
+"no data". The alerts row counts every firing alert but Watchdog, like the summary line.
 
 Cached for a minute: it's history, not live state. A query that fails leaves its row
 without cells, with the error: never 24 zeros.
@@ -21,7 +21,7 @@ from typing import Any
 
 import httpx
 
-from app import monitors
+from app import monitors, status
 
 HOUR = 3600
 HOURS = 24
@@ -32,7 +32,7 @@ ROWS = {
     "alerts": (
         "Alerts firing",
         ("alert firing", "alerts firing"),
-        'count(ALERTS{alertstate="firing"})',
+        f'count(ALERTS{{alertstate="firing", alertname!="{status.ALWAYS_FIRING}"}})',
     ),
 }
 QUERIES = {key: f"max_over_time(({count} or {SCRAPING})[1h:])" for key, (*_, count) in ROWS.items()}

@@ -124,7 +124,7 @@ def test_the_summary_line() -> None:
         "monitors": 9,
         "targets_up": 14,
         "targets_down": 0,
-        "alerts_firing": 3,
+        "alerts_firing": 2,
         "lowest_budget": {
             "namespace": "aipostit-prod",
             "slo": "aipostit-latency",
@@ -155,8 +155,9 @@ def test_an_alert_goes_to_the_monitors_of_its_namespace_and_to_the_one_of_its_jo
     assert matches(model, "aipostit-prod", "aipostit") == [("KubeJobFailed", "namespace")]
     assert matches(model, "aipostit-staging", "aipostit") == []
     assert matches(model, "argocd", "kyverno") == []
-    # No namespace, no job.
-    assert [a["name"] for a in model["unattached"]] == ["Watchdog"]
+    # Watchdog has no namespace, but always fires: it is left out, not unattached.
+    assert model["unattached"] == []
+    assert model["summary"]["alerts_firing"] == 2
 
 
 def test_an_alert_has_what_a_link_to_it_needs() -> None:
@@ -213,15 +214,15 @@ def test_the_instance_tells_apart_monitors_that_share_a_job(cluster: Cluster) ->
 def test_an_alert_in_a_namespace_nothing_is_scraped_in_is_unattached(cluster: Cluster) -> None:
     cluster.alerts[0]["labels"]["namespace"] = "backups"
     model = read()
-    assert [a["name"] for a in model["unattached"]] == ["KubeJobFailed", "Watchdog"]
-    assert model["summary"]["alerts_firing"] == 3
+    assert [a["name"] for a in model["unattached"]] == ["KubeJobFailed"]
+    assert model["summary"]["alerts_firing"] == 2
 
 
 def test_a_pending_alert_is_not_firing(cluster: Cluster) -> None:
     cluster.alerts[0]["state"] = "pending"
     model = read()
     assert matches(model, "aipostit-prod", "aipostit") == []
-    assert model["summary"]["alerts_firing"] == 2
+    assert model["summary"]["alerts_firing"] == 1
 
 
 def test_the_budget_left_per_slo_and_the_lowest() -> None:
@@ -329,7 +330,7 @@ def test_without_targets_or_monitors_the_counts_are_unknown(cluster: Cluster) ->
         "monitors": None,
         "targets_up": None,
         "targets_down": None,
-        "alerts_firing": 3,
+        "alerts_firing": 2,
         "lowest_budget": model["summary"]["lowest_budget"],
     }
 
@@ -347,7 +348,7 @@ def test_the_route_serves_the_model() -> None:
     response = TestClient(app).get("/api/status")
     assert response.status_code == 200
     assert set(response.json()) == {"sources", "summary", "namespaces", "unattached"}
-    assert response.json()["summary"]["alerts_firing"] == 3
+    assert response.json()["summary"]["alerts_firing"] == 2
 
 
 def test_the_budget_series_is_one_the_platforms_generator_records(tmp_path: Path) -> None:
