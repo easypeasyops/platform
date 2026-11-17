@@ -55,7 +55,24 @@ golden files (`scripts/chart-golden.sh`), tests the SLO generator
 
 ## Onboarding an app
 
-One folder, reviewed here: `apps/<app>/project.yaml` (the app's repo and its `<app>-<env>`
+Start from the template,
+[easypeasyops/app-template](https://github.com/easypeasyops/app-template): a minimal
+service with the whole app contract filled in (release workflow, CI on the reusable
+workflows, `platform.lock`, chart values per environment, an SLO spec, an image that runs
+as UID 10001 on a read-only root, `/healthz` and `/readyz`), proven by its own CI. Its
+README has the steps: create the repo from the template, rename, release `<app>/v0.1.0`.
+
+What the app still decides:
+
+- **Its name**: its namespaces (`<app>-staging`, `<app>-prod`) and its image.
+- **Its hostnames**: `gateway.hostnames` in each environment's values.
+- **Its SLOs**: the objectives and latency threshold in `deploy/prometheus/slos.yaml`.
+- **Its environment**: the `env` list in its values, and the keys it reads from its secret
+  store (`secretEnv`).
+- What else it takes from the chart (a database, Redis, workers, cron jobs, autoscaling,
+  canaries): each is documented in [charts/service/values.yaml](charts/service/values.yaml).
+
+Then one folder, reviewed here: `apps/<app>/project.yaml` (the app's repo and its `<app>-<env>`
 namespaces) and `apps/<app>/envs/<env>.yaml` per environment:
 
 ```yaml
