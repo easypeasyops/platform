@@ -28,3 +28,11 @@ networkPolicy:
             matchLabels: { app.kubernetes.io/name: prometheus }
       ports:
         - { protocol: TCP, port: 9090 }
+    # GitHub, for the Overview's Platform Radar: docs/radar/scores.json from
+    # raw.githubusercontent.com (app/radar.py). A policy can't name a host, so this is the
+    # address block that host answers from, which GitHub publishes (api.github.com/meta,
+    # "web"), on HTTPS only. If GitHub moves it, the panel hides with a note; nothing else.
+    - to:
+        - ipBlock: { cidr: 185.199.108.0/22 }
+      ports:
+        - { protocol: TCP, port: 443 }
