@@ -292,7 +292,8 @@ each source that moved: its chart (a pin), its values repo (a release), the plat
 `deploy/app-namespace`. A merge to `main` that changes no Application's manifests syncs
 nothing and marks nothing. kube-state-metrics reads the revisions from each Application's
 last sync (`argocd_application_synced_revision_info` for one source,
-`argocd_application_synced_revisions_info` for several; `deploy/kind/monitoring-values.yaml`):
+`argocd_application_synced_revisions_info` for several, `source` the source's index;
+`deploy/kind/monitoring-values.yaml`):
 Argo CD's own metrics carry none. Not marked: an Application's first sync, a deploy in the
 first minutes after a sleep, and a move back to a revision it had in the 5 minutes before.
 No marks at all: is kube-state-metrics exporting them (`kubectl -n monitoring logs

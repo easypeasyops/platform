@@ -18,6 +18,7 @@ import pytest
 import yaml
 
 from tests.test_alerting import PROMETHEUS_IMAGE, _docker
+from tests.test_platform import _render, _sources
 
 ROOT = Path(__file__).resolve().parent.parent
 FRONT_DOOR = ROOT / "deploy/argocd/platform/files/front-door-dashboard.json"
@@ -25,6 +26,7 @@ FRONT_DOOR = ROOT / "deploy/argocd/platform/files/front-door-dashboard.json"
 # Application's name (apps/applicationset.yaml: <app>-<env> in namespace <app>-<env>).
 SLO = ROOT / "charts/service/files/slo-dashboard.json"
 SERIES = ("argocd_application_synced_revision_info", "argocd_application_synced_revisions_info")
+MAX_SOURCES = 3  # the most sources an Application has
 
 
 def _deploys(dashboard: Path) -> dict[str, Any]:
@@ -53,21 +55,38 @@ def test_kube_state_metrics_exports_what_each_application_deployed() -> None:
         "project": ["spec", "project"],
     }
     # One source: syncResult.revision; several: syncResult.revisions, a series for each.
-    paths = {
-        f"{resource['metricNamePrefix']}_{m['name']}": (m["each"]["type"], m["each"]["info"])
+    metrics = [
+        (
+            f"{resource['metricNamePrefix']}_{m['name']}",
+            m.get("commonLabels", {}),
+            m["each"]["type"],
+            m["each"]["info"],
+        )
         for m in resource["metrics"]
-    }
+    ]
     sync_result = ["status", "operationState", "syncResult"]
-    assert paths == {
-        SERIES[0]: (
-            "Info",
-            {"path": [*sync_result, "revision"], "labelsFromPath": {"revision": []}},
+
+    def info(*path: str) -> dict[str, Any]:
+        return {"path": [*sync_result, *path], "labelsFromPath": {"revision": []}}
+
+    # Several: one metric per source index, told apart by `source`. A series per entry of
+    # the whole list repeats when two sources sync the same commit (one repo and branch),
+    # and Prometheus drops the repeat (PT-63). Consecutive, so they make one family.
+    assert metrics == [
+        (SERIES[0], {}, "Info", info("revision")),
+        *(
+            (SERIES[1], {"source": str(i)}, "Info", info("revisions", str(i)))
+            for i in range(MAX_SOURCES)
         ),
-        SERIES[1]: (
-            "Info",
-            {"path": [*sync_result, "revisions"], "labelsFromPath": {"revision": []}},
-        ),
-    }
+    ]
+
+
+def test_every_source_of_every_application_is_exported() -> None:
+    # The platform's own Applications, and the ApplicationSet's template for an app's.
+    platform = max(len(_sources(app)) for app in _render())
+    patch = yaml.safe_load((ROOT / "apps/applicationset.yaml").read_text())["spec"]["templatePatch"]
+    app = patch.count("- repoURL:")
+    assert max(platform, app) == MAX_SOURCES, "one synced_revisions_info per source index"
 
 
 def test_the_front_door_marks_every_applications_deploys() -> None:

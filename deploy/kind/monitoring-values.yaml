@@ -118,9 +118,13 @@ kube-state-metrics:
           # What each Argo CD Application's last sync deployed: the dashboards' deploy marks
           # (docs/RUNBOOK.md, The front door). Argo CD's own metrics carry no revision.
           # argocd_application_synced_revision_info{name, project, revision} for an
-          # Application with one source; ..._revisions_info, one series per source (an
-          # app's chart digest, its values repo's commit, the platform's), for several.
-          # A new revision is a new series: the dashboards mark the minute one appears.
+          # Application with one source; ..._revisions_info{..., source}, one series per
+          # source (an app's chart digest, its values repo's commit, the platform's), for
+          # several. A new revision is a new series: the dashboards mark the minute one
+          # appears. One metric per source index, `source` the index: two sources from one
+          # repo and branch sync the same commit, and a series per list entry would then
+          # repeat in a scrape, which Prometheus drops (PrometheusDuplicateTimestamps,
+          # PT-63). Indexes 0-2 cover the most sources an Application has (3).
           - groupVersionKind: { group: argoproj.io, version: v1alpha1, kind: Application }
             metricNamePrefix: argocd_application
             labelsFromPath:
@@ -135,11 +139,28 @@ kube-state-metrics:
                     path: [status, operationState, syncResult, revision]
                     labelsFromPath: { revision: [] }
               - name: synced_revisions_info
-                help: The revisions an Application's last sync deployed, one per source
+                help: The revision an Application's last sync deployed from one of its sources
+                commonLabels: { source: "0" }
                 each:
                   type: Info
                   info:
-                    path: [status, operationState, syncResult, revisions]
+                    path: [status, operationState, syncResult, revisions, "0"]
+                    labelsFromPath: { revision: [] }
+              - name: synced_revisions_info
+                help: The revision an Application's last sync deployed from one of its sources
+                commonLabels: { source: "1" }
+                each:
+                  type: Info
+                  info:
+                    path: [status, operationState, syncResult, revisions, "1"]
+                    labelsFromPath: { revision: [] }
+              - name: synced_revisions_info
+                help: The revision an Application's last sync deployed from one of its sources
+                commonLabels: { source: "2" }
+                each:
+                  type: Info
+                  info:
+                    path: [status, operationState, syncResult, revisions, "2"]
                     labelsFromPath: { revision: [] }
           # Which Rollout each Argo Rollouts AnalysisRun belongs to, from its ownerReferences:
           # the controller's own analysis_run_info carries the run's name only, and a name
