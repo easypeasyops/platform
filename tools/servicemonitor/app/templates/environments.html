@@ -1,0 +1,49 @@
+{# The Overview's environments (app/environments.py), included by overview.html. #}
+<style>
+.envs { display: grid; gap: 0 }
+.envrow { display: grid; grid-template-columns: 120px minmax(0, 1fr) 150px; gap: 4px 10px; align-items: start; padding: 5px 12px; border-bottom: 1px solid var(--border-soft); font-size: 12px; color: var(--ink-2) }
+.envrow:last-child { border-bottom: none }
+.envrow .app { font-weight: 600; color: var(--ink) }
+.envcells { display: flex; flex-wrap: wrap; gap: 6px 18px }
+.envcell { display: grid; gap: 1px }
+.envcell .digest { color: var(--ink) }
+.envs .error { color: var(--down-ink); overflow-wrap: anywhere }
+@media (max-width: 600px) { .envrow { grid-template-columns: minmax(0, 1fr) } }
+</style>
+<section class="panel" aria-labelledby="environments">
+<h2 id="environments" class="title">Environments · what each one runs</h2>
+<div class="envs">
+{% for error in environments.errors %}<p class="envrow error">unknown: Prometheus's query API did not answer. <span class="mono">{{ error }}</span></p>
+{% endfor %}
+{% if environments.rows is none %}<p class="envrow note">apps unknown: the Kubernetes API has not answered</p>
+{% else %}
+{% for row in environments.rows %}
+<div class="envrow" data-app="{{ row.app }}">
+<span class="app">{{ row.app }}</span>
+<span class="envcells">
+{% for cell in row.cells %}
+<span class="envcell">
+<span><b>{{ cell.env }}</b> <span class="note mono">{{ cell.namespace }}</span></span>
+{% if cell.digests is none %}<span class="note">digest unknown</span>
+{% else %}{% for d in cell.digests %}<span class="mono digest" title="{{ d.id }}">{{ d.short }} <span class="note">· {{ d.pods }} {{ "pod" if d.pods == 1 else "pods" }}</span></span>
+{% else %}<span class="note">no pod runs</span>
+{% endfor %}{% endif %}
+{% if cell.rolling %}<span class="pill warn">{{ cell.digests | length }} digests: a rollout or canary in progress</span>{% endif %}
+<span>
+{% if cell.applications is none %}<span class="note">Argo CD state unknown</span>
+{% else %}{% for a in cell.applications %}<span class="pill {{ a.tone }}" title="Application {{ a.name }}">{{ a.sync }} · {{ a.health }}</span>
+{% else %}<span class="note">no Application</span>
+{% endfor %}{% endif %}
+</span>
+</span>
+{% endfor %}
+</span>
+{% if row.prod_vs_staging == "same" %}<span class="pill ok">prod on staging's digest</span>
+{% elif row.prod_vs_staging == "differs" %}<span class="pill warn">prod not on staging's digest</span>
+{% elif row.prod_vs_staging == "unknown" %}<span class="note">prod and staging not compared: a digest is unknown</span>
+{% else %}<span></span>{% endif %}
+</div>
+{% endfor %}
+{% endif %}
+</div>
+</section>

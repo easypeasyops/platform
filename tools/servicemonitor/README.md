@@ -69,6 +69,14 @@ and queries are a component's is `app/components.toml`, not code: a new componen
 saying what it is. A line is marked by the tiles' rules (Down also for a monitor the file
 names that doesn't exist); a query that fails leaves its line Unknown, with the error.
 
+The Overview's environments panel (`app/environments.py`, `templates/environments.html`)
+has a row per app and a cell per environment (the namespaces with the app and env labels):
+the short digest its `app` container runs, with its pods (`kube_pod_container_info`'s
+`image_id`), and its Argo CD Application's sync and health (`argocd_app_info`), two
+Prometheus queries and no Kubernetes API call. It marks an environment running two digests
+at once (a rollout or a canary in progress) and says whether prod is on staging's digest.
+A digest it doesn't know (the query failed, or no pod runs) is never read as a match.
+
 The Overview's Platform Radar (`app/radar.py`) is the platform's weekly self-assessment,
 read from `docs/radar/scores.json` on `main` (`RADAR_URL`, by default its
 raw.githubusercontent.com address), cached for an hour, so a week merged there shows within
