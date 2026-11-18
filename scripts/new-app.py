@@ -5,7 +5,7 @@
 # ///
 """Take a new app from a template repo to prod, in three steps that each stop at a wait.
 
-    uv run --script <platform>/scripts/new-app.py create  <app> --template easypeasyops/app-template
+    uv run --script <platform>/scripts/new-app.py create  <app> --lang python   # or java, rust, ...
     uv run --script <platform>/scripts/new-app.py staging <app>
     uv run --script <platform>/scripts/new-app.py prod    <app>
 
@@ -14,13 +14,15 @@ Run it from the folder that holds your checkouts: the app's repo, easypeasyops/<
 that). The platform side is done in a throwaway worktree of this checkout, cut from
 origin/main, so the checkout you run it from is left alone.
 
-  create   creates the app's repo from the template and clones it. Then it renames the
-           template's placeholder to <app> (and to <repo> where it names the repo, as in
-           the image's ghcr.io/easypeasyops/<repo>/<app>), refreshes the lockfile,
-           regenerates the SLO rules with gen_slo_rules.py at the app's platform.lock
-           commit, and pushes. It sets the repo to squash-only with auto-merge, makes `ci`
-           required on main, and tags <app>/v<version>, which releases the image. You add
-           the repo to the Renovate app by hand.
+  create   creates the app's repo from the template repo and clones it. It keeps the one
+           template --lang names, apps/<lang>-template: the others' folders go, and so
+           do the CI jobs and Dependabot entries that name them. Then it renames
+           <lang>-template to <app> and the template repo to <repo> (its URLs, the image's
+           ghcr.io/easypeasyops/<repo>/<app>), refreshes the lockfile, regenerates the SLO
+           rules with gen_slo_rules.py at the app's platform.lock commit, and pushes. It
+           sets the repo to squash-only with auto-merge, makes `ci` required on main, and
+           tags <app>/v<version>, which releases the image. You add the repo to the
+           Renovate app by hand.
   staging  waits for the release and puts its image digest in the app's
            deploy/envs/staging.yaml (a PR that auto-merges). Then it opens the platform PR
            that adds apps/<app>/ with staging: the project, envs/staging.yaml at the latest
@@ -31,10 +33,13 @@ origin/main, so the checkout you run it from is left alone.
            staging pins. That PR changes apps/<app>/envs/prod.yaml, so it doesn't
            auto-merge: Emrah merges it.
 
-What a template must have. app-template has all of it, and a new template, such as
-go-template, needs it too:
-- Its repo name is the only placeholder, and the app lives in apps/<placeholder>/.
-- The platform's deploy/ layout: service/values.yaml, service/slo-rules.values.yaml,
+What a template repo must have (app-template does; a new language's template, such as
+go-template, joins it as apps/go-template/ and needs the same):
+- apps/<lang>-template/ per template. Its name is its only placeholder.
+- In .github/workflows/ci.yml, each template's jobs name its folder (`apps/<lang>-template`)
+  and no other's, and the `ci` gate lists them in a one-line `needs: [...]`. The same in
+  .github/dependabot.yaml, for its entries.
+- Each template's deploy/ layout: service/values.yaml, service/slo-rules.values.yaml,
   prometheus/slos.yaml, and envs/staging.yaml and envs/prod.yaml, each with one
   `digest:` line (image.digest) and gateway.hostnames.
 - A platform.lock.
@@ -57,8 +62,9 @@ import yaml
 ORG = "easypeasyops"
 PLATFORM = Path(__file__).resolve().parent.parent
 PROBES = PLATFORM / "deploy/argocd/platform/values.yaml"
-# A lockfile in apps/<app>/ -> the command that refreshes it after the rename.
-LOCKFILES = {"uv.lock": ["uv", "lock"], "go.sum": ["go", "mod", "tidy"]}
+# A lockfile in apps/<app>/ -> the command that refreshes it after the rename. Others, such
+# as Cargo.lock, name the app only as text, and the rename already changed it.
+LOCKFILES = {"uv.lock": ["uv", "lock"]}
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 
 
@@ -224,16 +230,66 @@ def platform_pr(app: str, repo: str, d: Path, env: str, chart: tuple[str, str]) 
             run("git", "branch", "-D", branch, cwd=PLATFORM)
 
 
-def create(app: str, repo: str, d: Path, template: str, version: str) -> None:
-    placeholder = template.split("/")[1]
+def drop_blocks(path: Path, header: str, names: list[str]) -> set[str]:
+    """Drop each block in a YAML file that mentions apps/<name> for any of names; return their keys.
+
+    A block is a line matching header, the lines indented deeper under it, and the comment
+    lines right above it. Text, not YAML, so the comments everywhere else stay.
+    """
+    lines = path.read_text().splitlines(keepends=True)
+    out, dropped, i = [], set(), 0
+    while i < len(lines):
+        if not re.match(header, lines[i]):
+            out.append(lines[i])
+            i += 1
+            continue
+        indent = len(lines[i]) - len(lines[i].lstrip())
+        end = i + 1
+        while end < len(lines) and (
+            not lines[end].strip() or len(lines[end]) - len(lines[end].lstrip()) > indent
+        ):
+            end += 1
+        if any(f"apps/{n}" in "".join(lines[i:end]) for n in names):
+            dropped.add(lines[i].strip().rstrip(":"))
+            while out and out[-1].strip().startswith("#"):  # its comment
+                out.pop()
+        else:
+            out.extend(lines[i:end])
+        i = end
+    path.write_text("".join(out))
+    return dropped
+
+
+def keep_one(d: Path, kept: str) -> None:
+    """Delete every template but apps/<kept>/, with its CI jobs and Dependabot entries."""
+    others = sorted(p.name for p in (d / "apps").iterdir() if p.is_dir() and p.name != kept)
+    for o in others:
+        run("git", "rm", "-rq", f"apps/{o}", cwd=d)
+    ci = d / ".github/workflows/ci.yml"
+    jobs = drop_blocks(ci, r"  [a-z0-9-]+:$", others)
+    ci.write_text(
+        re.sub(
+            r"^(\s*needs: \[)(.*)\]$",
+            lambda m: m[1] + ", ".join(n for n in m[2].split(", ") if n not in jobs) + "]",
+            ci.read_text(),
+            flags=re.M,
+        )
+    )
+    drop_blocks(d / ".github/dependabot.yaml", r"  - package-ecosystem:", others)
+
+
+def create(app: str, repo: str, d: Path, template: str, lang: str, version: str) -> None:
+    placeholder = f"{lang}-template"
     run("gh", "repo", "create", repo, "--public", "--template", template, "--clone", cwd=d.parent)
     name = repo.split("/")[1]
     if d.name != name:
         (d.parent / name).rename(d)
     if not (d / f"apps/{placeholder}").is_dir():
-        sys.exit(f"{template} has no apps/{placeholder}/ (see 'What a template must have')")
+        have = ", ".join(sorted(p.name for p in (d / "apps").iterdir()))
+        sys.exit(f"{template} has no apps/{placeholder}/, only: {have}")
+    keep_one(d, placeholder)
     run("git", "mv", f"apps/{placeholder}", f"apps/{app}", cwd=d)
-    for f in run("git", "grep", "-l", placeholder, cwd=d).split():
+    for f in run("git", "grep", "-l", "-e", placeholder, "-e", template, cwd=d).split():
         p = d / f
         # The template's repo first (its URLs, the image's <repo> part), then the app.
         p.write_text(p.read_text().replace(template, repo).replace(placeholder, app))
@@ -372,6 +428,7 @@ def main() -> None:
     p.add_argument("--repo", help="the app's repo in easypeasyops (default: <app>)")
     p.add_argument("--dir", type=Path, help="the app's checkout (default: ./<repo>)")
     p.add_argument("--template", default=f"{ORG}/app-template", help="create: the template repo")
+    p.add_argument("--lang", help="create: the template to keep, apps/<lang>-template")
     p.add_argument("--version", default="0.1.0", help="create: the first release")
     a = p.parse_args()
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", a.app):
@@ -379,7 +436,9 @@ def main() -> None:
     repo = f"{ORG}/{a.repo or a.app}"
     d = (a.dir or Path.cwd() / repo.split("/")[1]).resolve()
     if a.step == "create":
-        create(a.app, repo, d, a.template, a.version)
+        if not a.lang:
+            sys.exit("create needs --lang: which apps/<lang>-template to start from")
+        create(a.app, repo, d, a.template, a.lang, a.version)
     elif a.step == "staging":
         staging(a.app, repo, d)
     else:
