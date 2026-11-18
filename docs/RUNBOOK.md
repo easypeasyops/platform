@@ -97,7 +97,30 @@ the PR, app-template at the commit `app-ref` pins, its values files from there
   in its own step with a warning; both failing, or "Deploy and check" failing, is the PR:
   the last lines before `FAIL:` and the namespace's state printed after it say what.
 - **Move app-template's pin** (`app-ref` in `ci.yml`) in a PR of its own, to a commit on
-  app-template's main, never together with a platform change.
+  app-template's main, never together with a platform change. The nightly below reads it
+  from there.
+
+## The nightly app e2e
+
+`nightly-app-e2e.yml` runs every app's kind e2e on main's head, one job per app and
+environment, at 02:17 in Los Angeles (03:17 in summer: the cron is 10:17 UTC). It catches
+what `app-e2e`'s path filter misses and drift that no PR makes (an upstream image tag, a
+Helm repo, the runner image). It isn't part of the `ci` gate; a red job is a signal to look.
+
+- **What it runs:** app-template's python-template in staging with `ci.yml`'s `app-e2e`
+  inputs (its `app-ref`, values files and main's chart), and aipostit in staging from
+  hotel_social_posts at `HOTEL_SOCIAL_POSTS_REF` with the chart
+  `apps/aipostit/envs/staging.yaml` pins. The `matrix` job reads both files; renaming
+  `app-e2e` or its inputs breaks it, loudly.
+- **A failure reaches you** by GitHub's email: for a scheduled run, to the account that last
+  changed the `cron:` line; for a manual run, to whoever started it. Both need Actions email
+  on, failed runs only (github.com/settings/notifications).
+- **Run it by hand:** `gh workflow run nightly-app-e2e.yml --ref <branch>` runs that
+  branch's head.
+- **Red:** the failing job's log, as for a PR's app e2e above. Red on one app only: that
+  app's pin or values against main's platform; red on both: main, or drift.
+- **Move hotel_social_posts' pin** (`HOTEL_SOCIAL_POSTS_REF`) in a PR of its own, to a
+  commit on its main whose aipostit e2e passed.
 
 ## Argo CD alerts
 
