@@ -41,7 +41,7 @@ alerts and its Argo CD Application, at `GRAFANA_LINK_URL`, `PROMETHEUS_LINK_URL`
 `/api/status` (`app/status.py`) adds, for each of those monitors, the alerts firing on it
 and the error budget its SLOs have left (the series the platform's SLO dashboard shows),
 and the summary line: monitors, targets up and down, alerts firing, lowest budget, and
-each namespace's replicas. It reads Prometheus only (`/api/v1/alerts`, five queries). The Monitors tab shows both on each
+each namespace's replicas and containers. It reads Prometheus only (`/api/v1/alerts`, nine queries). The Monitors tab shows both on each
 monitor's row: an alert on a job the monitor scrapes, and one that is only in a namespace
 it scrapes, dimmed; the lowest budget as a bar, below zero as its real number.
 
@@ -60,6 +60,14 @@ Prometheus (four queries, `REPLICAS` in `app/status.py`; Jobs, CronJobs and Argo
 are left out). A workload with none ready makes it Down at once; one short for the whole
 last minute makes it Alert (`min_over_time` over a 1m subquery, in PromQL), so a rollout's
 brief dip shows in the count only.
+
+They also say "restarts N in 1 h", "OOM killed" when a container's last end was an OOM kill
+in the hour, and "memory P% of limit": the container closest to its memory limit
+(`app/containers.py`: kube-state-metrics and cAdvisor in Prometheus, four queries). A
+restart or an OOM kill in the hour makes them Alert; memory near the limit (90%) is shown,
+not alerted on. The laptop's node reboots after a night asleep and every pod restarts with
+it, so restarts are counted from 10 minutes after the node's boot (node-exporter's
+`node_boot_time_seconds`), over at most the last hour.
 
 The Overview's platform components panel has a line per component (Argo CD, the front
 door, Kyverno, ...): its monitors' targets up, its alerts firing, a dashboard link and one

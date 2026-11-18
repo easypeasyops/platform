@@ -1,0 +1,407 @@
+{
+ "uptime": {
+  "status": "success",
+  "data": {
+   "resultType": "vector",
+   "result": [
+    {
+     "metric": {},
+     "value": [
+      1794980276.202,
+      "29990.201999902725"
+     ]
+    }
+   ]
+  }
+ },
+ "restarts": {
+  "status": "success",
+  "data": {
+   "resultType": "vector",
+   "result": [
+    {
+     "metric": {
+      "namespace": "local-path-storage"
+     },
+     "value": [
+      1794980276.205,
+      "0"
+     ]
+    },
+    {
+     "metric": {
+      "namespace": "cert-manager"
+     },
+     "value": [
+      1794980276.205,
+      "3"
+     ]
+    },
+    {
+     "metric": {
+      "namespace": "log-collector"
+     },
+     "value": [
+      1794980276.205,
+      "0"
+     ]
+    },
+    {
+     "metric": {
+      "namespace": "external-secrets"
+     },
+     "value": [
+      1794980276.205,
+      "0"
+     ]
+    },
+    {
+     "metric": {
+      "namespace": "kube-system"
+     },
+     "value": [
+      1794980276.205,
+      "0"
+     ]
+    },
+    {
+     "metric": {
+      "namespace": "aipostit-prod"
+     },
+     "value": [
+      1794980276.205,
+      "0"
+     ]
+    },
+    {
+     "metric": {
+      "namespace": "envoy-gateway-system"
+     },
+     "value": [
+      1794980276.205,
+      "0"
+     ]
+    },
+    {
+     "metric": {
+      "namespace": "servicemonitor-ops"
+     },
+     "value": [
+      1794980276.205,
+      "0"
+     ]
+    },
+    {
+     "metric": {
+      "namespace": "cnpg-system"
+     },
+     "value": [
+      1794980276.205,
+      "0"
+     ]
+    },
+    {
+     "metric": {
+      "namespace": "monitoring"
+     },
+     "value": [
+      1794980276.205,
+      "0"
+     ]
+    },
+    {
+     "metric": {
+      "namespace": "argocd"
+     },
+     "value": [
+      1794980276.205,
+      "0"
+     ]
+    },
+    {
+     "metric": {
+      "namespace": "aipostit-staging"
+     },
+     "value": [
+      1794980276.205,
+      "0"
+     ]
+    },
+    {
+     "metric": {
+      "namespace": "event-exporter"
+     },
+     "value": [
+      1794980276.205,
+      "0"
+     ]
+    },
+    {
+     "metric": {
+      "namespace": "deploybot-ops"
+     },
+     "value": [
+      1794980276.205,
+      "0"
+     ]
+    },
+    {
+     "metric": {
+      "namespace": "node-exporter"
+     },
+     "value": [
+      1794980276.205,
+      "0"
+     ]
+    },
+    {
+     "metric": {
+      "namespace": "backups"
+     },
+     "value": [
+      1794980276.205,
+      "0"
+     ]
+    },
+    {
+     "metric": {
+      "namespace": "argo-rollouts"
+     },
+     "value": [
+      1794980276.205,
+      "0"
+     ]
+    },
+    {
+     "metric": {
+      "namespace": "kyverno"
+     },
+     "value": [
+      1794980276.205,
+      "0"
+     ]
+    },
+    {
+     "metric": {
+      "namespace": "java-hello-staging"
+     },
+     "value": [
+      1794980276.205,
+      "0"
+     ]
+    },
+    {
+     "metric": {
+      "namespace": "java-hello-prod"
+     },
+     "value": [
+      1794980276.205,
+      "0"
+     ]
+    }
+   ]
+  }
+ },
+ "oom": {
+  "status": "success",
+  "data": {
+   "resultType": "vector",
+   "result": []
+  }
+ },
+ "memory": {
+  "status": "success",
+  "data": {
+   "resultType": "vector",
+   "result": [
+    {
+     "metric": {
+      "container": "worker",
+      "namespace": "aipostit-prod",
+      "pod": "aipostit-worker-7b8c549f8b-x8qmd"
+     },
+     "value": [
+      1794980276.212,
+      "0.331817626953125"
+     ]
+    },
+    {
+     "metric": {
+      "container": "app",
+      "namespace": "servicemonitor-ops",
+      "pod": "servicemonitor-69d79b667b-6k545"
+     },
+     "value": [
+      1794980276.212,
+      "0.51025390625"
+     ]
+    },
+    {
+     "metric": {
+      "container": "worker",
+      "namespace": "aipostit-staging",
+      "pod": "aipostit-worker-77658ffbb6-9vl7k"
+     },
+     "value": [
+      1794980276.212,
+      "0.25246429443359375"
+     ]
+    },
+    {
+     "metric": {
+      "container": "app",
+      "namespace": "deploybot-ops",
+      "pod": "deploybot-784ff45f58-qbmbj"
+     },
+     "value": [
+      1794980276.212,
+      "0.19199625651041666"
+     ]
+    },
+    {
+     "metric": {
+      "container": "redis",
+      "namespace": "argocd",
+      "pod": "argocd-redis-5f476768f6-kmpbq"
+     },
+     "value": [
+      1794980276.212,
+      "0.485382080078125"
+     ]
+    },
+    {
+     "metric": {
+      "container": "barman-cloud",
+      "namespace": "cnpg-system",
+      "pod": "plugin-barman-cloud-55d6bdf7f5-k686x"
+     },
+     "value": [
+      1794980276.212,
+      "0.21923828125"
+     ]
+    },
+    {
+     "metric": {
+      "container": "grafana",
+      "namespace": "monitoring",
+      "pod": "grafana-d6c44898-hf9l6"
+     },
+     "value": [
+      1794980276.212,
+      "0.8126029968261719"
+     ]
+    },
+    {
+     "metric": {
+      "container": "cert-manager-cainjector",
+      "namespace": "cert-manager",
+      "pod": "cert-manager-cainjector-74d89565b4-5vx6l"
+     },
+     "value": [
+      1794980276.212,
+      "0.3441162109375"
+     ]
+    },
+    {
+     "metric": {
+      "container": "coredns",
+      "namespace": "kube-system",
+      "pod": "coredns-559f6c778d-gjbk4"
+     },
+     "value": [
+      1794980276.212,
+      "0.17392003676470588"
+     ]
+    },
+    {
+     "metric": {
+      "container": "envoy-gateway",
+      "namespace": "envoy-gateway-system",
+      "pod": "envoy-gateway-794d569d78-bhl6v"
+     },
+     "value": [
+      1794980276.212,
+      "0.1758880615234375"
+     ]
+    },
+    {
+     "metric": {
+      "container": "event-exporter",
+      "namespace": "event-exporter",
+      "pod": "event-exporter-787fcd47f5-hqwlt"
+     },
+     "value": [
+      1794980276.212,
+      "0.141815185546875"
+     ]
+    },
+    {
+     "metric": {
+      "container": "cert-controller",
+      "namespace": "external-secrets",
+      "pod": "external-secrets-cert-controller-7484847f9f-xtq6p"
+     },
+     "value": [
+      1794980276.212,
+      "0.399261474609375"
+     ]
+    },
+    {
+     "metric": {
+      "container": "argo-rollouts",
+      "namespace": "argo-rollouts",
+      "pod": "argo-rollouts-6997859466-xjsgw"
+     },
+     "value": [
+      1794980276.212,
+      "0.234771728515625"
+     ]
+    },
+    {
+     "metric": {
+      "container": "seaweedfs",
+      "namespace": "backups",
+      "pod": "seaweedfs-0"
+     },
+     "value": [
+      1794980276.212,
+      "0.20635223388671875"
+     ]
+    },
+    {
+     "metric": {
+      "container": "controller",
+      "namespace": "kyverno",
+      "pod": "kyverno-reports-controller-86977c5d94-v5wnf"
+     },
+     "value": [
+      1794980276.212,
+      "0.40277099609375"
+     ]
+    },
+    {
+     "metric": {
+      "container": "app",
+      "namespace": "java-hello-staging",
+      "pod": "java-hello-7dff59994d-njfjx"
+     },
+     "value": [
+      1794980276.212,
+      "0.4426981608072917"
+     ]
+    },
+    {
+     "metric": {
+      "container": "app",
+      "namespace": "java-hello-prod",
+      "pod": "java-hello-7dff59994d-jrglr"
+     },
+     "value": [
+      1794980276.212,
+      "0.46942138671875"
+     ]
+    }
+   ]
+  }
+ }
+}

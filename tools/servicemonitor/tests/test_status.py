@@ -17,7 +17,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from app import history, monitors, status
+from app import containers, history, monitors, status
 from app.main import app
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -35,9 +35,22 @@ DEPLOY = Path(__file__).parents[1] / "deploy"
 GENERATOR = Path(__file__).parents[3] / "scripts/gen_slo_rules.py"
 
 
+NO_SERIES = {"status": "success", "data": {"resultType": "vector", "result": []}}
+
+
+def containers_query(query: str) -> str | None:
+    """Which of app/containers.py's queries this is (the restarts' window varies), if any."""
+    if query.startswith(containers.RESTARTS.split("[")[0]):
+        return "restarts"
+    queries = {containers.UPTIME: "uptime", containers.OOM: "oom", containers.MEMORY: "memory"}
+    return queries.get(query)
+
+
 class Cluster:
     """Answers both APIs from the recordings. A test changes `bodies`, or names a
-    recording in `down`."""
+    recording in `down`. The containers' queries answer no series (nothing to say about
+    them) unless a test puts tests/fixtures/containers.json there (tests/test_containers.py).
+    """
 
     def __init__(self) -> None:
         self.bodies: dict[str, Any] = {
@@ -48,6 +61,9 @@ class Cluster:
         self.bodies["namespaces"]["items"] += more["namespaces"]
         self.bodies["servicemonitors"]["items"] += more["servicemonitors"]
         self.targets += more["targets"]
+        self.bodies["containers"] = dict.fromkeys(
+            ("uptime", "restarts", "oom", "memory"), NO_SERIES
+        )
         self.down: set[str] = set()
         self.requests: list[httpx.Request] = []
 
@@ -57,6 +73,10 @@ class Cluster:
         replicas = {query: key for key, query in status.REPLICAS.items()}
         if name == "slo_budget" and request.url.params["query"] in replicas:
             name = "replicas"  # tests/test_replicas.py
+        if name == "slo_budget" and (key := containers_query(request.url.params["query"])):
+            if "containers" in self.down:
+                raise httpx.ConnectError("connection refused")
+            return httpx.Response(200, json=self.bodies["containers"][key])
         if name in self.down:
             raise httpx.ConnectError("connection refused")
         if name == "replicas":
@@ -128,6 +148,7 @@ def test_the_summary_line() -> None:
         "alerts": False,
         "slo": False,
         "replicas": False,
+        "containers": False,
     }
     assert model["summary"] == {
         "monitors": 9,
@@ -349,15 +370,29 @@ def test_the_queries_are_cached(cluster: Cluster) -> None:
     read()
     read()
     paths = [r.url.path for r in cluster.requests]
-    assert len(paths) == 11
+    assert len(paths) == 15
     queries = [r.url.params["query"] for r in cluster.requests if r.url.path == "/api/v1/query"]
-    assert queries == [status.BUDGET, *status.REPLICAS.values()]
+    assert queries == [
+        status.BUDGET,
+        *status.REPLICAS.values(),
+        containers.UPTIME,
+        containers.RESTARTS.format(containers.HOUR),
+        containers.OOM,
+        containers.MEMORY,
+    ]
 
 
 def test_the_route_serves_the_model() -> None:
     response = TestClient(app).get("/api/status")
     assert response.status_code == 200
-    assert set(response.json()) == {"sources", "summary", "namespaces", "replicas", "unattached"}
+    assert set(response.json()) == {
+        "sources",
+        "summary",
+        "namespaces",
+        "replicas",
+        "containers",
+        "unattached",
+    }
     assert response.json()["summary"]["alerts_firing"] == 2
 
 

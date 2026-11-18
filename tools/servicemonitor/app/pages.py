@@ -8,7 +8,8 @@ nobody knows (Prometheus never answered): unknown is never shown as healthy. So 
 with an alert firing on a job it scrapes, or an SLO with no error budget left. An alert
 that is only in a namespace it scrapes is shown, dimmed, and is not the monitor's problem.
 The Overview's tiles are marked by the same rules, over each namespace's rows and its pods
-(a workload with none ready is Down, one short for over a minute Alert), and so are its
+(a workload with none ready is Down, one short for over a minute Alert) and its containers
+(a restart or an OOM kill in the hour is Alert: app/containers.py), and so are its
 platform components' lines, over their monitors' rows and their own alerts.
 """
 
@@ -18,6 +19,8 @@ from datetime import datetime
 from fnmatch import fnmatchcase
 from typing import Any
 from urllib.parse import quote, urlencode
+
+from app import containers
 
 # Where a browser reaches the tools: the front door's `tools` listener on the laptop.
 GRAFANA = os.environ.get("GRAFANA_LINK_URL", "http://grafana.localhost:8090")
@@ -32,6 +35,7 @@ SOURCES = {
     "alerts": ("Prometheus's alerts API", "the alerts"),
     "slo": ("Prometheus's query API", "the error budgets"),
     "replicas": ("Prometheus's query API", "the pods ready"),
+    "containers": ("Prometheus's query API", "the restarts and memory"),
 }
 NO_PODS = {"ready": 0, "desired": 0, "short": 0, "none": 0}  # no Deployment or StatefulSet
 
@@ -266,6 +270,7 @@ def view(
                     "name": ns["name"],
                     "owner": ns["owner"],
                     "pods": _pods(status["replicas"], ns["name"]),
+                    "containers": containers.facts(status["containers"], ns["name"]),
                     "monitors": sorted(shown, key=lambda row: not row["problem"]),
                 }
             )
@@ -320,19 +325,18 @@ def _pods(replicas: dict[str, dict[str, int]] | None, namespace: str) -> dict[st
     }
 
 
-def _tile(
-    ns: dict[str, Any], rows: list[dict[str, Any]], replicas: dict[str, dict[str, int]] | None
-) -> dict[str, Any]:
+def _tile(ns: dict[str, Any], rows: list[dict[str, Any]], status: dict[str, Any]) -> dict[str, Any]:
     """A namespace on the Overview: its tile, marked by its worst monitor and its pods, and
     a square for each of its targets. What the page doesn't know is unknown, never healthy."""
     targets_known = all(row["tone"] != "unknown" for row in rows)
     alerts_known = all(row["alerts"] is not None for row in rows)
     budgets_known = all(row["slo"] is not None for row in rows)
-    pods = _pods(replicas, ns["name"])
+    pods = _pods(status["replicas"], ns["name"])
+    mine = containers.facts(status["containers"], ns["name"])
     word, tone = _mark(
         any(row["tone"] in ("down", "warn") for row in rows),  # a target down, or none
-        any(row["alerting"] for row in rows),
-        targets_known and alerts_known and budgets_known,
+        any(row["alerting"] for row in rows) or mine["alerting"],
+        targets_known and alerts_known and budgets_known and mine["tone"] != "unknown",
         pods["counts"],
     )
 
@@ -344,6 +348,8 @@ def _tile(
             facts.append(f"{empty} {'monitor' if empty == 1 else 'monitors'} without targets")
     if pods["text"]:
         facts.append(pods["text"])
+    if mine["text"]:
+        facts.append(mine["text"])
     # An alert is on the row of every monitor that scrapes its namespace: counted once.
     alerts = {
         tuple(sorted(alert["labels"].items())) for row in rows for alert in row["alerts"] or []
@@ -439,6 +445,6 @@ def overview(
     return {
         **_shell(model, status, every),
         "tab": "overview",
-        "namespaces": [_tile(ns, rows, status["replicas"]) for ns, rows in namespaces],
+        "namespaces": [_tile(ns, rows, status) for ns, rows in namespaces],
         "components": [_component(c, every, firing) for c in components],
     }

@@ -24,9 +24,12 @@ more. The minute is Prometheus's, not the app's: `min_over_time` of a workload's
 over a 1m subquery, at the evaluation interval (15 s), is above 0 only if every point in it
 was, so a rollout's brief dip shows in the count but isn't "short".
 
+The containers are each namespace's restarts, OOM kills and memory headroom
+(app/containers.py).
+
 Like `monitors`: a query that fails keeps its last good answer and is marked stale; one
-that has never answered leaves `alerts`, `slo` or `replicas` `null`, never "no alerts", a
-full budget or every pod ready.
+that has never answered leaves `alerts`, `slo`, `replicas` or `containers` `null`, never "no
+alerts", a full budget, every pod ready or no restart.
 """
 
 import math
@@ -37,7 +40,7 @@ from urllib.parse import quote
 
 import httpx
 
-from app import monitors
+from app import containers, monitors
 
 BUDGET = "slo:error_budget_remaining:ratio"  # 1 = untouched, below 0 = overspent
 # The platform's ApplicationSet puts it on every app namespace, next to monitors.APP_LABEL.
@@ -112,12 +115,24 @@ async def _replicas() -> dict[str, dict[str, int]]:
     return found
 
 
+async def _containers() -> dict[str, Any]:
+    async def query(promql: str) -> list[dict[str, Any]]:
+        return (await _get("/api/v1/query", query=promql))["result"]  # type: ignore[no-any-return]
+
+    return await containers.read(query)
+
+
 async def _sources() -> dict[str, Any]:
     global _cache
     if _cache and time.monotonic() - _cache[0] < monitors.TTL:
         return _cache[1]
     sources = {}
-    for source, fetch in (("alerts", _alerts), ("slo", _budgets), ("replicas", _replicas)):
+    for source, fetch in (
+        ("alerts", _alerts),
+        ("slo", _budgets),
+        ("replicas", _replicas),
+        ("containers", _containers),
+    ):
         error = None
         try:
             _last_good[source] = (datetime.now(UTC).isoformat(timespec="seconds"), await fetch())
@@ -177,6 +192,7 @@ async def read() -> dict[str, Any]:
     alerts = _last_good["alerts"][1] if "alerts" in _last_good else None
     budgets = _last_good["slo"][1] if "slo" in _last_good else None
     replicas = _last_good["replicas"][1] if "replicas" in _last_good else None
+    found = _last_good["containers"][1] if "containers" in _last_good else None
     # What the monitors' model leaves out: each namespace's labels, each target's labels.
     labels = (monitors.last_good("kubernetes") or {}).get("labels", {})
     targets = monitors.last_good("prometheus")
@@ -232,6 +248,7 @@ async def read() -> dict[str, Any]:
         },
         "namespaces": namespaces,
         "replicas": replicas,
+        "containers": found,
         "unattached": None
         if alerts is None or namespaces is None
         else [alert for i, alert in enumerate(alerts) if i not in attached],
