@@ -7,6 +7,9 @@ name: kind e2e (reusable)
 # (scripts/kind-e2e.sh): workloads Ready, the front door routes each hostname, metrics
 # targets up, PrometheusRules loaded. With `run: false` the job reports success without
 # doing the work: the caller decides which changes need it (a lock or chart pin move).
+# Optional, for a caller that isn't the app (the platform's own CI, PT-82): app-repository
+# and app-ref name the app's repo and commit, platform-ref the platform commit instead of
+# platform.lock's. Empty, as apps call it, each keeps the default above.
 on:
   workflow_call:
     inputs:
@@ -30,6 +33,18 @@ on:
         description: "The service chart the caller renders with (oci://...@sha256:...)"
         type: string
         required: true
+      platform-ref:
+        description: "The platform commit to run (a SHA); empty: the app's platform.lock"
+        type: string
+        default: ""
+      app-repository:
+        description: "The app's repo (owner/name); empty: the caller's"
+        type: string
+        default: ""
+      app-ref:
+        description: "The app repo's commit; empty: the caller's (or app-repository's default branch)"
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -46,12 +61,21 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: inputs.run
         with:
+          repository: ${{ inputs.app-repository || github.repository }}
+          ref: ${{ inputs.app-ref }}
           persist-credentials: false
 
-      - name: Which platform (platform.lock)
+      - name: Which platform (platform-ref, else platform.lock)
         if: inputs.run
         id: platform
+        env:
+          PLATFORM_REF: ${{ inputs.platform-ref }}
         run: |
+          if [[ -n "$PLATFORM_REF" ]]; then
+            [[ "$PLATFORM_REF" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::platform-ref is not a commit SHA: $PLATFORM_REF"; exit 1; }
+            echo "sha=$PLATFORM_REF" | tee -a "$GITHUB_OUTPUT"
+            exit 0
+          fi
           sha=$(sed -nE 's/^easypeasyops\/platform@([0-9a-f]{40})$/\1/p' platform.lock)
           [[ -n "$sha" ]] || { echo "::error::platform.lock names no easypeasyops/platform@<sha>"; exit 1; }
           echo "sha=$sha" >>"$GITHUB_OUTPUT"
