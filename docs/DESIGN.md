@@ -68,13 +68,14 @@ policies and `apps/` from `main` within a minute of a merge.
 `workflow_call` workflows hold the checks every app's CI runs, so a fix to a check is made
 once: one check per language, and one image workflow for every language (the app contract is
 the image's behaviour, not its language). This repo's own tests run through the Python check,
-so it is exercised on every PR here; the Java check is exercised by app-template's
-`java-template`.
+so it is exercised on every PR here; the Java and Rust checks are exercised by
+app-template's `java-template` and `rust-template`.
 
 | Workflow | Does | Inputs |
 | --- | --- | --- |
 | `reusable-python-check.yml` | `uv sync --locked` (fails on a stale lock), ruff format and lint, mypy, pytest with a coverage floor | `working-directory` (an app in a domain repo: `apps/<app>`), `coverage-min` (90), `typecheck-paths`, `helm-version`, `fetch-depth` |
 | `reusable-java-check.yml` | `./mvnw verify` on a pinned Temurin JDK, Maven dependencies cached. The project's build defines the checks (formatting, compile, tests) and enforces the coverage floor it is passed as `-Dcoverage.min` | `working-directory`, `java-version` (21), `coverage-min` (0.90) |
+| `reusable-rust-check.yml` | `cargo fmt --check`, `cargo clippy -D warnings`, the tests through `cargo llvm-cov` with a line-coverage floor, all `--locked` (fails on a stale `Cargo.lock`). The toolchain is the project's `rust-toolchain.toml`, so CI and the Dockerfile build with the same compiler; `target/` cached | `working-directory`, `coverage-min` (90), `coverage-ignore` (`src/main\.rs$`: the entry point is the smoke test's) |
 | `reusable-image.yml` | Builds the image, scans it with Trivy (HIGH and CRITICAL with a fix available: failing on unfixable ones trains people to ignore the scanner), runs the app's smoke test against it | `context`, `smoke-command` (the image's tag is in `$IMAGE`) |
 | `reusable-kind-e2e.yml` | One app in one environment on the platform its repo pins (`scripts/kind-e2e.sh`): kind with the platform at the caller's `platform.lock` commit (`cluster.sh up`, no backups), the image built from the app's repo, its namespace as the `apps` ApplicationSet makes it, placeholders for the keys its pods read, the chart at the caller's pin with the values files `apps/<app>/envs/<env>.yaml` lists. Checks every workload Ready, the front door on each hostname, every metrics target up and the PrometheusRules loaded. About 15 minutes: an app runs it on lock and chart pin PRs, not every PR. A caller that isn't the app (the platform's own CI) names the app's repo and commit, the platform commit and, for an app the platform doesn't deploy, its values files | `app`, `env`, `context`, `chart`; optional `platform-ref`, `app-repository`, `app-ref`, `values-files` |
 
