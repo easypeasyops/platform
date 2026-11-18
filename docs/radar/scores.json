@@ -107,6 +107,60 @@
       "evidence": "Everything except Argo CD itself is GitOps, with self-heal and prune. cluster.sh up is idempotent. Passwords are generated into immutable Secrets. Upstream charts are pinned by digest and bumped by bots, and apps' chart pins now move on their own up to prod. The runbook pairs each alert with a procedure and gained node memory and front door entries.",
       "gaps": "Slack webhooks and app keys are still loaded by hand, and nothing alerts when one is missing. After the laptop sleeps, cluster.sh wake is manual. Tools use the admin login with no SSO. A change to Argo CD's own values needs cluster.sh up by hand.",
       "next": "Alert when a hand-loaded secret the platform expects is missing from the store."
+    },
+    {
+      "week": "2026-11-18",
+      "commit": "f3b213a",
+      "axis": "Supply-chain security",
+      "score": 4.5,
+      "evidence": "Two layers enforce one rule: images by digest, with keyless SLSA provenance signed by the app's own release.yml at an app tag (verify-image.sh at deploy, Kyverno at admission). Both fail closed and refuse tags. The platform's own tool, servicemonitor, goes through the same path: release.yml builds, scans and attests it from a servicemonitor/vX.Y.Z tag and runs verify-image.sh on the digest. Trivy scans every image, actions are pinned by SHA, and the chart is signed and pinned by digest.",
+      "gaps": "Unchanged: the allowlist policy is still Audit in kind, so a foreign image in an app namespace is reported, not refused. The Argo Rollouts plugin checksums were computed here, not published upstream. Today's changes only grouped Renovate and Dependabot updates.",
+      "next": "Run app-allowed-images in Deny, with a named exception for local builds."
+    },
+    {
+      "week": "2026-11-18",
+      "commit": "f3b213a",
+      "axis": "Reliability and recovery",
+      "score": 2.5,
+      "evidence": "The chart's defaults are production-shaped: probes, maxUnavailable 0, a preStop sleep, PDB and HPA, and a canary that aborts on failed analysis. Kyverno runs two admission replicas with a PDB. New: a fresh cluster now comes up reliably. The Prometheus operator starts after its CRDs, Argo CD applies cache events in order and caps self-heal backoff at 30 s, and a nightly e2e builds the whole platform from nothing (PT-71, PT-83). A CPU budget test keeps requests inside the CI node (PT-71).",
+      "gaps": "One kind node: every replica, every database and the backup bucket share one failure domain. Each Argo CD component still runs one replica. No restore drill runs from this repo, so nothing here proves a backup restores.",
+      "next": "A scheduled restore drill into the restore-drill namespace, with an alert when it fails."
+    },
+    {
+      "week": "2026-11-18",
+      "commit": "f3b213a",
+      "axis": "Observability",
+      "score": 4.0,
+      "evidence": "Metrics, logs (VictoriaLogs) and Kubernetes events in one place, with blackbox probes and generated multi-window burn-rate SLO alerts, tested with promtool. New on the ServiceMonitor page: what each environment runs side by side, CronJobs on time, late or failed, restarts, OOM kills and memory headroom, and deploys on the 24-hour history (PT-85 to PT-88). The SLO dashboard shows how many requests a budget is made of, so a low-traffic budget far below 0 reads right (PT-70).",
+      "gaps": "No trace backend: the chart has an otel endpoint, but nothing receives traces. The 30-day error budget looks back at most 10 days, because that's how long Prometheus keeps data.",
+      "next": "Run an OpenTelemetry collector and a trace store, and set otel.endpoint for every app."
+    },
+    {
+      "week": "2026-11-18",
+      "commit": "f3b213a",
+      "axis": "Delivery safety",
+      "score": 4.5,
+      "evidence": "The last scoring's next step is done: app-e2e in ci.yml deploys app-template's python-template on kind with the platform and chart from the PR's own commit, and the ci gate waits on it (PT-82). A nightly e2e runs app-template and aipostit on main's head, to catch what the path filter misses and upstream drift (PT-83). A values schema now refuses a value the chart doesn't know (PT-73), and app-template's apps are golden fixtures (PT-76).",
+      "gaps": "The PR e2e runs only on paths that touch what apps run on, and only the template app: aipostit's database and workers are checked nightly, after a merge. A merge still reaches the cluster, prod included, within a minute, with no staged rollout of the platform itself.",
+      "next": "Run aipostit's e2e in the PR's app-e2e too, so a real app with a database and workers gates a platform merge."
+    },
+    {
+      "week": "2026-11-18",
+      "commit": "f3b213a",
+      "axis": "Developer experience",
+      "score": 4.0,
+      "evidence": "The last scoring's next step is done: java-hello is the first app started from app-template, live in staging 17 minutes from an empty repo and in prod 7 minutes later (PT-48, PT-79). A reusable Java check joins the Python one, and the template's Python and Java apps are golden fixtures, so a chart change that breaks a new app fails here (PT-76). The values schema catches a mistyped value at render time (PT-73). The README now says which four apps run here.",
+      "gaps": "A new app still hand-writes its apps/<app>/ project and env files in a PR here, and loads its keys into the store by hand. Only one app has gone through the template so far.",
+      "next": "Generate a new app's apps/<app>/ files from its repo, so onboarding needs no hand-written YAML here."
+    },
+    {
+      "week": "2026-11-18",
+      "commit": "f3b213a",
+      "axis": "Operability and automation",
+      "score": 4.0,
+      "evidence": "Everything except Argo CD itself is GitOps, with self-heal and prune. cluster.sh up is idempotent and now waits for the platform's children side by side and ends with a report per pod, the node's CPU and Argo CD's self-heal waits (PT-71). The ApplicationSet reads env files every 60 s (PT-80). The runbook gained the CI node's CPU budget and what to do when a PR's or the nightly app e2e goes red.",
+      "gaps": "Unchanged: Slack webhooks and app keys are still loaded by hand, and nothing alerts when one is missing. After the laptop sleeps, cluster.sh wake is manual. Tools use the admin login with no SSO. A change to Argo CD's own values needs cluster.sh up by hand.",
+      "next": "Alert when a hand-loaded secret the platform expects is missing from the store."
     }
   ],
   "meta": [
