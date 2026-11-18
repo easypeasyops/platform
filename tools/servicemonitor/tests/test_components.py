@@ -14,7 +14,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from app import components, history, monitors, status
+from app import components, cronjobs, history, monitors, status
 from app.containers import HOUR, MEMORY, OOM, RESTARTS, UPTIME
 from app.main import app
 from tests import test_status
@@ -56,6 +56,9 @@ class Cluster:
         self.bodies["queries"] |= dict.fromkeys(
             (UPTIME, RESTARTS.format(HOUR), OOM, MEMORY), test_status.NO_SERIES
         )
+        self.bodies["queries"] |= dict.fromkeys(
+            cronjobs.QUERIES.values(), test_status.NO_SERIES
+        )  # nor any CronJob
         self.down: set[str] = set()
         self.queries: list[str] = []
 

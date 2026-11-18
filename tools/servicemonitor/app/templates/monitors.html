@@ -40,6 +40,7 @@ An app with no ServiceMonitor isn't scraped at all: the service chart creates on
 <span class="spacer"></span>
 <span>{{ group.monitors | length }} {{ "monitor" if group.monitors | length == 1 else "monitors" }}</span>
 </h2>
+{% include "_cronjobs.html" %}
 {% for m in group.monitors %}
 <details id="{{ m.id }}" class="{{ m.tone }}">
 <summary class="columns" aria-label="{{ m.kind }} {{ m.name }}, targets {{ m.status }}{% if m.alerts %}, firing {{ m.alerts | map(attribute='name') | join(', ') }}{% endif %}{% if m.slo and m.slo.left %}, error budget {{ m.slo.left }} left{% endif %}">

@@ -17,7 +17,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from app import containers, history, monitors, status
+from app import containers, cronjobs, history, monitors, status
 from app.main import app
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -59,6 +59,8 @@ class Cluster:
         }
         deploys = json.loads((FIXTURES / "deploys.json").read_text())  # tests/test_history.py
         self.bodies["history"]["deploys"] = deploys
+        # No CronJob, unless a test loads tests/test_cronjobs.py's recording.
+        self.bodies["cronjobs"] = dict.fromkeys(cronjobs.QUERIES, NO_SERIES)
         more = json.loads((FIXTURES / "more_monitors.json").read_text())
         self.bodies["namespaces"]["items"] += more["namespaces"]
         self.bodies["servicemonitors"]["items"] += more["servicemonitors"]
@@ -73,18 +75,23 @@ class Cluster:
         self.requests.append(request)
         name = PATHS[request.url.path]
         replicas = {query: key for key, query in status.REPLICAS.items()}
+        crons = {query: key for key, query in cronjobs.QUERIES.items()}
         if name == "slo_budget" and request.url.params["query"] in replicas:
             name = "replicas"  # tests/test_replicas.py
         if name == "slo_budget" and (key := containers_query(request.url.params["query"])):
             if "containers" in self.down:
                 raise httpx.ConnectError("connection refused")
             return httpx.Response(200, json=self.bodies["containers"][key])
+        if name == "slo_budget" and request.url.params["query"] in crons:
+            name = "cronjobs"  # tests/test_cronjobs.py
         if name in self.down:
             raise httpx.ConnectError("connection refused")
         if name == "replicas":
             return httpx.Response(
                 200, json=self.bodies[name][replicas[request.url.params["query"]]]
             )
+        if name == "cronjobs":
+            return httpx.Response(200, json=self.bodies[name][crons[request.url.params["query"]]])
         if name == "history":
             key = {query: key for key, query in history.QUERIES.items()}[
                 request.url.params["query"]
@@ -151,6 +158,7 @@ def test_the_summary_line() -> None:
         "slo": False,
         "replicas": False,
         "containers": False,
+        "cronjobs": False,
     }
     assert model["summary"] == {
         "monitors": 9,
@@ -372,7 +380,7 @@ def test_the_queries_are_cached(cluster: Cluster) -> None:
     read()
     read()
     paths = [r.url.path for r in cluster.requests]
-    assert len(paths) == 15
+    assert len(paths) == 21
     queries = [r.url.params["query"] for r in cluster.requests if r.url.path == "/api/v1/query"]
     assert queries == [
         status.BUDGET,
@@ -381,6 +389,7 @@ def test_the_queries_are_cached(cluster: Cluster) -> None:
         containers.RESTARTS.format(containers.HOUR),
         containers.OOM,
         containers.MEMORY,
+        *cronjobs.QUERIES.values(),
     ]
 
 
@@ -393,6 +402,7 @@ def test_the_route_serves_the_model() -> None:
         "namespaces",
         "replicas",
         "containers",
+        "cronjobs",
         "unattached",
     }
     assert response.json()["summary"]["alerts_firing"] == 2

@@ -1,0 +1,472 @@
+{
+  "info": {
+    "status": "success",
+    "data": {
+      "resultType": "vector",
+      "result": [
+        {
+          "metric": {
+            "__name__": "kube_cronjob_info",
+            "concurrency_policy": "Forbid",
+            "container": "kube-state-metrics",
+            "cronjob": "provenance-canary",
+            "endpoint": "http",
+            "instance": "10.244.0.4:8080",
+            "job": "kube-state-metrics",
+            "namespace": "monitoring",
+            "pod": "kube-state-metrics-785764d86f-jqxtl",
+            "schedule": "*/15 * * * *",
+            "service": "kube-state-metrics",
+            "timezone": "local"
+          },
+          "value": [
+            1794980147.915,
+            "1"
+          ]
+        },
+        {
+          "metric": {
+            "__name__": "kube_cronjob_info",
+            "concurrency_policy": "Forbid",
+            "container": "kube-state-metrics",
+            "cronjob": "aipostit-generate-weekly",
+            "endpoint": "http",
+            "instance": "10.244.0.4:8080",
+            "job": "kube-state-metrics",
+            "namespace": "aipostit-prod",
+            "pod": "kube-state-metrics-785764d86f-jqxtl",
+            "schedule": "0 6 * * 1",
+            "service": "kube-state-metrics",
+            "timezone": "Etc/UTC"
+          },
+          "value": [
+            1794980147.915,
+            "1"
+          ]
+        },
+        {
+          "metric": {
+            "__name__": "kube_cronjob_info",
+            "concurrency_policy": "Forbid",
+            "container": "kube-state-metrics",
+            "cronjob": "aipostit-purge-invites",
+            "endpoint": "http",
+            "instance": "10.244.0.4:8080",
+            "job": "kube-state-metrics",
+            "namespace": "aipostit-prod",
+            "pod": "kube-state-metrics-785764d86f-jqxtl",
+            "schedule": "45 3 * * *",
+            "service": "kube-state-metrics",
+            "timezone": "Etc/UTC"
+          },
+          "value": [
+            1794980147.915,
+            "1"
+          ]
+        },
+        {
+          "metric": {
+            "__name__": "kube_cronjob_info",
+            "concurrency_policy": "Forbid",
+            "container": "kube-state-metrics",
+            "cronjob": "aipostit-purge-photos",
+            "endpoint": "http",
+            "instance": "10.244.0.4:8080",
+            "job": "kube-state-metrics",
+            "namespace": "aipostit-prod",
+            "pod": "kube-state-metrics-785764d86f-jqxtl",
+            "schedule": "30 4 * * *",
+            "service": "kube-state-metrics",
+            "timezone": "Etc/UTC"
+          },
+          "value": [
+            1794980147.915,
+            "1"
+          ]
+        },
+        {
+          "metric": {
+            "__name__": "kube_cronjob_info",
+            "concurrency_policy": "Forbid",
+            "container": "kube-state-metrics",
+            "cronjob": "aipostit-sync-buffer",
+            "endpoint": "http",
+            "instance": "10.244.0.4:8080",
+            "job": "kube-state-metrics",
+            "namespace": "aipostit-prod",
+            "pod": "kube-state-metrics-785764d86f-jqxtl",
+            "schedule": "15 * * * *",
+            "service": "kube-state-metrics",
+            "timezone": "Etc/UTC"
+          },
+          "value": [
+            1794980147.915,
+            "1"
+          ]
+        }
+      ]
+    }
+  },
+  "success": {
+    "status": "success",
+    "data": {
+      "resultType": "vector",
+      "result": [
+        {
+          "metric": {
+            "__name__": "kube_cronjob_status_last_successful_time",
+            "container": "kube-state-metrics",
+            "cronjob": "provenance-canary",
+            "endpoint": "http",
+            "instance": "10.244.0.4:8080",
+            "job": "kube-state-metrics",
+            "namespace": "monitoring",
+            "pod": "kube-state-metrics-785764d86f-jqxtl",
+            "service": "kube-state-metrics"
+          },
+          "value": [
+            1794980147.927,
+            "1794979805"
+          ]
+        },
+        {
+          "metric": {
+            "__name__": "kube_cronjob_status_last_successful_time",
+            "container": "kube-state-metrics",
+            "cronjob": "aipostit-generate-weekly",
+            "endpoint": "http",
+            "instance": "10.244.0.4:8080",
+            "job": "kube-state-metrics",
+            "namespace": "aipostit-prod",
+            "pod": "kube-state-metrics-785764d86f-jqxtl",
+            "service": "kube-state-metrics"
+          },
+          "value": [
+            1794980147.927,
+            "1794808822"
+          ]
+        },
+        {
+          "metric": {
+            "__name__": "kube_cronjob_status_last_successful_time",
+            "container": "kube-state-metrics",
+            "cronjob": "aipostit-purge-invites",
+            "endpoint": "http",
+            "instance": "10.244.0.4:8080",
+            "job": "kube-state-metrics",
+            "namespace": "aipostit-prod",
+            "pod": "kube-state-metrics-785764d86f-jqxtl",
+            "service": "kube-state-metrics"
+          },
+          "value": [
+            1794980147.927,
+            "1794800901"
+          ]
+        },
+        {
+          "metric": {
+            "__name__": "kube_cronjob_status_last_successful_time",
+            "container": "kube-state-metrics",
+            "cronjob": "aipostit-purge-photos",
+            "endpoint": "http",
+            "instance": "10.244.0.4:8080",
+            "job": "kube-state-metrics",
+            "namespace": "aipostit-prod",
+            "pod": "kube-state-metrics-785764d86f-jqxtl",
+            "service": "kube-state-metrics"
+          },
+          "value": [
+            1794980147.927,
+            "1794803432"
+          ]
+        },
+        {
+          "metric": {
+            "__name__": "kube_cronjob_status_last_successful_time",
+            "container": "kube-state-metrics",
+            "cronjob": "aipostit-sync-buffer",
+            "endpoint": "http",
+            "instance": "10.244.0.4:8080",
+            "job": "kube-state-metrics",
+            "namespace": "aipostit-prod",
+            "pod": "kube-state-metrics-785764d86f-jqxtl",
+            "service": "kube-state-metrics"
+          },
+          "value": [
+            1794980147.927,
+            "1794979684"
+          ]
+        }
+      ]
+    }
+  },
+  "next": {
+    "status": "success",
+    "data": {
+      "resultType": "vector",
+      "result": [
+        {
+          "metric": {
+            "__name__": "kube_cronjob_next_schedule_time",
+            "container": "kube-state-metrics",
+            "cronjob": "provenance-canary",
+            "endpoint": "http",
+            "instance": "10.244.0.4:8080",
+            "job": "kube-state-metrics",
+            "namespace": "monitoring",
+            "pod": "kube-state-metrics-785764d86f-jqxtl",
+            "service": "kube-state-metrics"
+          },
+          "value": [
+            1794980147.936,
+            "1794980700"
+          ]
+        },
+        {
+          "metric": {
+            "__name__": "kube_cronjob_next_schedule_time",
+            "container": "kube-state-metrics",
+            "cronjob": "aipostit-generate-weekly",
+            "endpoint": "http",
+            "instance": "10.244.0.4:8080",
+            "job": "kube-state-metrics",
+            "namespace": "aipostit-prod",
+            "pod": "kube-state-metrics-785764d86f-jqxtl",
+            "service": "kube-state-metrics"
+          },
+          "value": [
+            1794980147.936,
+            "1795413600"
+          ]
+        },
+        {
+          "metric": {
+            "__name__": "kube_cronjob_next_schedule_time",
+            "container": "kube-state-metrics",
+            "cronjob": "aipostit-purge-invites",
+            "endpoint": "http",
+            "instance": "10.244.0.4:8080",
+            "job": "kube-state-metrics",
+            "namespace": "aipostit-prod",
+            "pod": "kube-state-metrics-785764d86f-jqxtl",
+            "service": "kube-state-metrics"
+          },
+          "value": [
+            1794980147.936,
+            "1794887100"
+          ]
+        },
+        {
+          "metric": {
+            "__name__": "kube_cronjob_next_schedule_time",
+            "container": "kube-state-metrics",
+            "cronjob": "aipostit-purge-photos",
+            "endpoint": "http",
+            "instance": "10.244.0.4:8080",
+            "job": "kube-state-metrics",
+            "namespace": "aipostit-prod",
+            "pod": "kube-state-metrics-785764d86f-jqxtl",
+            "service": "kube-state-metrics"
+          },
+          "value": [
+            1794980147.936,
+            "1794889800"
+          ]
+        },
+        {
+          "metric": {
+            "__name__": "kube_cronjob_next_schedule_time",
+            "container": "kube-state-metrics",
+            "cronjob": "aipostit-sync-buffer",
+            "endpoint": "http",
+            "instance": "10.244.0.4:8080",
+            "job": "kube-state-metrics",
+            "namespace": "aipostit-prod",
+            "pod": "kube-state-metrics-785764d86f-jqxtl",
+            "service": "kube-state-metrics"
+          },
+          "value": [
+            1794980147.936,
+            "1794982500"
+          ]
+        }
+      ]
+    }
+  },
+  "suspend": {
+    "status": "success",
+    "data": {
+      "resultType": "vector",
+      "result": [
+        {
+          "metric": {
+            "__name__": "kube_cronjob_spec_suspend",
+            "container": "kube-state-metrics",
+            "cronjob": "provenance-canary",
+            "endpoint": "http",
+            "instance": "10.244.0.4:8080",
+            "job": "kube-state-metrics",
+            "namespace": "monitoring",
+            "pod": "kube-state-metrics-785764d86f-jqxtl",
+            "service": "kube-state-metrics"
+          },
+          "value": [
+            1794980147.944,
+            "0"
+          ]
+        },
+        {
+          "metric": {
+            "__name__": "kube_cronjob_spec_suspend",
+            "container": "kube-state-metrics",
+            "cronjob": "aipostit-generate-weekly",
+            "endpoint": "http",
+            "instance": "10.244.0.4:8080",
+            "job": "kube-state-metrics",
+            "namespace": "aipostit-prod",
+            "pod": "kube-state-metrics-785764d86f-jqxtl",
+            "service": "kube-state-metrics"
+          },
+          "value": [
+            1794980147.944,
+            "0"
+          ]
+        },
+        {
+          "metric": {
+            "__name__": "kube_cronjob_spec_suspend",
+            "container": "kube-state-metrics",
+            "cronjob": "aipostit-purge-invites",
+            "endpoint": "http",
+            "instance": "10.244.0.4:8080",
+            "job": "kube-state-metrics",
+            "namespace": "aipostit-prod",
+            "pod": "kube-state-metrics-785764d86f-jqxtl",
+            "service": "kube-state-metrics"
+          },
+          "value": [
+            1794980147.944,
+            "0"
+          ]
+        },
+        {
+          "metric": {
+            "__name__": "kube_cronjob_spec_suspend",
+            "container": "kube-state-metrics",
+            "cronjob": "aipostit-purge-photos",
+            "endpoint": "http",
+            "instance": "10.244.0.4:8080",
+            "job": "kube-state-metrics",
+            "namespace": "aipostit-prod",
+            "pod": "kube-state-metrics-785764d86f-jqxtl",
+            "service": "kube-state-metrics"
+          },
+          "value": [
+            1794980147.944,
+            "0"
+          ]
+        },
+        {
+          "metric": {
+            "__name__": "kube_cronjob_spec_suspend",
+            "container": "kube-state-metrics",
+            "cronjob": "aipostit-sync-buffer",
+            "endpoint": "http",
+            "instance": "10.244.0.4:8080",
+            "job": "kube-state-metrics",
+            "namespace": "aipostit-prod",
+            "pod": "kube-state-metrics-785764d86f-jqxtl",
+            "service": "kube-state-metrics"
+          },
+          "value": [
+            1794980147.944,
+            "0"
+          ]
+        }
+      ]
+    }
+  },
+  "jobs": {
+    "status": "success",
+    "data": {
+      "resultType": "vector",
+      "result": [
+        {
+          "metric": {
+            "container": "kube-state-metrics",
+            "endpoint": "http",
+            "instance": "10.244.0.4:8080",
+            "job": "kube-state-metrics",
+            "job_name": "aipostit-sync-buffer-29916195",
+            "namespace": "aipostit-prod",
+            "owner_name": "aipostit-sync-buffer",
+            "pod": "kube-state-metrics-785764d86f-jqxtl",
+            "service": "kube-state-metrics"
+          },
+          "value": [
+            1794980147.951,
+            "1794973084"
+          ]
+        },
+        {
+          "metric": {
+            "container": "kube-state-metrics",
+            "endpoint": "http",
+            "instance": "10.244.0.4:8080",
+            "job": "kube-state-metrics",
+            "job_name": "aipostit-sync-buffer-29916255",
+            "namespace": "aipostit-prod",
+            "owner_name": "aipostit-sync-buffer",
+            "pod": "kube-state-metrics-785764d86f-jqxtl",
+            "service": "kube-state-metrics"
+          },
+          "value": [
+            1794980147.951,
+            "1794976080"
+          ]
+        },
+        {
+          "metric": {
+            "container": "kube-state-metrics",
+            "endpoint": "http",
+            "instance": "10.244.0.4:8080",
+            "job": "kube-state-metrics",
+            "job_name": "aipostit-sync-buffer-29916315",
+            "namespace": "aipostit-prod",
+            "owner_name": "aipostit-sync-buffer",
+            "pod": "kube-state-metrics-785764d86f-jqxtl",
+            "service": "kube-state-metrics"
+          },
+          "value": [
+            1794980147.951,
+            "1794979677"
+          ]
+        },
+        {
+          "metric": {
+            "container": "kube-state-metrics",
+            "endpoint": "http",
+            "instance": "10.244.0.4:8080",
+            "job": "kube-state-metrics",
+            "job_name": "provenance-canary-29916330",
+            "namespace": "monitoring",
+            "owner_name": "provenance-canary",
+            "pod": "kube-state-metrics-785764d86f-jqxtl",
+            "service": "kube-state-metrics"
+          },
+          "value": [
+            1794980147.951,
+            "1794979800"
+          ]
+        }
+      ]
+    }
+  },
+  "failed": {
+    "status": "success",
+    "data": {
+      "resultType": "vector",
+      "result": []
+    }
+  }
+}
