@@ -1,0 +1,11 @@
+# Prod, namespace rust-template-prod. Promote a release by setting the digest staging runs.
+environment: prod
+image:
+  digest: "" # no release deployed yet
+replicaCount: 2 # survives one pod loss or a node drain (the chart adds a PodDisruptionBudget)
+gateway:
+  hostnames: ["rust-template.localhost"]
+monitoring:
+  # The one release per cluster that ships the alert rules and the SLO dashboard: they
+  # cover every environment's namespace.
+  clusterWide: true
