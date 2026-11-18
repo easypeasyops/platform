@@ -59,6 +59,8 @@ service with the whole app contract filled in (release workflow, CI on the reusa
 workflows, `platform.lock`, chart values per environment, an SLO spec, an image that runs
 as UID 10001 on a read-only root, `/healthz` and `/readyz`), proven by its own CI. Its
 README has the steps: create the repo from the template, rename, release `<app>/v0.1.0`.
+[scripts/new-app.py](scripts/new-app.py) runs them, and the platform side below, for any
+template that follows the same layout: `create`, `staging` and `prod`, each stopping at a wait.
 
 What the app still decides:
 
