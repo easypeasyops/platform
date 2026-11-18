@@ -14,8 +14,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE_REPO = "easypeasyops/app-template"
-TEMPLATE_COMMIT = "a41a14ae6577fa7f6f282bf276076391fc7719ab"
-APPS = ["python-template", "java-template"]
+TEMPLATE_COMMIT = "a11f40ec73b8ae3eaf7d3fb4579fc2d41083a17f"
+APPS = ["python-template", "java-template", "rust-template"]
 # Fixture file (charts/service/tests/<app>/) -> the template's file (apps/<app>/deploy/).
 FILES = {
     "values.yaml": "service/values.yaml",
