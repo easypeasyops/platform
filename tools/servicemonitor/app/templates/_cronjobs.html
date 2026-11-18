@@ -1,0 +1,17 @@
+{# A namespace's CronJobs on the Monitors tab, below its group's header (app/cronjobs.py). #}
+{% if group.cronjobs is none %}
+<div class="targets cronjobs"><div class="target"><span>CronJobs unknown: Prometheus's query API has not answered.</span></div></div>
+{% elif group.cronjobs %}
+<div class="targets cronjobs">
+<div class="target head"><span>CronJob</span><span>State</span><span>Last success</span><span>Next run</span><span>Schedule</span></div>
+{% for c in group.cronjobs %}
+<div class="target">
+<span class="mono">{{ c.name }}</span>
+<span class="pill {{ c.tone }}">{{ c.state }}</span>
+<span>{{ c.last }}</span>
+<span>{{ c.next }}</span>
+<span><span class="mono">{{ c.schedule }}</span>{% if c.failed %} · <span class="error">latest Job <span class="mono">{{ c.failed }}</span> failed</span>{% endif %}</span>
+</div>
+{% endfor %}
+</div>
+{% endif %}

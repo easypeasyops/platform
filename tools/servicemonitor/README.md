@@ -71,6 +71,14 @@ not alerted on. The laptop's node reboots after a night asleep and every pod res
 it, so restarts are counted from 10 minutes after the node's boot (node-exporter's
 `node_boot_time_seconds`), over at most the last hour.
 
+A namespace with CronJobs also says "cron S/N on time", and its group on the Monitors tab
+lists each one: its state, last success, next run and schedule (`app/cronjobs.py`, six
+kube-state-metrics queries; no Kubernetes API call). One is late when its last success is
+older than two schedule intervals (worked out from its schedule), and failed when its
+latest Job has failed pods and no succeeded one and was created within two intervals; either
+makes the tile Alert. One that has never succeeded is Unknown, never on time; a suspended
+one is named, not counted. A next run in the past means the run before it was missed.
+
 The Overview's platform components panel has a line per component (Argo CD, the front
 door, Kyverno, ...): its monitors' targets up, its alerts firing, a dashboard link and one
 key signal, a PromQL query's number (`app/components.py`). Which monitors, alerts, dashboard

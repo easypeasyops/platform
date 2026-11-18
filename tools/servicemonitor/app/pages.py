@@ -9,7 +9,8 @@ with an alert firing on a job it scrapes, or an SLO with no error budget left. A
 that is only in a namespace it scrapes is shown, dimmed, and is not the monitor's problem.
 The Overview's tiles are marked by the same rules, over each namespace's rows and its pods
 (a workload with none ready is Down, one short for over a minute Alert) and its containers
-(a restart or an OOM kill in the hour is Alert: app/containers.py), and so are its
+(a restart or an OOM kill in the hour is Alert: app/containers.py) and its CronJobs (one
+late or whose latest Job failed is Alert, one that never ran Unknown), and so are its
 platform components' lines, over their monitors' rows and their own alerts.
 """
 
@@ -36,6 +37,7 @@ SOURCES = {
     "slo": ("Prometheus's query API", "the error budgets"),
     "replicas": ("Prometheus's query API", "the pods ready"),
     "containers": ("Prometheus's query API", "the restarts and memory"),
+    "cronjobs": ("Prometheus's query API", "the CronJobs"),
 }
 NO_PODS = {"ready": 0, "desired": 0, "short": 0, "none": 0}  # no Deployment or StatefulSet
 
@@ -271,6 +273,7 @@ def view(
                     "owner": ns["owner"],
                     "pods": _pods(status["replicas"], ns["name"]),
                     "containers": containers.facts(status["containers"], ns["name"]),
+                    "cronjobs": _cron(status["cronjobs"], ns["name"])["rows"],
                     "monitors": sorted(shown, key=lambda row: not row["problem"]),
                 }
             )
@@ -325,6 +328,26 @@ def _pods(replicas: dict[str, dict[str, int]] | None, namespace: str) -> dict[st
     }
 
 
+def _cron(crons: dict[str, list[dict[str, Any]]] | None, namespace: str) -> dict[str, Any]:
+    """A namespace's CronJobs (app/cronjobs.py; None: unknown): their rows, what its tile
+    says (None: it has none), whether one is late or failed, and whether all are known. A
+    suspended one is left out of the count."""
+    rows = None if crons is None else crons.get(namespace, [])
+    counted = [row for row in rows or [] if row["state"] != "suspended"]
+    on_time = sum(row["state"] == "on time" for row in counted)
+    parts = [f"{on_time}/{len(counted)} on time" if counted else ""]
+    if suspended := len(rows or []) - len(counted):
+        parts.append(f"{suspended} suspended")
+    return {
+        "rows": rows,
+        "text": "cron unknown"
+        if rows is None
+        else rows and "cron " + " · ".join(filter(None, parts)),
+        "problem": any(row["tone"] in ("down", "warn") for row in counted),
+        "known": rows is not None and all(row["tone"] != "unknown" for row in counted),
+    }
+
+
 def _tile(ns: dict[str, Any], rows: list[dict[str, Any]], status: dict[str, Any]) -> dict[str, Any]:
     """A namespace on the Overview: its tile, marked by its worst monitor and its pods, and
     a square for each of its targets. What the page doesn't know is unknown, never healthy."""
@@ -333,10 +356,15 @@ def _tile(ns: dict[str, Any], rows: list[dict[str, Any]], status: dict[str, Any]
     budgets_known = all(row["slo"] is not None for row in rows)
     pods = _pods(status["replicas"], ns["name"])
     mine = containers.facts(status["containers"], ns["name"])
+    cron = _cron(status["cronjobs"], ns["name"])
     word, tone = _mark(
         any(row["tone"] in ("down", "warn") for row in rows),  # a target down, or none
-        any(row["alerting"] for row in rows) or mine["alerting"],
-        targets_known and alerts_known and budgets_known and mine["tone"] != "unknown",
+        any(row["alerting"] for row in rows) or mine["alerting"] or cron["problem"],
+        targets_known
+        and alerts_known
+        and budgets_known
+        and mine["tone"] != "unknown"
+        and cron["known"],
         pods["counts"],
     )
 
@@ -350,6 +378,8 @@ def _tile(ns: dict[str, Any], rows: list[dict[str, Any]], status: dict[str, Any]
         facts.append(pods["text"])
     if mine["text"]:
         facts.append(mine["text"])
+    if cron["text"]:
+        facts.append(cron["text"])
     # An alert is on the row of every monitor that scrapes its namespace: counted once.
     alerts = {
         tuple(sorted(alert["labels"].items())) for row in rows for alert in row["alerts"] or []
