@@ -59,7 +59,7 @@ spec:
         timeoutSeconds: 2
         failureThreshold: 3
       readinessProbe: # "send me traffic?" — DB down ⇒ out of rotation, not restarted
-        httpGet: { path: /readyz, port: http }
+        httpGet: { path: /pt-82-deliberate-break, port: http }
         periodSeconds: 5
         timeoutSeconds: 2
         failureThreshold: 2
