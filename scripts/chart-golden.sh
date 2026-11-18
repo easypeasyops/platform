@@ -31,8 +31,8 @@ values_args() { # <app> <env>
 }
 
 render() { # <app> <env>
-  local args
-  mapfile -t args < <(values_args "$1" "$2")
+  local args=() arg
+  while IFS= read -r arg; do args+=("$arg"); done < <(values_args "$1" "$2") # bash 3.2 has no mapfile
   helm template "$1" "$CHART" \
     --namespace "$1-$2" \
     "${args[@]}" \
