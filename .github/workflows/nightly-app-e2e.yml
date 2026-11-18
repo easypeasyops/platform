@@ -1,0 +1,67 @@
+name: Nightly app e2e
+
+# Every app's kind e2e on this repo's main head (PT-83): what ci.yml's path filter misses,
+# and drift no PR makes (an upstream image tag, a chart repo, the runner image). Not part of
+# the ci gate: a red night is a signal to look, not a block. A manual run takes the chosen
+# branch's head instead of main's.
+on:
+  schedule:
+    # 10:17 UTC: 02:17 in Los Angeles in winter (PST), 03:17 in summer (PDT). Off the hour,
+    # when GitHub's scheduled runs queue least.
+    - cron: "17 10 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # One matrix entry per app and environment, read from the files that already pin them,
+  # so nothing here can drift from them:
+  #   - app-template: ci.yml's app-e2e inputs (its app-ref pin, values files, this commit's
+  #     chart);
+  #   - aipostit staging: hotel_social_posts at the commit below, with the chart
+  #     apps/aipostit/envs/staging.yaml pins and the values files it lists.
+  # deploybot (ops) joins when its e2e passes in hotel_social_posts (PT-84).
+  matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      include: ${{ steps.matrix.outputs.include }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Apps, their pins and charts
+        id: matrix
+        env:
+          # hotel_social_posts' main, its aipostit e2e green: move it in a PR of its own.
+          HOTEL_SOCIAL_POSTS_REF: 3d831b22610f0277b4f16bfdb06985783ed4050a
+        run: |
+          template=$(yq -o=json -I=0 '.jobs["app-e2e"].with | del(.run) | del(.["platform-ref"])' .github/workflows/ci.yml)
+          jq -e '."app-ref" | test("^[0-9a-f]{40}$")' <<<"$template" >/dev/null \
+            || { echo "::error::ci.yml's app-e2e has no app-ref commit: $template"; exit 1; }
+          digest=$(yq -e '.chart.digest' apps/aipostit/envs/staging.yaml)
+          aipostit=$(jq -nc --arg ref "$HOTEL_SOCIAL_POSTS_REF" --arg digest "$digest" '{
+            app: "aipostit", env: "staging", context: "apps/aipostit",
+            "app-repository": "easypeasyops/hotel_social_posts", "app-ref": $ref,
+            "values-files": "", chart: "oci://ghcr.io/easypeasyops/charts/service@\($digest)"}')
+          jq -nc --argjson a "$template" --argjson b "$aipostit" '[$a, $b]' \
+            | tee /dev/stderr | sed 's/^/include=/' >>"$GITHUB_OUTPUT"
+
+  e2e:
+    name: e2e (${{ matrix.app }} ${{ matrix.env }})
+    needs: matrix
+    strategy:
+      fail-fast: false # one red app mustn't hide the others
+      matrix:
+        include: ${{ fromJSON(needs.matrix.outputs.include) }}
+    uses: ./.github/workflows/reusable-kind-e2e.yml
+    with:
+      app: ${{ matrix.app }}
+      env: ${{ matrix.env }}
+      context: ${{ matrix.context }}
+      chart: ${{ matrix.chart }}
+      app-repository: ${{ matrix.app-repository }}
+      app-ref: ${{ matrix.app-ref }}
+      values-files: ${{ matrix.values-files }}
+      platform-ref: ${{ github.sha }}
