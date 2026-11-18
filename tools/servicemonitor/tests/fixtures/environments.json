@@ -1,0 +1,426 @@
+{
+ "images": {
+  "status": "success",
+  "data": {
+   "resultType": "vector",
+   "result": [
+    {
+     "metric": {
+      "image_id": "ghcr.io/easypeasyops/hotel_social_posts/aipostit@sha256:45edbd50cf68a9cbf7b196f50294b6b6755c7aa90211d00698df75cd744d14b3",
+      "namespace": "aipostit-prod"
+     },
+     "value": [
+      1794980028.473,
+      "2"
+     ]
+    },
+    {
+     "metric": {
+      "image_id": "ghcr.io/easypeasyops/hotel_social_posts/aipostit@sha256:45edbd50cf68a9cbf7b196f50294b6b6755c7aa90211d00698df75cd744d14b3",
+      "namespace": "aipostit-staging"
+     },
+     "value": [
+      1794980028.473,
+      "1"
+     ]
+    },
+    {
+     "metric": {
+      "image_id": "ghcr.io/easypeasyops/hotel_social_posts/deploybot@sha256:0e2c2bf838e10f3329195ac9decc42d9e038bd5d7761e6f946639e9b0d2a11bd",
+      "namespace": "deploybot-ops"
+     },
+     "value": [
+      1794980028.473,
+      "1"
+     ]
+    },
+    {
+     "metric": {
+      "image_id": "ghcr.io/easypeasyops/java-hello/java-hello@sha256:82b92040938a30c3a8aea4863adb0c8b0e5ae14e85a7414863104ecd7813679d",
+      "namespace": "java-hello-prod"
+     },
+     "value": [
+      1794980028.473,
+      "2"
+     ]
+    },
+    {
+     "metric": {
+      "image_id": "ghcr.io/easypeasyops/java-hello/java-hello@sha256:82b92040938a30c3a8aea4863adb0c8b0e5ae14e85a7414863104ecd7813679d",
+      "namespace": "java-hello-staging"
+     },
+     "value": [
+      1794980028.473,
+      "1"
+     ]
+    },
+    {
+     "metric": {
+      "image_id": "ghcr.io/easypeasyops/platform/servicemonitor@sha256:94be63e52478f9fd58e38073295f4c5eb1eb29a9d162f0e8593f0fe5d9bd140b",
+      "namespace": "servicemonitor-ops"
+     },
+     "value": [
+      1794980028.473,
+      "1"
+     ]
+    }
+   ]
+  }
+ },
+ "applications": {
+  "status": "success",
+  "data": {
+   "resultType": "vector",
+   "result": [
+    {
+     "metric": {
+      "dest_namespace": "aipostit-prod",
+      "health_status": "Healthy",
+      "name": "aipostit-prod",
+      "sync_status": "Synced"
+     },
+     "value": [
+      1794980028.48,
+      "1"
+     ]
+    },
+    {
+     "metric": {
+      "dest_namespace": "aipostit-staging",
+      "health_status": "Healthy",
+      "name": "aipostit-staging",
+      "sync_status": "Synced"
+     },
+     "value": [
+      1794980028.48,
+      "1"
+     ]
+    },
+    {
+     "metric": {
+      "dest_namespace": "argo-rollouts",
+      "health_status": "Healthy",
+      "name": "argo-rollouts",
+      "sync_status": "Synced"
+     },
+     "value": [
+      1794980028.48,
+      "1"
+     ]
+    },
+    {
+     "metric": {
+      "dest_namespace": "argocd",
+      "health_status": "Healthy",
+      "name": "apps",
+      "sync_status": "Synced"
+     },
+     "value": [
+      1794980028.48,
+      "1"
+     ]
+    },
+    {
+     "metric": {
+      "dest_namespace": "argocd",
+      "health_status": "Healthy",
+      "name": "platform",
+      "sync_status": "Synced"
+     },
+     "value": [
+      1794980028.48,
+      "1"
+     ]
+    },
+    {
+     "metric": {
+      "dest_namespace": "argocd",
+      "health_status": "Healthy",
+      "name": "platform-project",
+      "sync_status": "Synced"
+     },
+     "value": [
+      1794980028.48,
+      "1"
+     ]
+    },
+    {
+     "metric": {
+      "dest_namespace": "argocd",
+      "health_status": "Healthy",
+      "name": "tool-routes",
+      "sync_status": "Synced"
+     },
+     "value": [
+      1794980028.48,
+      "1"
+     ]
+    },
+    {
+     "metric": {
+      "dest_namespace": "backups",
+      "health_status": "Healthy",
+      "name": "backups",
+      "sync_status": "Synced"
+     },
+     "value": [
+      1794980028.48,
+      "1"
+     ]
+    },
+    {
+     "metric": {
+      "dest_namespace": "cert-manager",
+      "health_status": "Healthy",
+      "name": "cert-manager",
+      "sync_status": "Synced"
+     },
+     "value": [
+      1794980028.48,
+      "1"
+     ]
+    },
+    {
+     "metric": {
+      "dest_namespace": "cnpg-system",
+      "health_status": "Healthy",
+      "name": "barman-cloud",
+      "sync_status": "Synced"
+     },
+     "value": [
+      1794980028.48,
+      "1"
+     ]
+    },
+    {
+     "metric": {
+      "dest_namespace": "cnpg-system",
+      "health_status": "Healthy",
+      "name": "cloudnative-pg",
+      "sync_status": "Synced"
+     },
+     "value": [
+      1794980028.48,
+      "1"
+     ]
+    },
+    {
+     "metric": {
+      "dest_namespace": "deploybot-ops",
+      "health_status": "Healthy",
+      "name": "deploybot-ops",
+      "sync_status": "Synced"
+     },
+     "value": [
+      1794980028.48,
+      "1"
+     ]
+    },
+    {
+     "metric": {
+      "dest_namespace": "envoy-gateway-system",
+      "health_status": "Healthy",
+      "name": "envoy-gateway",
+      "sync_status": "Synced"
+     },
+     "value": [
+      1794980028.48,
+      "1"
+     ]
+    },
+    {
+     "metric": {
+      "dest_namespace": "event-exporter",
+      "health_status": "Healthy",
+      "name": "event-exporter",
+      "sync_status": "Synced"
+     },
+     "value": [
+      1794980028.48,
+      "1"
+     ]
+    },
+    {
+     "metric": {
+      "dest_namespace": "external-secrets",
+      "health_status": "Healthy",
+      "name": "external-secrets",
+      "sync_status": "Synced"
+     },
+     "value": [
+      1794980028.48,
+      "1"
+     ]
+    },
+    {
+     "metric": {
+      "dest_namespace": "gateway",
+      "health_status": "Healthy",
+      "name": "gateway",
+      "sync_status": "Synced"
+     },
+     "value": [
+      1794980028.48,
+      "1"
+     ]
+    },
+    {
+     "metric": {
+      "dest_namespace": "java-hello-prod",
+      "health_status": "Healthy",
+      "name": "java-hello-prod",
+      "sync_status": "Synced"
+     },
+     "value": [
+      1794980028.48,
+      "1"
+     ]
+    },
+    {
+     "metric": {
+      "dest_namespace": "java-hello-staging",
+      "health_status": "Healthy",
+      "name": "java-hello-staging",
+      "sync_status": "Synced"
+     },
+     "value": [
+      1794980028.48,
+      "1"
+     ]
+    },
+    {
+     "metric": {
+      "dest_namespace": "kube-system",
+      "health_status": "Healthy",
+      "name": "metrics-server",
+      "sync_status": "Synced"
+     },
+     "value": [
+      1794980028.48,
+      "1"
+     ]
+    },
+    {
+     "metric": {
+      "dest_namespace": "kyverno",
+      "health_status": "Healthy",
+      "name": "kyverno",
+      "sync_status": "Synced"
+     },
+     "value": [
+      1794980028.48,
+      "1"
+     ]
+    },
+    {
+     "metric": {
+      "dest_namespace": "kyverno",
+      "health_status": "Healthy",
+      "name": "kyverno-policies",
+      "sync_status": "Synced"
+     },
+     "value": [
+      1794980028.48,
+      "1"
+     ]
+    },
+    {
+     "metric": {
+      "dest_namespace": "log-collector",
+      "health_status": "Healthy",
+      "name": "log-collector",
+      "sync_status": "Synced"
+     },
+     "value": [
+      1794980028.48,
+      "1"
+     ]
+    },
+    {
+     "metric": {
+      "dest_namespace": "monitoring",
+      "health_status": "Healthy",
+      "name": "blackbox-exporter",
+      "sync_status": "Synced"
+     },
+     "value": [
+      1794980028.48,
+      "1"
+     ]
+    },
+    {
+     "metric": {
+      "dest_namespace": "monitoring",
+      "health_status": "Healthy",
+      "name": "logs",
+      "sync_status": "Synced"
+     },
+     "value": [
+      1794980028.48,
+      "1"
+     ]
+    },
+    {
+     "metric": {
+      "dest_namespace": "monitoring",
+      "health_status": "Healthy",
+      "name": "monitoring",
+      "sync_status": "Synced"
+     },
+     "value": [
+      1794980028.48,
+      "1"
+     ]
+    },
+    {
+     "metric": {
+      "dest_namespace": "node-exporter",
+      "health_status": "Healthy",
+      "name": "node-exporter",
+      "sync_status": "Synced"
+     },
+     "value": [
+      1794980028.48,
+      "1"
+     ]
+    },
+    {
+     "metric": {
+      "dest_namespace": "provenance-canary",
+      "health_status": "Healthy",
+      "name": "provenance-canary",
+      "sync_status": "Synced"
+     },
+     "value": [
+      1794980028.48,
+      "1"
+     ]
+    },
+    {
+     "metric": {
+      "dest_namespace": "secret-store",
+      "health_status": "Healthy",
+      "name": "secret-store",
+      "sync_status": "Synced"
+     },
+     "value": [
+      1794980028.48,
+      "1"
+     ]
+    },
+    {
+     "metric": {
+      "dest_namespace": "servicemonitor-ops",
+      "health_status": "Healthy",
+      "name": "servicemonitor-ops",
+      "sync_status": "Synced"
+     },
+     "value": [
+      1794980028.48,
+      "1"
+     ]
+    }
+   ]
+  }
+ }
+}

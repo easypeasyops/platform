@@ -9,6 +9,7 @@ from prometheus_client import REGISTRY
 
 from app.main import app
 from tests import test_status
+from tests.conftest import Prometheus
 from tests.test_status import Cluster
 
 cluster = test_status.cluster  # the recording, behind both APIs, for every test here
@@ -201,8 +202,11 @@ def test_every_tile_and_square_is_a_link_whose_text_says_its_state(cluster: Clus
     ]
 
 
-def test_prometheus_never_answering_shows_nothing_as_healthy(cluster: Cluster) -> None:
+def test_prometheus_never_answering_shows_nothing_as_healthy(
+    cluster: Cluster, env_prometheus: Prometheus
+) -> None:
     cluster.down = {"targets", "alerts", "slo_budget", "replicas"}
+    env_prometheus.down = {"images", "applications"}  # the environments' (app/environments.py)
     text = page()
     assert "Stale: see below" in text
     assert "Prometheus has not answered yet: the targets are unknown." in text
