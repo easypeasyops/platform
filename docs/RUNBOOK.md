@@ -1011,3 +1011,4 @@ errored too, and `get rollout` shows which run stopped the current one.
 Once the cause is fixed, propose `kubectl argo rollouts retry rollout <rollout> -n <ns>`:
 the canary starts again from its first step (a new release does too), and the alert ends
 when the Rollout is no longer aborted.
+
