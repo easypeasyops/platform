@@ -33,6 +33,7 @@ frontDoorProbes:
   - { hostname: staging.aipostit.localhost, listener: http, path: /healthz } # aipostit-staging
   - { hostname: java-hello.localhost, listener: http, path: /healthz } # java-hello-prod
   - { hostname: staging.java-hello.localhost, listener: http, path: /healthz } # java-hello-staging
+  - { hostname: staging.newapp-e2e2.localhost, listener: http, path: /healthz } # newapp-e2e2-staging
   - { hostname: argocd.localhost, listener: tools, path: /healthz }
   - { hostname: grafana.localhost, listener: tools, path: /api/health }
   - { hostname: prometheus.localhost, listener: tools, path: /-/healthy }
