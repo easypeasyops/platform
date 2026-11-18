@@ -148,6 +148,10 @@ a.tile:hover { border-color: var(--ink-2) }
 .cell { height: 18px; box-sizing: border-box; border-radius: 2px; display: flex; align-items: center; justify-content: center; overflow: hidden; font-size: 10px; font-weight: 700; color: var(--square-mark); background: var(--border) }
 .cell.h-down.l1 { background: var(--down-dot) } .cell.h-down.l2 { background: var(--down-2) }
 .cell.h-alerts.l1 { background: var(--warn-dot) } .cell.h-alerts.l2 { background: var(--warn-2) }
+.cell.h-deploys.l1 { background: var(--link) } .cell.h-deploys.l2 { background: var(--down-dot) }
+.cell.h-deploys:focus { position: relative; overflow: visible }
+.cell.h-deploys:focus > .sr { clip-path: none; width: max-content; max-width: 320px; height: auto; top: 22px; left: 0; z-index: 1; padding: 4px 6px; white-space: normal; font-weight: 400; color: var(--ink); background: var(--surface); border: 1px solid var(--border-strong); border-radius: 4px }
+.cell.h-deploys:nth-child(n+13):focus > .sr { left: auto; right: 0 }
 .cell.lnone { background: none; border: 1px dashed var(--border-strong) }
 .axis > :last-child { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted) }
 .history .legend .cell { display: inline-block; width: 10px; height: 10px; margin-right: 1px }

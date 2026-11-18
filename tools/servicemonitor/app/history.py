@@ -1,5 +1,6 @@
-"""The Overview's last 24 hours: per hour, how many targets were down and how many alerts
-were firing, from two Prometheus range queries with a 1 h step.
+"""The Overview's last 24 hours: per hour, how many targets were down, how many alerts
+were firing and which Applications Argo CD synced, from three Prometheus range queries
+with a 1 h step.
 
 Each hour is the worst moment in it (`max_over_time` over a subquery at Prometheus's
 evaluation interval), not one sample on the hour: a 20-minute outage between two steps
@@ -9,6 +10,17 @@ is in its hour's cell.
 "Prometheus wasn't running" (the laptop asleep, the cluster stopped). `or count(up) * 0`
 makes it 0 while anything was scraped in that hour; an hour still without a point is
 "no data". The alerts row counts every firing alert but Watchdog, like the summary line.
+
+Deploys are Argo CD's syncs, from `argocd_app_sync_total` by `name` and `phase` (it has
+no `dest_namespace`). Only syncs that changed something, as far as Prometheus can tell:
+the counter doesn't say whether a sync applied anything, and `argocd_app_info` has no
+revision to fall back to (Argo CD 3.5), so every sync counts but a dry run. Here that is
+every change: each Application syncs automatically, which Argo CD only does when it is
+OutOfSync (a new revision, or drift to undo); a sync started by hand with nothing to
+apply would still count. An hour's syncs, per series, are its highest value in the hour
+less its last before it; a series new in the hour (a restarted controller) counts in
+full, where `increase()` would miss its first sync. `count(count_over_time(up[1h])) * 0`
+keeps "no deploys" apart from "no data".
 
 Cached for a minute: it's history, not live state. A query that fails leaves its row
 without cells, with the error: never 24 zeros.
@@ -36,6 +48,12 @@ ROWS = {
     ),
 }
 QUERIES = {key: f"max_over_time(({count} or {SCRAPING})[1h:])" for key, (*_, count) in ROWS.items()}
+SYNCS = 'argocd_app_sync_total{dry_run="false"}'
+QUERIES["deploys"] = (
+    f"sum by (name, phase) (clamp_min(max_over_time({SYNCS}[1h])"
+    f" - last_over_time({SYNCS}[1d] offset 1h), 0) or max_over_time({SYNCS}[1h]))"
+    " or count(count_over_time(up[1h])) * 0"
+)
 
 _cache: tuple[float, list[dict[str, Any]]] | None = None
 
@@ -70,16 +88,62 @@ def _cells(key: str, values: list[list[Any]], end: int) -> list[dict[str, Any]]:
     return cells
 
 
+def _deploys(result: list[dict[str, Any]], end: int) -> list[dict[str, Any]]:
+    """The deploys row's cells, as `_cells`, each with the hour's `syncs`. Level 1: syncs
+    that all succeeded; 2: a failed one among them."""
+    scraped: set[int] = set()
+    syncs: dict[int, list[dict[str, Any]]] = {}
+    for series in result:
+        labels = series["metric"]
+        for t, value in series["values"]:
+            if not labels:
+                scraped.add(int(t))
+            elif count := int(float(value)):  # 0: the counter didn't move in that hour
+                sync = {"app": labels["name"], "phase": labels["phase"], "count": count}
+                syncs.setdefault(int(t), []).append(sync)
+    cells = []
+    for hour in range(end - (HOURS - 1) * HOUR, end + 1, HOUR):
+        found = sorted(syncs.get(hour, []), key=lambda s: (s["app"], s["phase"]))
+        value = sum(s["count"] for s in found) if found or hour in scraped else None
+        if value is None:
+            text = "no data: Prometheus wasn't running"
+        elif value == 0:
+            text = "no deploys"
+        else:
+            text = f"{value} {'sync' if value == 1 else 'syncs'}: " + ", ".join(
+                s["app"]
+                + (f" ×{s['count']}" if s["count"] > 1 else "")
+                + ("" if s["phase"] == "Succeeded" else f" failed ({s['phase']})")
+                for s in found
+            )
+        failed = any(s["phase"] != "Succeeded" for s in found)
+        cells.append(
+            {
+                "start": _iso(hour - HOUR),
+                "end": None if hour == end else _iso(hour),
+                "value": value,
+                "level": "none" if value is None else "2" if failed else str(min(value, 1)),
+                "text": text,
+                "syncs": found,
+            }
+        )
+    return cells
+
+
 async def _row(client: httpx.AsyncClient, key: str, end: int) -> dict[str, Any]:
     params = {"start": end - (HOURS - 1) * HOUR, "end": end, "step": HOUR}
-    row: dict[str, Any] = {"key": key, "name": ROWS[key][0], "cells": None, "error": None}
+    name = "Deploys" if key == "deploys" else ROWS[key][0]
+    row: dict[str, Any] = {"key": key, "name": name, "cells": None, "error": None}
     try:
         response = await client.get("/api/v1/query_range", params={"query": QUERIES[key], **params})
         result = response.raise_for_status().json()["data"]["result"]
     except httpx.HTTPError as exc:
         row["error"] = str(exc) or type(exc).__name__
         return row
-    row["cells"] = _cells(key, result[0]["values"] if result else [], end)
+    if key == "deploys":
+        row["cells"] = _deploys(result, end)
+    else:
+        row["cells"] = _cells(key, result[0]["values"] if result else [], end)
     return row
 
 
