@@ -83,6 +83,22 @@ Argo CD installs the platform from `deploy/argocd/platform/` in sync waves:
 On a fresh cluster the waves overlap: a child that has never synced doesn't hold its wave,
 and what orders them is each child's sync retry (every 5 s, doubling to 30 s).
 
+## A platform PR's app e2e
+
+`ci.yml`'s `app-e2e` runs app-template's python-template in staging through
+`reusable-kind-e2e.yml`, on the PR's head commit: the platform and `charts/service/` from
+the PR, app-template at the commit `app-ref` pins, its values files from there
+(`values-files`). It runs on a PR that touches what an app runs on (the paths in
+`app-e2e-scope`), about 15 minutes; any other PR, and a push to main, skip it.
+
+- **Run it by hand** on any branch: Actions, CI, "Run workflow" (or
+  `gh workflow run ci.yml --ref <branch>`).
+- **Red:** the job log says which step. "Platform through Argo CD" failing once is retried
+  in its own step with a warning; both failing, or "Deploy and check" failing, is the PR:
+  the last lines before `FAIL:` and the namespace's state printed after it say what.
+- **Move app-template's pin** (`app-ref` in `ci.yml`) in a PR of its own, to a commit on
+  app-template's main, never together with a platform change.
+
 ## Argo CD alerts
 
 Tickets, never pages: a stuck Argo CD doesn't break what already runs, it stops new changes
