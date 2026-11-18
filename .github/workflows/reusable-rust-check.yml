@@ -1,0 +1,79 @@
+name: Rust checks (reusable)
+
+# Format, lint and test a Cargo project: the `check` job any Rust app's CI calls, as
+# reusable-python-check.yml is for Python. The toolchain is the project's own
+# rust-toolchain.toml (as .python-version is for Python): rustup installs it on the first
+# cargo call, so CI, the Dockerfile and a laptop build with the same compiler. With
+# `run: false` the job still reports success, so required checks never wait on a docs-only
+# change.
+on:
+  workflow_call:
+    inputs:
+      run:
+        description: "false: report success without doing the work (docs-only change)"
+        type: boolean
+        default: true
+      coverage-min:
+        description: "Line coverage floor, in percent (cargo llvm-cov --fail-under-lines)"
+        type: number
+        default: 90
+      coverage-ignore:
+        description: "Files left out of coverage (a regex on the path). The binary's entry point is the image smoke test's to prove, as Python's `# pragma: no cover` on main"
+        type: string
+        default: 'src/main\.rs$'
+      working-directory:
+        description: "The project's directory (its Cargo.toml, Cargo.lock and rust-toolchain.toml): an app in a domain repo is apps/<app>"
+        type: string
+        default: .
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: format, lint, test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      # Actions pinned to commit SHAs: tags are mutable, SHAs are not.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: inputs.run
+        with:
+          persist-credentials: false
+
+      # The toolchain rust-toolchain.toml names, with the components it lists
+      # (rustfmt, clippy, llvm-tools for coverage).
+      - name: Toolchain
+        if: inputs.run
+        run: rustup toolchain install
+
+      # target/ and the registry, keyed on Cargo.lock and the toolchain.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        if: inputs.run
+        with:
+          workspaces: ${{ inputs.working-directory }}
+
+      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+        if: inputs.run
+        with:
+          tool: cargo-llvm-cov@0.9.1
+
+      - name: Format
+        if: inputs.run
+        run: cargo fmt --all --check
+
+      # --locked: fails on a Cargo.lock that doesn't match Cargo.toml, as `uv sync --locked`.
+      - name: Lint
+        if: inputs.run
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Test, with a coverage floor
+        if: inputs.run
+        env:
+          COVERAGE_IGNORE: ${{ inputs.coverage-ignore }}
+        run: |
+          cargo llvm-cov --locked --fail-under-lines ${{ inputs.coverage-min }} \
+            ${COVERAGE_IGNORE:+--ignore-filename-regex "$COVERAGE_IGNORE"}
