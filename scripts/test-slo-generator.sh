@@ -17,7 +17,8 @@ echo "== fixtures are current"
 for out in "$ROOT"/charts/service/tests/*/slo-rules.values.yaml; do
   [[ -f "$out" ]] || continue
   dir=$(dirname "$out")
-  mapfile -t specs < <(cd "$dir" && find . -name slos.yaml -not -path './.*' | sort)
+  specs=()
+  while IFS= read -r spec; do specs+=("$spec"); done < <(cd "$dir" && find . -name slos.yaml -not -path './.*' | sort) # bash 3.2 has no mapfile
   [[ ${#specs[@]} == 1 ]] || { echo "::error::${dir#"$ROOT"/}: want one slos.yaml, found ${#specs[@]}"; exit 1; }
   (cd "$dir" && gen --spec "${specs[0]#./}" --values --out slo-rules.values.yaml --check)
   echo "ok ${out#"$ROOT"/}"
