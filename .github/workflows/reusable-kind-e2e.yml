@@ -9,7 +9,8 @@ name: kind e2e (reusable)
 # doing the work: the caller decides which changes need it (a lock or chart pin move).
 # Optional, for a caller that isn't the app (the platform's own CI, PT-82): app-repository
 # and app-ref name the app's repo and commit, platform-ref the platform commit instead of
-# platform.lock's. Empty, as apps call it, each keeps the default above.
+# platform.lock's, values-files the values files when the platform has no env file for the
+# app. Empty, as apps call it, each keeps the default above.
 on:
   workflow_call:
     inputs:
@@ -43,6 +44,10 @@ on:
         default: ""
       app-ref:
         description: "The app repo's commit; empty: the caller's (or app-repository's default branch)"
+        type: string
+        default: ""
+      values-files:
+        description: "For an app the platform doesn't deploy: its values files in its repo, in order (scripts/kind-e2e.sh VALUES_FILES); empty: apps/<app>/envs/<env>.yaml's"
         type: string
         default: ""
 
@@ -139,3 +144,4 @@ jobs:
           APP_ENV: ${{ inputs.env }}
           CHART: ${{ inputs.chart }}
           APP_REPO: ${{ github.workspace }}
+          VALUES_FILES: ${{ inputs.values-files }}
