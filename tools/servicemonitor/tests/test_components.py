@@ -15,7 +15,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import components, history, monitors, status
+from app.containers import HOUR, MEMORY, OOM, RESTARTS, UPTIME
 from app.main import app
+from tests import test_status
 
 FIXTURES = Path(__file__).parent / "fixtures"
 PATHS = {
@@ -50,6 +52,10 @@ class Cluster:
         # The pods ready aren't in this recording: tests/test_replicas.py's, by query.
         replicas = json.loads((FIXTURES / "replicas.json").read_text())
         self.bodies["queries"] |= {q: replicas[key] for key, q in status.REPLICAS.items()}
+        # Nor the containers' (tests/test_containers.py): no series, nothing to say.
+        self.bodies["queries"] |= dict.fromkeys(
+            (UPTIME, RESTARTS.format(HOUR), OOM, MEMORY), test_status.NO_SERIES
+        )
         self.down: set[str] = set()
         self.queries: list[str] = []
 
