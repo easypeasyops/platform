@@ -1,0 +1,10 @@
+{# The history's deploys lane (app/history.py): an hour with syncs can be focused, and
+hovering or focusing it shows which Applications synced. #}
+<div class="lane">
+<span>{{ row.name }}</span>
+{% if row.cells is none %}<span class="error">unknown: Prometheus's query API did not answer. <span class="mono">{{ row.error }}</span></span>
+{% else %}<ol class="cells" aria-label="{{ row.name }}, per hour, oldest first">
+{% for cell in row.cells %}<li class="cell h-deploys l{{ cell.level }}"{% if cell.syncs %} tabindex="0"{% endif %}><span class="sr"><time datetime="{{ cell.start }}" data-hour>{{ cell.start[11:16] }} UTC</time>–{% if cell.end %}<time datetime="{{ cell.end }}" data-hour>{{ cell.end[11:16] }} UTC</time>{% else %}now{% endif %}: {{ cell.text }}</span><span aria-hidden="true">{{ cell.value or "" }}</span></li>
+{% endfor %}</ol>{% endif %}
+<b>{{ "?" if row.cells is none or row.cells[-1].value is none else row.cells[-1].value }} this hour</b>
+</div>

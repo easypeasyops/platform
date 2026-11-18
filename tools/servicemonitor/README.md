@@ -50,8 +50,10 @@ monitor (Down: a target that isn't up, or a monitor with no targets; else Alert:
 a job a monitor scrapes, or an SLO with no budget left; else Healthy), that links to the
 Monitors tab filtered to it; and a square per scrape target, down marked with a ×, that
 links to its monitor's row. Below them, the last 24 hours (`app/history.py`): per hour, the
-most targets down and alerts firing at any moment in it (two range queries, cached a
-minute), an hour Prometheus has no data for marked as such, not as 0. What the page doesn't
+Applications Argo CD synced (`argocd_app_sync_total`; focus or hover an hour for which, a
+failed sync in red) and the most targets down and alerts firing at any moment in it (three
+range queries, cached a minute), an hour Prometheus has no data for marked as such, not as
+0. What the page doesn't
 know is Unknown, never Healthy.
 
 Each tile, and each namespace's group on the Monitors tab, also says "pods R/D ready": its

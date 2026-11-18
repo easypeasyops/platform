@@ -57,6 +57,8 @@ class Cluster:
             name: json.loads((FIXTURES / f"{name}.json").read_text())
             for name in [*PATHS.values(), "replicas"]
         }
+        deploys = json.loads((FIXTURES / "deploys.json").read_text())  # tests/test_history.py
+        self.bodies["history"]["deploys"] = deploys
         more = json.loads((FIXTURES / "more_monitors.json").read_text())
         self.bodies["namespaces"]["items"] += more["namespaces"]
         self.bodies["servicemonitors"]["items"] += more["servicemonitors"]

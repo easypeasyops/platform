@@ -92,7 +92,8 @@
 <section class="panel" aria-labelledby="history">
 <h2 id="history" class="title">Last 24 hours, per hour</h2>
 <div class="history">
-{% for row in history %}
+{% with row = history | selectattr("key", "equalto", "deploys") | first %}{% include "deploys.html" %}{% endwith %}
+{% for row in history if row.key != "deploys" %}
 {% if row.key == "down" %}{% set now = summary.targets - summary.up if summary.targets_known else "?" %}
 {% else %}{% set now = "?" if summary.alerts is none else summary.alerts %}{% endif %}
 <div class="lane">
@@ -109,6 +110,7 @@
 <span><span class="cell l0" aria-hidden="true"></span>none</span>
 <span><span class="cell h-down l1" aria-hidden="true"></span><span class="cell h-alerts l1" aria-hidden="true"></span>1</span>
 <span><span class="cell h-down l2" aria-hidden="true"></span><span class="cell h-alerts l2" aria-hidden="true"></span>2 or more (the number is in the cell)</span>
+<span><span class="cell h-deploys l1" aria-hidden="true"></span>Argo CD synced (focus the hour for which) <span class="cell h-deploys l2" aria-hidden="true"></span>a sync failed</span>
 <span><span class="cell lnone" aria-hidden="true"></span>no data: Prometheus wasn't running</span>
 <span>Each hour shows its worst moment; hover a cell for its hour.</span>
 </div>
