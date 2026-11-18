@@ -14,6 +14,9 @@
 #     <release>-env Secret: no per-app list);
 #   - the chart at CHART with the values files apps/<app>/envs/<env>.yaml lists, in its
 #     order, from APP_REPO, then deploy/kind/e2e-values.yaml; the image is the local IMAGE.
+#     For an app the platform doesn't deploy (app-template in the platform's own CI), there
+#     is no env file: VALUES_FILES lists them instead (paths in APP_REPO, in order, separated
+#     by spaces or newlines). Both at once is an error: one list, never a silent choice.
 # Then checks: every Deployment, StatefulSet and Rollout Ready; the front door routes each
 # HTTPRoute hostname to the app; Prometheus scrapes every target of each ServiceMonitor and
 # PodMonitor, all up; Prometheus has loaded each PrometheusRule's groups. On failure it
@@ -38,9 +41,16 @@ app=$1 env=$2 ns="$1-$2"
 [[ "${GITHUB_ACTIONS:-}" == true ]] || die "CI only: it overwrites $app's keys in the secret store"
 
 envfile="$ROOT/apps/$app/envs/$env.yaml"
-[[ -f "$envfile" ]] || die "no apps/$app/envs/$env.yaml: the platform at this commit doesn't run $app in $env"
 values=()
-while read -r f; do values+=(--values "$APP_REPO/$f"); done < <(yq -r '.values.files[]' "$envfile")
+if [[ -f "$envfile" ]]; then
+  [[ -z "${VALUES_FILES:-}" ]] || die "apps/$app/envs/$env.yaml lists $app's values files: unset VALUES_FILES"
+  while read -r f; do values+=(--values "$APP_REPO/$f"); done < <(yq -r '.values.files[]' "$envfile")
+elif [[ -n "${VALUES_FILES:-}" ]]; then
+  read -r -d '' -a files <<<"$VALUES_FILES" || true
+  for f in "${files[@]}"; do values+=(--values "$APP_REPO/$f"); done
+else
+  die "no apps/$app/envs/$env.yaml (the platform at this commit doesn't run $app in $env) and no VALUES_FILES"
+fi
 values+=(--values "$ROOT/deploy/kind/e2e-values.yaml")
 # A tag, not the env file's release digest: a digest wins over a tag, so clear it.
 image=(--set "image.repository=${IMAGE%:*}" --set "image.tag=${IMAGE##*:}" --set "image.digest=")
