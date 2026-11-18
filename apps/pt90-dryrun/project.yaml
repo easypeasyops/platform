@@ -15,7 +15,9 @@ spec:
     - https://github.com/easypeasyops/platform.git
   destinations:
     - { server: https://kubernetes.default.svc, namespace: pt90-dryrun-staging }
+    - { server: https://kubernetes.default.svc, namespace: pt90-dryrun-prod }
   clusterResourceWhitelist: # by name: its own namespaces, no other
     - { group: "", kind: Namespace, name: pt90-dryrun-staging }
+    - { group: "", kind: Namespace, name: pt90-dryrun-prod }
   namespaceResourceWhitelist:
     - { group: "*", kind: "*" }

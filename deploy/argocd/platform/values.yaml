@@ -33,6 +33,7 @@ frontDoorProbes:
   - { hostname: staging.aipostit.localhost, listener: http, path: /healthz } # aipostit-staging
   - { hostname: java-hello.localhost, listener: http, path: /healthz } # java-hello-prod
   - { hostname: staging.java-hello.localhost, listener: http, path: /healthz } # java-hello-staging
+  - { hostname: pt90-dryrun.localhost, listener: http, path: /healthz } # pt90-dryrun-prod (PT-90 dry run)
   - { hostname: staging.pt90-dryrun.localhost, listener: http, path: /healthz } # pt90-dryrun-staging (PT-90 dry run)
   - { hostname: argocd.localhost, listener: tools, path: /healthz }
   - { hostname: grafana.localhost, listener: tools, path: /api/health }
