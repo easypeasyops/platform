@@ -1,0 +1,387 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.12"
+# dependencies = ["pyyaml==6.0.3"]
+# ///
+"""Take a new app from a template repo to prod, in three steps that each stop at a wait.
+
+    uv run --script <platform>/scripts/new-app.py create  <app> --template easypeasyops/app-template
+    uv run --script <platform>/scripts/new-app.py staging <app>
+    uv run --script <platform>/scripts/new-app.py prod    <app>
+
+Run it from the folder that holds your checkouts: the app's repo is cloned to ./<app>
+(--dir changes that). The platform side is done in a throwaway worktree of this checkout,
+cut from origin/main, so the checkout you run it from is left alone.
+
+  create   creates easypeasyops/<app> from the template and clones it. Then it renames the
+           template's placeholder to <app>, refreshes the lockfile, regenerates the SLO
+           rules with gen_slo_rules.py at the app's platform.lock commit, and pushes. It
+           sets the repo to squash-only with auto-merge, makes `ci` required on main, and
+           tags <app>/v<version>, which releases the image. You add the repo to the
+           Renovate app by hand.
+  staging  waits for the release and puts its image digest in the app's
+           deploy/envs/staging.yaml (a PR that auto-merges). Then it opens the platform PR
+           that adds apps/<app>/ with staging: the project, envs/staging.yaml at the latest
+           service chart release, and the front-door probe. That PR auto-merges, and Argo CD
+           deploys staging.
+  prod     promotes the digest staging runs to deploy/envs/prod.yaml (a PR that
+           auto-merges). Then it opens the platform PR that adds prod, at the chart version
+           staging pins. That PR changes apps/<app>/envs/prod.yaml, so it doesn't
+           auto-merge: Emrah merges it.
+
+What a template must have. app-template has all of it, and a new template, such as
+go-template, needs it too:
+- Its repo name is the only placeholder, and the app lives in apps/<placeholder>/.
+- The platform's deploy/ layout: service/values.yaml, service/slo-rules.values.yaml,
+  prometheus/slos.yaml, and envs/staging.yaml and envs/prod.yaml, each with one
+  `digest:` line (image.digest) and gateway.hostnames.
+- A platform.lock.
+- A release.yml that releases an <app>/vX.Y.Z tag and puts the image digest in its notes.
+The lockfile refresh is the only step that depends on the language (LOCKFILES).
+"""
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+ORG = "easypeasyops"
+PLATFORM = Path(__file__).resolve().parent.parent
+PROBES = PLATFORM / "deploy/argocd/platform/values.yaml"
+# A lockfile in apps/<app>/ -> the command that refreshes it after the rename.
+LOCKFILES = {"uv.lock": ["uv", "lock"], "go.sum": ["go", "mod", "tidy"]}
+DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
+
+
+def run(*cmd: str, cwd: Path | None = None) -> str:
+    print("+", " ".join(cmd), file=sys.stderr)
+    return subprocess.run(cmd, cwd=cwd, check=True, text=True, stdout=subprocess.PIPE).stdout
+
+
+def wait_merged(pr: str, repo: str) -> None:
+    for _ in range(90):  # 30 minutes
+        if (
+            json.loads(run("gh", "pr", "view", pr, "-R", repo, "--json", "state"))["state"]
+            == "MERGED"
+        ):
+            return
+        time.sleep(20)
+    sys.exit(f"{pr} not merged after 30 minutes")
+
+
+def open_pr(repo: str, cwd: Path, branch: str, title: str, body: str, auto: bool) -> str:
+    run("git", "push", "-u", "origin", branch, cwd=cwd)
+    url = run(
+        "gh",
+        "pr",
+        "create",
+        "-R",
+        repo,
+        "--head",
+        branch,
+        "--title",
+        title,
+        "--body",
+        body,
+        cwd=cwd,
+    ).strip()
+    if auto:
+        run("gh", "pr", "merge", url, "-R", repo, "--auto", "--squash", "--delete-branch")
+    print(url)
+    return url
+
+
+def set_app_digest(app: str, d: Path, env: str, digest: str, version: str) -> None:
+    """Set image.digest in the app's deploy/envs/<env>.yaml with a PR; wait for its merge."""
+    repo = f"{ORG}/{app}"
+    run("git", "fetch", "origin", cwd=d)
+    branch = f"deploy-{env}-{version}"
+    run("git", "switch", "-c", branch, "origin/main", cwd=d)
+    f = d / f"apps/{app}/deploy/envs/{env}.yaml"
+    text, n = re.subn(r"^(\s*digest:).*$", rf"\1 {digest}", f.read_text(), flags=re.M)
+    if n != 1:
+        sys.exit(f"{f}: expected one `digest:` line, found {n}")
+    f.write_text(text)
+    run("git", "commit", "-am", f"Deploy {app} {version} to {env}", cwd=d)
+    pr = open_pr(
+        repo,
+        d,
+        branch,
+        f"Deploy {app} {version} to {env}",
+        f"Sets `image.digest` in `apps/{app}/deploy/envs/{env}.yaml` to {app} "
+        f"{version}'s image, `{digest}`.",
+        auto=True,
+    )
+    wait_merged(pr, repo)
+    run("git", "switch", "main", cwd=d)
+    run("git", "pull", "--ff-only", cwd=d)
+
+
+def project_yaml(app: str, envs: list[str]) -> str:
+    dests = "".join(
+        f"    - {{ server: https://kubernetes.default.svc, namespace: {app}-{e} }}\n" for e in envs
+    )
+    nss = "".join(f'    - {{ group: "", kind: Namespace, name: {app}-{e} }}\n' for e in envs)
+    return f"""# {app}'s Argo CD project. Least privilege, as java-hello's: the service chart, its
+# repo, the platform's repo, and its own namespaces.
+
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: {app}
+  namespace: argocd
+spec:
+  description: {app}'s environments (apps/{app}/envs)
+  sourceRepos:
+    - oci://ghcr.io/{ORG}/charts/service
+    - https://github.com/{ORG}/{app}.git
+    - https://github.com/{ORG}/platform.git
+  destinations:
+{dests}  clusterResourceWhitelist: # by name: its own namespaces, no other
+{nss}  namespaceResourceWhitelist:
+    - {{ group: "*", kind: "*" }}
+"""
+
+
+def env_yaml(app: str, env: str, version: str, digest: str) -> str:
+    slo = f"    - apps/{app}/deploy/service/slo-rules.values.yaml\n" if env == "prod" else ""
+    return f"""# {app} in {env}.
+app: {app}
+env: {env}
+chart:
+  version: {version}
+  digest: {digest}
+values:
+  repoURL: https://github.com/{ORG}/{app}.git
+  revision: main
+  files:
+    - apps/{app}/deploy/service/values.yaml
+{slo}    - apps/{app}/deploy/envs/{env}.yaml
+"""
+
+
+def add_probes(values: Path, app: str, env: str, hostnames: list[str]) -> None:
+    """Add the env's hostnames to frontDoorProbes, after the last app (http listener) entry."""
+    lines = values.read_text().splitlines(keepends=True)
+    last = max(i for i, line in enumerate(lines) if "listener: http," in line)
+    new = [
+        f"  - {{ hostname: {h}, listener: http, path: /healthz }} # {app}-{env}\n"
+        for h in hostnames
+    ]
+    values.write_text("".join(lines[: last + 1] + new + lines[last + 1 :]))
+
+
+def platform_pr(app: str, d: Path, env: str, chart: tuple[str, str]) -> None:
+    """The platform PR that adds <env> to apps/<app>/; auto-merges unless it is prod."""
+    hosts = yaml.safe_load((d / f"apps/{app}/deploy/envs/{env}.yaml").read_text())["gateway"][
+        "hostnames"
+    ]
+    run("git", "fetch", "origin", "main", cwd=PLATFORM)
+    branch = f"apps-{app}-{env}"
+    with tempfile.TemporaryDirectory() as tmp:
+        wt = Path(tmp) / "platform"
+        run("git", "worktree", "add", "-b", branch, str(wt), "origin/main", cwd=PLATFORM)
+        try:
+            envs_dir = wt / f"apps/{app}/envs"
+            envs_dir.mkdir(parents=True, exist_ok=True)
+            (envs_dir / f"{env}.yaml").write_text(env_yaml(app, env, *chart))
+            envs = sorted(p.stem for p in envs_dir.glob("*.yaml"))[::-1]  # staging, prod
+            (wt / f"apps/{app}/project.yaml").write_text(project_yaml(app, envs))
+            add_probes(wt / PROBES.relative_to(PLATFORM), app, env, hosts)
+            run(
+                "uv",
+                "run",
+                "--quiet",
+                "--script",
+                "scripts/check-apps.py",
+                "--out",
+                str(Path(tmp) / "renders"),
+                cwd=wt,
+            )
+            title = f"apps: {app} in {env}"
+            run("git", "add", "-A", cwd=wt)
+            run("git", "commit", "-m", title, cwd=wt)
+            body = (
+                f"Adds {app}'s {env} environment: `apps/{app}/envs/{env}.yaml` (service chart "
+                f"{chart[0]}), the `{app}-{env}` namespace in its project, and a front-door "
+                f"probe for {', '.join(hosts)}.\n\nOn the cluster: Argo CD creates the "
+                f"`{app}-{env}` namespace and deploys {app} there; the blackbox exporter "
+                "starts probing it."
+            )
+            if env == "prod":
+                body += "\n\nChanges an `envs/prod.yaml`: no auto-merge, Emrah merges it."
+            open_pr(f"{ORG}/platform", wt, branch, title, body, auto=env != "prod")
+        finally:
+            run("git", "worktree", "remove", "--force", str(wt), cwd=PLATFORM)
+            run("git", "branch", "-D", branch, cwd=PLATFORM)
+
+
+def create(app: str, d: Path, template: str, version: str) -> None:
+    placeholder = template.split("/")[1]
+    repo = f"{ORG}/{app}"
+    run("gh", "repo", "create", repo, "--public", "--template", template, "--clone", cwd=d.parent)
+    if d.name != app:
+        (d.parent / app).rename(d)
+    if not (d / f"apps/{placeholder}").is_dir():
+        sys.exit(f"{template} has no apps/{placeholder}/ (see 'What a template must have')")
+    run("git", "mv", f"apps/{placeholder}", f"apps/{app}", cwd=d)
+    for f in run("git", "grep", "-l", placeholder, cwd=d).split():
+        p = d / f
+        p.write_text(p.read_text().replace(placeholder, app))
+    appdir = d / f"apps/{app}"
+    for lockfile, cmd in LOCKFILES.items():
+        if (appdir / lockfile).exists():
+            run(*cmd, cwd=appdir)
+    lock = (d / "platform.lock").read_text().split("@")[-1].strip()
+    run("git", "fetch", "origin", lock, cwd=PLATFORM)
+    with tempfile.TemporaryDirectory() as tmp:
+        gen = Path(tmp) / "gen_slo_rules.py"
+        gen.write_text(run("git", "show", f"{lock}:scripts/gen_slo_rules.py", cwd=PLATFORM))
+        run(
+            "uv",
+            "run",
+            "--script",
+            str(gen),
+            "--spec",
+            "deploy/prometheus/slos.yaml",
+            "--values",
+            "--out",
+            "deploy/service/slo-rules.values.yaml",
+            cwd=appdir,
+        )
+    run("git", "add", "-A", cwd=d)
+    run("git", "commit", "-m", f"Start {app} from {template}", cwd=d)
+    run("git", "push", "origin", "main", cwd=d)
+    run(
+        "gh",
+        "repo",
+        "edit",
+        repo,
+        "--enable-squash-merge",
+        "--enable-merge-commit=false",
+        "--enable-rebase-merge=false",
+        "--enable-auto-merge",
+        "--delete-branch-on-merge",
+    )
+    ruleset: dict[str, Any] = {
+        "name": "main",
+        "target": "branch",
+        "enforcement": "active",
+        "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}},
+        "rules": [
+            {
+                "type": "required_status_checks",
+                "parameters": {
+                    "strict_required_status_checks_policy": False,
+                    "required_status_checks": [{"context": "ci"}],
+                },
+            }
+        ],
+    }
+    subprocess.run(
+        ["gh", "api", "-X", "POST", f"repos/{repo}/rulesets", "--input", "-"],
+        input=json.dumps(ruleset),
+        text=True,
+        check=True,
+        stdout=subprocess.DEVNULL,
+    )
+    tag = f"{app}/v{version}"
+    run("git", "tag", tag, cwd=d)
+    run("git", "push", "origin", tag, cwd=d)
+    print(
+        f"\nTagged {tag}: release.yml is releasing the image. By hand: add {repo} to the "
+        f"Renovate app. Next: new-app.py staging {app}"
+    )
+
+
+def staging(app: str, d: Path) -> None:
+    repo = f"{ORG}/{app}"
+    runs = json.loads(
+        run(
+            "gh",
+            "run",
+            "list",
+            "-R",
+            repo,
+            "--workflow",
+            "release.yml",
+            "-L",
+            "1",
+            "--json",
+            "databaseId,status",
+        )
+    )
+    if not runs:
+        sys.exit(f"no release.yml run in {repo}: run `new-app.py create` first")
+    if runs[0]["status"] != "completed":
+        run("gh", "run", "watch", str(runs[0]["databaseId"]), "-R", repo, "--exit-status")
+    rel = json.loads(run("gh", "release", "view", "-R", repo, "--json", "tagName,body"))
+    digest = DIGEST.search(rel["body"])
+    if not digest:
+        sys.exit(f"{rel['tagName']}'s notes have no image digest")
+    set_app_digest(app, d, "staging", digest[0], rel["tagName"].split("/v")[-1])
+    tags = json.loads(
+        run("gh", "release", "list", "-R", f"{ORG}/platform", "-L", "50", "--json", "tagName")
+    )
+    chart_tag = next(t["tagName"] for t in tags if t["tagName"].startswith("service/v"))
+    body = json.loads(
+        run("gh", "release", "view", chart_tag, "-R", f"{ORG}/platform", "--json", "body")
+    )["body"]
+    chart_digest = DIGEST.search(body)
+    if not chart_digest:
+        sys.exit(f"{chart_tag}'s notes have no chart digest")
+    platform_pr(app, d, "staging", (chart_tag.removeprefix("service/v"), chart_digest[0]))
+
+
+def prod(app: str, d: Path) -> None:
+    run("git", "pull", "--ff-only", cwd=d)
+    digest = yaml.safe_load((d / f"apps/{app}/deploy/envs/staging.yaml").read_text())["image"][
+        "digest"
+    ]
+    if not digest:
+        sys.exit("staging runs no release yet: run `new-app.py staging` first")
+    # The release staging runs: the newest one whose notes hold staging's digest.
+    tags = json.loads(run("gh", "release", "list", "-R", f"{ORG}/{app}", "--json", "tagName"))
+    version = next(
+        t["tagName"].split("/v")[-1]
+        for t in tags
+        if digest
+        in json.loads(
+            run("gh", "release", "view", t["tagName"], "-R", f"{ORG}/{app}", "--json", "body")
+        )["body"]
+    )
+    set_app_digest(app, d, "prod", digest, version)
+    run("git", "fetch", "origin", "main", cwd=PLATFORM)
+    staging_env = run("git", "show", f"origin/main:apps/{app}/envs/staging.yaml", cwd=PLATFORM)
+    chart = yaml.safe_load(staging_env)["chart"]
+    platform_pr(app, d, "prod", (chart["version"], chart["digest"]))
+
+
+def main() -> None:
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
+    p.add_argument("step", choices=["create", "staging", "prod"])
+    p.add_argument("app", help="lowercase letters, digits and dashes")
+    p.add_argument("--dir", type=Path, help="the app's checkout (default: ./<app>)")
+    p.add_argument("--template", default=f"{ORG}/app-template", help="create: the template repo")
+    p.add_argument("--version", default="0.1.0", help="create: the first release")
+    a = p.parse_args()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", a.app):
+        sys.exit(f"{a.app}: an app name is lowercase letters, digits and dashes")
+    d = (a.dir or Path.cwd() / a.app).resolve()
+    if a.step == "create":
+        create(a.app, d, a.template, a.version)
+    elif a.step == "staging":
+        staging(a.app, d)
+    else:
+        prod(a.app, d)
+
+
+if __name__ == "__main__":
+    main()
