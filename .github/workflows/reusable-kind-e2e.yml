@@ -58,8 +58,9 @@ jobs:
   e2e:
     name: kind e2e (${{ inputs.app }} ${{ inputs.env }})
     runs-on: ubuntu-latest
-    # The platform takes about 10 minutes to come up on a runner; the app a few more.
-    timeout-minutes: 30
+    # The platform takes about 12 minutes to come up on a runner, the app a few more, and a
+    # failed start-up gets one more try.
+    timeout-minutes: 45
     env:
       IMAGE: ${{ inputs.app }}:e2e
     steps:
@@ -120,13 +121,29 @@ jobs:
         if: inputs.run
         run: kind load docker-image "$IMAGE" --name shortly
 
+      # Start-up flaked once in four runs (PT-81), so it gets a second try, once, in a step of
+      # its own so the log shows it: cluster.sh up is idempotent. Nothing else is retried.
       - name: Platform through Argo CD
         if: inputs.run
+        id: up
+        continue-on-error: true
+        timeout-minutes: 18 # it takes about 12
         run: .platform/scripts/cluster.sh up
         env:
           PLATFORM_REVISION: ${{ steps.platform.outputs.sha }}
           ARGOCD_APPS: "0" # the app is deployed by the next step, as Argo CD would
           BACKUPS: "0" # no database here; CI's node has little CPU to spare (PT-71)
+
+      - name: Platform through Argo CD (retry, the first try failed)
+        if: inputs.run && steps.up.outcome == 'failure'
+        run: |
+          echo "::warning::platform start-up failed on its first try; retrying it once"
+          kubectl -n argocd get applications || true
+          .platform/scripts/cluster.sh up
+        env:
+          PLATFORM_REVISION: ${{ steps.platform.outputs.sha }}
+          ARGOCD_APPS: "0"
+          BACKUPS: "0"
 
       # When a sync never finishes, the job's timeout kills the wait before it can explain.
       - name: Argo CD state (on failure)

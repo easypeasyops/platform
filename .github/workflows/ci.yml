@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch: # every job, app-e2e included, on any branch's head
 
 # Least privilege: the default GITHUB_TOKEN can write to the repo; CI only needs to read.
 permissions:
@@ -14,9 +15,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# Checks on what the platform repo holds. The kind end-to-end test runs in each app's repo,
-# against the platform commit the app pins (links: platform.lock): a platform change reaches
-# an app's e2e when the app moves its pin.
+# Checks on what the platform repo holds. Each app's kind end-to-end test runs in its own
+# repo, against the platform commit it pins (platform.lock): a platform change reaches it when
+# the app moves its pin. Before that, app-e2e below runs app-template's on a PR that touches
+# what apps run on.
 env:
   # CRD schemas for kubeconform (Kyverno, Argo CD, Gateway API, Prometheus Operator), pinned
   # by commit.
@@ -291,6 +293,50 @@ jobs:
             -schema-location "$CRDS/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" \
             .
 
+  # app-template's kind e2e on this PR's head commit (PT-82): a platform change that breaks
+  # an app fails here, before it merges and Argo CD syncs it, not on the app's next lock PR.
+  # About 15 minutes, so only on a PR that touches what an app runs on (the paths below);
+  # other PRs and pushes to main skip it (`run: false`, still a success). A manual run
+  # (workflow_dispatch) always runs it. app-template is pinned (app-ref), so a red run means
+  # the platform change broke it: move the pin in a PR of its own.
+  app-e2e-scope:
+    name: app e2e change scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      run: ${{ steps.scope.outputs.run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2 # the PR merge commit and its first parent
+      - name: Does this change touch what apps run on?
+        id: scope
+        run: |
+          run=true
+          case "$GITHUB_EVENT_NAME" in
+            pull_request)
+              changed=$(git diff --name-only HEAD^1 HEAD)
+              grep -qE '^(charts/service/|deploy/(policies|argocd/platform|kind|app-namespace)/|apps/applicationset\.yaml$|scripts/(cluster|kind-e2e|load-app-env|verify-image)\.sh$|scripts/lib/|\.github/workflows/(ci|reusable-kind-e2e)\.yml$)' \
+                <<<"$changed" || run=false ;;
+            push) run=false ;; # its PR ran it
+          esac
+          echo "run=$run" | tee -a "$GITHUB_OUTPUT"
+
+  app-e2e:
+    needs: app-e2e-scope
+    uses: ./.github/workflows/reusable-kind-e2e.yml
+    with:
+      run: ${{ needs.app-e2e-scope.outputs.run == 'true' }}
+      app: python-template
+      env: staging
+      app-repository: easypeasyops/app-template
+      app-ref: 7fc40fa0494f2b7c755b34132bc2cffd6fa5b5e3 # app-template's pin: move it in a PR of its own
+      context: apps/python-template
+      values-files: apps/python-template/deploy/service/values.yaml apps/python-template/deploy/envs/staging.yaml
+      chart: .platform/charts/service # this commit's chart, not a release
+      platform-ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
   scripts:
     name: scripts and workflows
     runs-on: ubuntu-latest
@@ -330,6 +376,8 @@ jobs:
       - servicemonitor-check
       - servicemonitor-image
       - tools-deploy
+      - app-e2e-scope
+      - app-e2e
       - scripts
     runs-on: ubuntu-latest
     timeout-minutes: 2
