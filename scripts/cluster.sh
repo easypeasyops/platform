@@ -286,6 +286,51 @@ take_over_from_helm() {
       echo "helm release $ns/$release handed over to Argo CD (its Helm records removed)"
     fi
   done
+  drop_helm_field_ownership
+}
+
+# Helm installed those releases with server-side apply, so their objects' managedFields still
+# hold a `helm` entry. The fields it owns outlive a removal from git: Argo CD drops only its
+# own share, and a container Helm half-owns is left without an image (PT-104's Grafana).
+# Remove that entry from every object of those releases (CRDs from a chart's crds/ carry no
+# release annotation, and neither do they belong to Argo CD's own release, which Helm still
+# installs). A `test` on the manager guards each `remove` against a shifted index. Only field
+# ownership changes: no spec, nothing restarts.
+drop_helm_field_ownership() {
+  local resource ns name patch removed=0
+  while read -r resource ns name patch; do # ns is - for a cluster-scoped object
+    [[ "$ns" == - ]] && ns=""
+    # A failed test (the object changed since the list) leaves it for the next up.
+    if kubectl ${ns:+-n "$ns"} patch "$resource/$name" --type=json -p "$patch" >/dev/null; then
+      removed=$((removed + 1))
+    fi
+  done < <(kubectl get "$(kubectl api-resources --verbs=list,patch -o name | paste -sd, -)" -A \
+    --show-managed-fields -o json 2>/dev/null \
+    | RELEASES="${HELM_RELEASES[*]}" python3 -c '
+import json, os, sys
+releases = set(os.environ["RELEASES"].split())
+namespaces = {r.split("/")[0] for r in releases}
+for o in json.load(sys.stdin)["items"]:
+    m = o["metadata"]
+    a = m.get("annotations") or {}
+    release = a.get("meta.helm.sh/release-namespace"), a.get("meta.helm.sh/release-name")
+    if release[0] is None:  # a CRD from crds/: cluster-scoped, or in a release namespace
+        if m.get("namespace", "-") not in namespaces | {"-"}:
+            continue
+    elif "/".join(release) not in releases:
+        continue
+    helm = [i for i, e in enumerate(m.get("managedFields") or []) if e.get("manager") == "helm"]
+    patch = []
+    for i in reversed(helm):  # last first, so the earlier indexes still hold
+        path = f"/metadata/managedFields/{i}"
+        patch += [{"op": "test", "path": path + "/manager", "value": "helm"},
+                  {"op": "remove", "path": path}]
+    if patch:
+        group, _, version = o["apiVersion"].rpartition("/")
+        resource = o["kind"] + (f".{version}.{group}" if group else "")
+        print(resource, m.get("namespace", "-"), m["name"], json.dumps(patch, separators=(",", ":")))
+')
+  if ((removed)); then echo "helm field ownership removed from $removed objects (Argo CD owns them now)"; fi
 }
 
 # The apps root's files (deploy/argocd/apps-{project,root}.yaml).
