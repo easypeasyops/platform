@@ -169,7 +169,7 @@ chart:
   digest: {digest}
 values:
   repoURL: https://github.com/{repo}.git
-  revision: main
+  ref: main
   files:
     - apps/{app}/deploy/service/values.yaml
 {slo}    - apps/{app}/deploy/envs/{env}.yaml
