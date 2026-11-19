@@ -611,6 +611,16 @@ alert's description and the upstream runbook. The namespaces are listed in the r
 platform namespace is added there (`tests/test_alerting.py` fails until it is). The stack's
 `info` alerts and `Watchdog` stay on `null`.
 
+**When alerting itself is down, nothing says so** (PT-14, parked). If Prometheus or
+Alertmanager is down, or Alertmanager can't reach Slack, no alert arrives: silence looks
+the same as healthy. Check Alertmanager's UI or `kubectl -n monitoring get pods` before
+trusting a quiet channel. The planned fix is a heartbeat: `Watchdog` routed to a
+[Healthchecks.io](https://healthchecks.io) check's ping URL (a webhook receiver repeating
+every minute; period and grace about 5 minutes each), which posts to Slack itself when the
+pings stop. `scripts/cluster.sh down` would pause the check through its API, and the first
+ping after `up` resumes it. The ping URL and the API key would be secrets in the store.
+Closing the laptop without `down` would still raise the alarm.
+
 **The links under a firing message** (`links-slack.tmpl`, both channels), after the
 runbook: **Query**, the alert's expression in Prometheus at the moment it fired; **Logs**,
 Explore on VictoriaLogs with its namespace's lines (`exported_namespace` or
