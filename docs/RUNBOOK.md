@@ -168,7 +168,7 @@ A platform Application (`kubectl -n argocd get applications -l app.kubernetes.io
 | What you see | Cause | Fix |
 | --- | --- | --- |
 | `kyverno-policies` fails with a webhook error | Kyverno's admission webhook isn't serving yet | It retries for about 9 minutes; if it still fails, `kubectl -n kyverno get pods` |
-| `monitoring` or `backups` Degraded on an ExternalSecret | It can't read the store: the value isn't there yet (a generator runs within seconds; the Slack webhooks are loaded by hand, and deleted from the store after `cluster.sh up` saw them: Slack alerts), or the store isn't Ready (`secret-store`, below) | `kubectl -n monitoring get externalsecret -o wide`; `kubectl -n monitoring get externalsecret <name> -o jsonpath='{.status.conditions}'` (or `-n backups … seaweedfs-s3`) |
+| `monitoring` or `backups` Degraded on an ExternalSecret | It can't read the store: the value isn't there yet (a generator runs within seconds; Slack's bot token comes from Keychain, copied by `cluster.sh up`, and `up` leaves Slack out when there is none: Slack alerts), or the store isn't Ready (`secret-store`, below) | `kubectl -n monitoring get externalsecret -o wide`; `kubectl -n monitoring get externalsecret <name> -o jsonpath='{.status.conditions}'` (or `-n backups … seaweedfs-s3`) |
 | `barman-cloud` stays Progressing or Degraded | Its Certificates aren't issued: cert-manager isn't running, or its webhook refused the Issuer before it was serving (the sync retry catches up) | `kubectl -n cnpg-system get certificates,issuers`; `kubectl -n cert-manager logs deploy/cert-manager --tail=30` |
 | An app's `<release>-db-backup` ExternalSecret isn't Ready | The `backup-bucket` store refuses it: the namespace lacks the app label its conditions select, or the store's reader can't get `seaweedfs-s3` | `kubectl get clustersecretstore backup-bucket -o jsonpath='{.status.conditions}'`; `kubectl -n <ns> describe externalsecret <release>-db-backup` |
 | `secret-store` stays Degraded | A ClusterSecretStore can't read its namespace: External Secrets isn't running, or its token request for the store's reader was refused | `kubectl get clustersecretstore`; `kubectl get clustersecretstore platform -o jsonpath='{.status.conditions}'`; `kubectl -n external-secrets logs deploy/external-secrets --tail=30` |
@@ -510,46 +510,58 @@ selector that no longer matches, a pod's or a namespace's.
 
 ## Slack alerts
 
-Alertmanager posts to Slack through incoming webhooks, one per channel. A webhook URL is a
-secret (anyone holding it can post to the channel): it lives only in the store, as the
-Secret `alertmanager-slack` in `secret-store`, never in git, chat or a ticket. The
-ExternalSecret in `deploy/secrets/alertmanager-slack.yaml` copies it into `monitoring`, where
-Alertmanager mounts it. Keys, one per channel:
+Alertmanager posts to every channel with one Slack bot token (a Slack app's, through
+`chat.postMessage`). The token is a secret (anyone holding it can post as the bot): it lives
+in macOS Keychain and in the store, as the key `bot-token` of the Secret `alertmanager-slack`
+in `secret-store`, never in git, chat or a ticket. The ExternalSecret in
+`deploy/secrets/alertmanager-slack.yaml` copies it into `monitoring`, where Alertmanager
+mounts it. The channels are in git, one receiver each (`deploy/kind/monitoring-values.yaml`):
 
-| Key | Channel |
+| Receiver | Channel |
 | --- | --- |
-| `aipostit-prod-webhook-url` | #aipostit-alerts-prod |
-| `aipostit-staging-webhook-url` | #aipostit-alerts-staging |
-| `platform-webhook-url` | #platform-alerts |
+| `aipostit-prod` | #aipostit-alerts-prod |
+| `aipostit-staging` | #aipostit-alerts-staging |
+| `platform` | #platform-alerts |
 
-**A cluster without the webhooks runs without Slack.** `scripts/cluster.sh up` looks for
-the Secret in the store and sets the platform's `components.slack` from it: where it is
-missing (a fresh cluster, an app's CI), the ExternalSecret and Alertmanager's mount of its
-Secret are left out, `up` says so, and alerts stay in Alertmanager. So on a new cluster:
-`up`, load the webhooks (below), `up` again. Deleting the Secret from the store and running
-`up` switches Slack off the same way.
+**A new cluster gets Slack by itself.** Every `scripts/cluster.sh up` copies the token from
+Keychain into the store (`scripts/lib/slack.sh`), then sets the platform's `components.slack`
+from whether the store has it. Where it doesn't (no token in Keychain, an app's CI), the
+ExternalSecret and Alertmanager's mount of its Secret are left out, `up` says so, and alerts
+stay in Alertmanager.
 
-**Load or replace the webhooks.** Make each webhook in Slack (api.slack.com/apps: the app,
-**Incoming Webhooks**, **Add New Webhook**, pick the channel), then:
+**Set up the Slack app, once**, in a terminal:
 
 ```sh
-umask 077
-cat > /tmp/alertmanager-slack.env   # paste these three lines with the real URLs, then Ctrl-D
-# aipostit-prod-webhook-url=https://hooks.slack.com/services/...
-# aipostit-staging-webhook-url=https://hooks.slack.com/services/...
-# platform-webhook-url=https://hooks.slack.com/services/...
-kubectl -n secret-store create secret generic alertmanager-slack \
-  --from-env-file=/tmp/alertmanager-slack.env --dry-run=client -o yaml \
-  | kubectl apply --server-side --field-manager=alertmanager-slack -f -
-rm /tmp/alertmanager-slack.env
-# Key names only, never values:
-kubectl -n secret-store get secret alertmanager-slack -o go-template='{{range $k, $v := .data}}{{$k}} {{end}}'
+scripts/setup-slack-app.sh
 ```
 
-Write no quotes around the values. Every key must be in the file: a key left out is
-removed. A replaced URL reaches Alertmanager within the hour (the ExternalSecret's
-refresh); check with `kubectl -n monitoring get externalsecret alertmanager-slack` (Ready
-`True`). If a webhook leaks, delete it in Slack first, then load the new one.
+It copies the app's manifest (`deploy/slack/app-manifest.yaml`: its name, the scopes
+`chat:write` and `chat:write.public`, token rotation off) to the clipboard and opens Slack's
+**Create New App** page. There: From an app manifest, the workspace, paste it in the YAML tab,
+Create, **Install to Workspace**, Allow. Then copy the **Bot User OAuth Token** (`xoxb-…`, on
+OAuth & Permissions) and paste it at the script's prompt (not shown). Slack lets no script do
+those two clicks or read the token. The script hands it to `scripts/load-slack.sh`, which
+asks Slack whose token it is (`auth.test`), saves it in Keychain and copies it into the
+cluster if one is up. With `chat:write.public` the bot posts in a public channel without
+being added to it; a private channel needs the app added (the channel's name, Integrations,
+Add apps).
+
+A replaced token reaches Alertmanager within the hour (the ExternalSecret's refresh); check
+with `kubectl -n monitoring get externalsecret alertmanager-slack` (Ready `True`). If the
+token leaks, revoke it in Slack first (OAuth & Permissions, **Revoke All OAuth Tokens**, then
+reinstall), then save the new one with `scripts/load-slack.sh` (it asks for it). **A new
+channel** is a receiver in `deploy/kind/monitoring-values.yaml` naming it: no new secret, and
+no step in Slack for a public channel.
+
+**Without Keychain** (Linux), load the store by hand; `up` keeps what it finds there:
+
+```sh
+read -rs token   # paste the token, then Enter
+printf %s "$token" | kubectl -n secret-store create secret generic alertmanager-slack \
+  --from-file=bot-token=/dev/stdin --dry-run=client -o yaml \
+  | kubectl apply --server-side --field-manager=slack-bot-token -f -
+unset token
+```
 
 **Where alerts go** (`deploy/kind/monitoring-values.yaml`, checked by
 `tests/test_alerting.py`). aipostit's rules (severity `page` or `ticket`) go to its
@@ -598,8 +610,8 @@ It reaches #aipostit-alerts-staging after `group_wait` (30 s), and a resolved me
 5 minutes after the end time. Its links open `up{namespace="aipostit-staging"}` at the
 moment it fired, aipostit-staging's logs around then, and a silence for it. `namespace=aipostit-prod severity=page` tests the prod channel
 and its `@channel`. Nothing arrives: `kubectl -n monitoring logs alertmanager-kps-alertmanager-0
--c alertmanager | grep -i slack` (a 404 or `invalid_token` is a revoked webhook: load a new
-one, above).
+-c alertmanager | grep -i slack` (`invalid_auth` or `token_revoked` is a revoked token: save a new
+one, above; `not_in_channel` or `channel_not_found`: add the app to that channel).
 
 **Silence** a known alert while you work on it: Alertmanager's UI
 (http://alertmanager.localhost:8090, New Silence) or `amtool silence add alertname=<name>
@@ -614,7 +626,7 @@ The source of every platform secret is a Secret in namespace `secret-store`
 | --- | --- | --- |
 | `grafana-admin` | A generator, once | `monitoring` (Grafana's admin login) |
 | `seaweedfs-s3` | A generator, once | `backups` (the bucket's S3 identity), and each app database's `<release>-db-backup` through the `backup-bucket` store |
-| `alertmanager-slack` | By hand (Slack alerts, above) | `monitoring` |
+| `alertmanager-slack` | `cluster.sh up`, from Keychain (`scripts/load-slack.sh`; Slack alerts, above) | `monitoring` |
 | `<app>` | By hand: `scripts/load-app-env.sh <app> <dotenv file>` | The app's namespaces, as `<release>-env`, through the app's own store |
 
 **Rotate a generated secret** (it leaked). Its source is immutable, so deleting it is the
@@ -652,7 +664,7 @@ is the ExternalSecret's namespace (`namespace` is the controller's). Rules:
 
 | The ExternalSecret says | Cause | Fix |
 | --- | --- | --- |
-| The store Secret or one of its keys doesn't exist | Never loaded, or loaded without that key | Platform secrets, above: `scripts/load-app-env.sh` for an app's, Slack alerts for `alertmanager-slack` |
+| The store Secret or one of its keys doesn't exist | Never loaded, or loaded without that key | Platform secrets, above: `scripts/load-app-env.sh` for an app's, `scripts/load-slack.sh` for `alertmanager-slack` (Slack alerts) |
 | The store isn't ready | `kubectl get clustersecretstore` shows which; `kubectl describe clustersecretstore <name>` why (its ServiceAccount or Role in `secret-store`) | `deploy/secrets/`, through a PR |
 | Nothing wrong, after a fix | The next try is up to an hour away | `kubectl -n <ns> annotate externalsecret <name> force-sync=$(date +%s) --overwrite` |
 

@@ -4,7 +4,7 @@
 # Slack with no other step. If the laptop's cluster is up, it is copied there right away.
 #
 #   scripts/load-slack.sh                  # asks for the token, without echoing it
-#   pbpaste | scripts/load-slack.sh        # or from stdin
+#   pbpaste | scripts/load-slack.sh        # or from stdin (scripts/setup-slack-app.sh does)
 #
 # The token is a bot token (xoxb-...) of a Slack app with the chat:write scope, from the
 # app's OAuth & Permissions page (docs/RUNBOOK.md, Slack alerts). Running it again replaces
@@ -27,6 +27,16 @@ else
 fi
 # Also keeps the line below safe: security -i splits its input on spaces and quotes.
 [[ "$token" =~ ^xoxb-[A-Za-z0-9-]+$ ]] || die "that isn't a bot token (xoxb- and letters, digits, dashes)"
+
+# Ask Slack whose token it is before saving it (auth.test). The header goes through stdin
+# (-H @-), so the token isn't in curl's arguments either.
+who=$(printf 'Authorization: Bearer %s\n' "$token" \
+  | curl -sS --max-time 10 -H @- https://slack.com/api/auth.test \
+  | python3 -c 'import json, sys; r = json.load(sys.stdin)
+print("bot " + r["user"] + " in " + r["team"] if r.get("ok") else "error " + r.get("error", "?"))') \
+  || die "couldn't reach Slack to check the token"
+[[ "$who" != error* ]] || die "Slack refused the token: ${who#error }"
+echo "load-slack: Slack says this is the token of $who"
 
 # security -i reads the command from stdin: the token isn't in any process's arguments.
 # -U replaces an existing item.

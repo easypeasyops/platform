@@ -109,8 +109,8 @@ spec:
 ---
 # kube-prometheus-stack, and the ExternalSecret that makes its Grafana admin login from the
 # store (deploy/secrets/monitoring.yaml). With `components.slack`, also the ExternalSecret
-# for the Slack webhooks (deploy/secrets/alertmanager-slack.yaml); without, neither it nor
-# Alertmanager's mount of its Secret: both would wait for good on webhooks nobody loaded.
+# for Slack's bot token (deploy/secrets/alertmanager-slack.yaml); without, neither it nor
+# Alertmanager's mount of its Secret: both would wait for good on a token nobody loaded.
 {{- $slackFiles := ternary "deploy/secrets/{monitoring.yaml,alertmanager-slack.yaml}" "deploy/secrets/monitoring.yaml" $v.components.slack }}
 {{- $noSlack := ternary (dict) (dict "alertmanager" (dict "alertmanagerSpec" (dict "secrets" (list)))) $v.components.slack }}
 {{ include "platform.meta" (dict "name" "monitoring" "wave" 0) }}
