@@ -254,10 +254,12 @@ alertmanager:
     secrets: [alertmanager-slack]
     resources:
       requests: { cpu: 10m, memory: 32Mi }
-  # Routing. aipostit's alerts go to its two Slack channels and the platform's own (Argo CD's,
-  # and the stack's warning and critical alerts on the platform's namespaces)
-  # to #platform-alerts (docs/RUNBOOK.md, Slack alerts). Any other app's go to named placeholders with no integration, so nothing of its leaves
-  # the cluster; in a real setup `pager` gets pagerduty_configs and `tickets` slack_configs.
+  # Routing. Every app's alerts go to its environment's Slack channel, #<app>-alerts-<env>
+  # (aipostit's with its own messages), and the platform's own (Argo CD's, and the stack's
+  # warning and critical alerts on the platform's namespaces) to #platform-alerts
+  # (docs/RUNBOOK.md, Slack alerts). The rest (the ops namespaces' alerts) go to named
+  # placeholders with no integration, so nothing of theirs leaves the cluster; in a real
+  # setup `pager` gets pagerduty_configs and `tickets` slack_configs.
   # tests/test_alerting.py checks these routes and the Slack messages with amtool.
   config:
     templates: [/etc/alertmanager/config/*.tmpl] # templateFiles below
@@ -300,7 +302,7 @@ alertmanager:
         # The platform's own alerts (deploy/argocd/platform/files/argocd-rules.yaml), after
         # the apps' routes above: ArgoCDDown, which has no project (the empty alternative),
         # and Argo CD's alerts on the platform's Applications (projects platform and apps).
-        # Another app's (shortly) still fall through to `tickets`.
+        # Another app's go to its own channel (the `apps` routes, below).
         - receiver: platform
           matchers: ['alertname =~ "ArgoCD.+"', 'project =~ "|platform|apps"']
           group_by: [alertname, name]
@@ -321,6 +323,17 @@ alertmanager:
         - receiver: platform
           matchers: ['alertname =~ "FrontDoor.+"']
           group_by: [alertname]
+        # Any other app (PT-99): its rules' alerts in <app>-prod or <app>-staging, and Argo
+        # CD's on its Application <app>-<env>, go to #<app>-alerts-<env>, the channel the
+        # `apps` receiver names from the namespace or the Application (apps-slack.tmpl). No
+        # change here for a new app: it creates its channels (RUNBOOK, Slack alerts). The ops
+        # namespaces (<app>-ops) stay out: they fall through to the placeholders below.
+        - receiver: apps
+          matchers: ['namespace =~ ".+-(prod|staging)"', 'severity =~ "page|ticket"']
+          group_by: [alertname, namespace]
+        - receiver: apps
+          matchers: ['alertname =~ "ArgoCD.+"', 'name =~ ".+-(prod|staging)"']
+          group_by: [alertname, name]
         - receiver: staging # staging never pages anyone, whatever its severity
           # Any app's staging namespace, <app>-staging (platform plan, Phase 2).
           matchers: ['namespace =~ ".+-staging"']
@@ -366,6 +379,13 @@ alertmanager:
             send_resolved: true
             title: '{{ template "aipostit.slack.title" . }}'
             text: '{{ template "aipostit.slack.text" . }}'
+      - name: apps
+        slack_configs:
+          - app_token_file: /etc/alertmanager/secrets/alertmanager-slack/bot-token
+            channel: '{{ template "apps.slack.channel" . }}'
+            send_resolved: true
+            title: '{{ template "apps.slack.title" . }}'
+            text: '{{ template "apps.slack.text" . }}'
       - name: platform
         slack_configs:
           - app_token_file: /etc/alertmanager/secrets/alertmanager-slack/bot-token
@@ -390,7 +410,25 @@ alertmanager:
       {{ end -}}
       {{ with (index .Alerts 0).Annotations.runbook_url }}<{{ . }}|Runbook>{{ end }}{{ template "slack.links" . }}
       {{- end }}
-    # The links after the runbook, for both channels' messages, from the first firing alert;
+    # Every other app's messages, as aipostit's: the channel #<app>-alerts-<env> from the
+    # group's namespace, or the Application's name for Argo CD's (both <app>-<env>). Title:
+    # red for a page, yellow for a ticket, the alert and where. Text: @channel on a firing
+    # page in prod only, each alert's summary, and its runbook link.
+    apps-slack.tmpl: |-
+      {{ define "apps.slack.where" }}{{ or .CommonLabels.namespace .CommonLabels.name }}{{ end }}
+      {{ define "apps.slack.channel" }}{{ reReplaceAll "^(.+)-(prod|staging)$" "#${1}-alerts-${2}" (or .CommonLabels.namespace .CommonLabels.name) }}{{ end }}
+      {{ define "apps.slack.title" -}}
+      {{ if eq .CommonLabels.severity "page" }}🔴{{ else }}🟡{{ end }} {{ if eq .Status "resolved" }}RESOLVED {{ end }}{{ .CommonLabels.alertname }} in {{ template "apps.slack.where" . }}
+      {{- end }}
+      {{ define "apps.slack.text" -}}
+      {{ if and (eq .Status "firing") (eq .CommonLabels.severity "page") (match "-prod$" (or .CommonLabels.namespace .CommonLabels.name)) }}<!channel> {{ end -}}
+      severity *{{ .CommonLabels.severity }}*
+      {{ range .Alerts -}}
+      • {{ if eq .Status "resolved" }}resolved: {{ end }}{{ .Annotations.summary }}
+      {{ end -}}
+      {{ with (index .Alerts 0).Annotations.runbook_url }}<{{ . }}|Runbook>{{ end }}{{ template "slack.links" . }}
+      {{- end }}
+    # The links after the runbook, for every channel's messages, from the first firing alert;
     # none on a resolved message. Query: its expression in Prometheus, at the moment it
     # fired. Logs: Explore on VictoriaLogs, its namespace (exported_namespace or
     # route_namespace where it has one) from an hour before it fired to half an hour after;
