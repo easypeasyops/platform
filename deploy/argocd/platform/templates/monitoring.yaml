@@ -125,11 +125,12 @@ spec:
   endpoints:
     - port: metrics
       interval: 30s
-{{- /* Each hostname on the front door (values.yaml, frontDoorProbes), asked for as a user
-would, every minute (deploy/kind/blackbox-exporter-values.yaml: through the proxies'
-Service, by hostname). In the root's own namespace, for the fresh cluster's dry run (as the
-PodMonitor above). job="front-door"; `hostname` and `listener` name what failed. */}}
-{{- range .Values.frontDoorProbes }}
+{{- /* Each hostname on the front door (the apps': apps/front-door-probes.yaml,
+appFrontDoorProbes; the tools': values.yaml, frontDoorProbes), asked for as a user would,
+every minute (deploy/kind/blackbox-exporter-values.yaml: through the proxies' Service, by
+hostname). In the root's own namespace, for the fresh cluster's dry run (as the PodMonitor
+above). job="front-door"; `hostname` and `listener` name what failed. */}}
+{{- range concat (.Values.appFrontDoorProbes | default list) .Values.frontDoorProbes }}
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: Probe

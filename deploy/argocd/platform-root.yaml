@@ -15,6 +15,9 @@ spec:
     path: deploy/argocd/platform
     helm:
       parameters: [] # cluster.sh: arch, revision, components.*
+      # The apps' front-door probes, outside the chart's directory: registering an app
+      # touches only apps/, so its PR doesn't run the app e2e (PT-93). Relative to `path`.
+      valueFiles: [../../../apps/front-door-probes.yaml]
   destination: { server: https://kubernetes.default.svc, namespace: argocd }
   syncPolicy:
     automated: { prune: true, selfHeal: true }
