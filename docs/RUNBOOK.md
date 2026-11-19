@@ -522,6 +522,7 @@ mounts it. The channels are in git, one receiver each (`deploy/kind/monitoring-v
 | `aipostit-prod` | #aipostit-alerts-prod |
 | `aipostit-staging` | #aipostit-alerts-staging |
 | `platform` | #platform-alerts |
+| `apps` | #<app>-alerts-<env>, every other app's (below) |
 
 **A new cluster gets Slack by itself.** Every `scripts/cluster.sh up` copies the token from
 Keychain into the store (`scripts/lib/slack.sh`), then sets the platform's `components.slack`
@@ -550,7 +551,9 @@ A replaced token reaches Alertmanager within the hour (the ExternalSecret's refr
 with `kubectl -n monitoring get externalsecret alertmanager-slack` (Ready `True`). If the
 token leaks, revoke it in Slack first (OAuth & Permissions, **Revoke All OAuth Tokens**, then
 reinstall), then save the new one with `scripts/load-slack.sh` (it asks for it). **A new
-channel** is a receiver in `deploy/kind/monitoring-values.yaml` naming it: no new secret, and
+app's channels** need no change here: create the public channels #<app>-alerts-prod and
+#<app>-alerts-staging in Slack, and the `apps` receiver posts there (below). Any other new
+channel is a receiver in `deploy/kind/monitoring-values.yaml` naming it: no new secret, and
 no step in Slack for a public channel.
 
 **Without Keychain** (Linux), load the store by hand; `up` keeps what it finds there:
@@ -575,6 +578,16 @@ every 4 hours while firing, and a message when it resolves. A page is red and, i
 notifies the channel (`@channel`); a ticket is yellow and doesn't. While a page fires in an
 environment, its tickets there are held back (inhibited). The stack's own warning and
 critical alerts on the same pods stay on `null`: aipostit's rules cover them.
+
+**Every other app** (PT-99): its rules' alerts (severity `page` or `ticket`) in `<app>-prod`
+or `<app>-staging`, and Argo CD's alerts on its Application `<app>-<env>`, go to the `apps`
+receiver, which picks the channel #<app>-alerts-<env> from the namespace or the
+Application's name. Its messages are aipostit's: titled "<alert> in <namespace>", red for a
+page and `@channel` on a page in prod. The channel must exist (public, so the bot needs no
+invite): if it doesn't, Slack refuses the post (`channel_not_found` in Alertmanager's log),
+the alert reaches no one, and `AlertmanagerFailedToSendAlerts` goes to #platform-alerts. The
+ops namespaces (`servicemonitor-ops`, `deploybot-ops`) stay out of it: their alerts stay in
+Alertmanager (`pager`, `tickets`), except deploybot's Argo CD alerts, above.
 
 The platform's own alerts go to #platform-alerts: `ArgoCDDown`, and Argo CD's alerts on the
 platform's Applications (projects `platform` and `apps`), titled "on <Application>". All

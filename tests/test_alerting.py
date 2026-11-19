@@ -202,9 +202,14 @@ def test_alertmanager_config_is_valid(alertmanager_config: Path) -> None:
     [
         (["namespace=prod", "severity=page"], "pager"),
         (["namespace=prod", "severity=ticket"], "tickets"),
-        # Any app's staging never pages: <app>-staging (platform plan, Phase 2).
-        (["namespace=shortly-staging", "severity=page"], "staging"),
-        (["namespace=shortly-prod", "severity=page"], "pager"),
+        # Any other app's rules: its environment's channel, #<app>-alerts-<env> (PT-99).
+        (["namespace=shortly-staging", "severity=page"], "apps"),
+        (["namespace=shortly-prod", "severity=page"], "apps"),
+        (["namespace=java-hello-prod", "severity=ticket"], "apps"),
+        (["namespace=rust-hello-staging", "severity=ticket"], "apps"),
+        # The ops namespaces stay out of it: placeholders, as before.
+        (["namespace=servicemonitor-ops", "severity=ticket"], "tickets"),
+        (["namespace=servicemonitor-ops", "severity=page"], "pager"),
         (["namespace=prodstaging", "severity=page"], "pager"),  # the regex is anchored
         (["alertname=Watchdog", "severity=none"], "null"),
         # The stack's own alerts: warning and critical on the platform's namespaces, or on
@@ -323,6 +328,24 @@ def test_alertmanager_config_is_valid(alertmanager_config: Path) -> None:
                 "alertname=ArgoCDSyncFailed",
                 "project=shortly",
                 "name=shortly-prod",
+                "severity=ticket",
+            ],
+            "apps",
+        ),
+        (
+            [
+                "alertname=ArgoCDAppUnhealthy",
+                "project=java-hello",
+                "name=java-hello-staging",
+                "severity=ticket",
+            ],
+            "apps",
+        ),
+        (
+            [
+                "alertname=ArgoCDSyncFailed",
+                "project=servicemonitor",
+                "name=servicemonitor-ops",
                 "severity=ticket",
             ],
             "tickets",
@@ -586,3 +609,43 @@ def test_the_links_use_grafanas_address() -> None:
     root_url = values["grafana"]["grafana.ini"]["server"]["root_url"]
     links = values["alertmanager"]["templateFiles"]["links-slack.tmpl"]
     assert f'{{{{ define "slack.grafana" }}}}{root_url}{{{{ end }}}}' in links
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("labels", "channel"),
+    [
+        ({"namespace": "java-hello-prod"}, "#java-hello-alerts-prod"),
+        ({"namespace": "rust-hello-staging"}, "#rust-hello-alerts-staging"),
+        ({"namespace": "my-app-staging"}, "#my-app-alerts-staging"),  # only the last -<env>
+        ({"name": "java-hello-staging", "project": "java-hello"}, "#java-hello-alerts-staging"),
+        ({"namespace": "aipostit-prod"}, "#aipostit-alerts-prod"),  # aipostit's own names fit
+    ],
+)
+def test_an_apps_channel_comes_from_its_namespace_or_application(
+    alertmanager_config: Path, labels: dict[str, str], channel: str
+) -> None:
+    data = _notification("apps", "firing", {"severity": "ticket", **labels})
+    (alertmanager_config.parent / "data.json").write_text(json.dumps(data))
+    (alertmanager_config.parent / "data.json").chmod(0o644)
+    result = _amtool(
+        alertmanager_config,
+        "template", "render", "--template.glob=/c/*.tmpl",
+        '--template.text={{ template "apps.slack.channel" . }}', "--template.data=/c/data.json",
+    )  # fmt: skip
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.strip() == channel
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("namespace", "notifies"), [("java-hello-prod", True), ("java-hello-staging", False)]
+)
+def test_an_apps_page_notifies_its_channel_in_prod_only(
+    alertmanager_config: Path, namespace: str, notifies: bool
+) -> None:
+    labels = {"namespace": namespace, "severity": "page"}
+    message = _slack(alertmanager_config, _notification("apps", "firing", labels), "apps")
+    assert message.startswith(f"🔴 AipostitApiDown in {namespace}\n"), message
+    assert ("<!channel>" in message) == notifies, message
+    assert "<https://example.test#x|Runbook>" in message
