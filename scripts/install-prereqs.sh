@@ -1,16 +1,22 @@
 #!/usr/bin/env bash
-# Install what it takes to bring an app from app-template to prod, on macOS with Homebrew:
+# Install what it takes to bring an app from app-template to prod, with Homebrew (macOS or
+# Linux):
 #   - scripts/new-app.py (create, staging, prod): git, gh, uv
-#   - the laptop cluster those environments run on (scripts/cluster.sh): Docker Desktop,
-#     kind, kubectl, helm (4 or newer)
+#   - the laptop cluster those environments run on (scripts/cluster.sh): kind, kubectl,
+#     helm (4 or newer), and Docker (Docker Desktop on macOS, Docker Engine on Linux)
 # Idempotent: a tool already on PATH is left as it is (no upgrade), except a Helm older
-# than 4. Docker Desktop and the gh login are only checked: they need you.
+# than 4. Docker and the gh login are only checked: they need you.
 #
 #   scripts/install-prereqs.sh
 set -euo pipefail
 
+os=$(uname -s)
+# Homebrew on Linux lives outside PATH until its shellenv is loaded.
+if ! command -v brew >/dev/null && [[ -x /home/linuxbrew/.linuxbrew/bin/brew ]]; then
+  eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+fi
 command -v brew >/dev/null || {
-  echo "Homebrew is required: https://brew.sh" >&2
+  echo "Homebrew is required (macOS or Linux): https://brew.sh" >&2
   exit 1
 }
 
@@ -32,7 +38,13 @@ if ((helm_major < 4)); then
 fi
 
 todo=()
-if ! command -v docker >/dev/null; then
+if [[ $os == Linux ]]; then
+  if ! command -v docker >/dev/null; then
+    todo+=("Install Docker Engine (https://docs.docker.com/engine/install/) and start it")
+  elif ! docker info >/dev/null 2>&1; then
+    todo+=("Start Docker (sudo systemctl start docker), and if it still refuses you, join the docker group: sudo usermod -aG docker \"$USER\", then log in again")
+  fi
+elif ! command -v docker >/dev/null; then
   todo+=("Install Docker Desktop (https://www.docker.com/products/docker-desktop/) and start it")
 elif ! docker info >/dev/null 2>&1; then
   todo+=("Start Docker Desktop")
