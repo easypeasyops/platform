@@ -90,9 +90,10 @@ values:
   files: [deploy/service/values.yaml, deploy/envs/staging.yaml] # layered in order
 ```
 
-Each environment's hostnames also go in `frontDoorProbes` in
-`deploy/argocd/platform/values.yaml`, so the blackbox exporter probes them through the
-front door (CI fails on a hostname it doesn't probe).
+Each environment's hostnames also go in `appFrontDoorProbes` in
+`apps/front-door-probes.yaml`, so the blackbox exporter probes them through the front door
+(CI fails on a hostname it doesn't probe). The PR stays in `apps/`, so it skips the app e2e
+and its CI takes about a minute.
 
 CI (`apps` job, `scripts/check-apps.py`) checks each env file the way Argo CD will use it: the
 project allows it, the digest is a release of that version whose provenance verifies, and the

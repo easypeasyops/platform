@@ -28,6 +28,7 @@ TOOL_NAMESPACES = {"argocd", "monitoring"}
 TOOL_APP_NAMESPACES = {"servicemonitor-ops"}
 LISTENER_NAMESPACES = {"http": APP_NAMESPACES, "tools": TOOL_NAMESPACES | TOOL_APP_NAMESPACES}
 CHART = ROOT / "deploy/argocd/platform"
+APP_PROBES = ROOT / "apps/front-door-probes.yaml"  # the root's second values file
 
 _spec = importlib.util.spec_from_file_location("check_apps", ROOT / "scripts/check-apps.py")
 assert _spec
@@ -135,7 +136,7 @@ def _platform(*sets: str) -> list[dict[str, Any]]:
         pytest.skip("helm not installed")
     args = [arg for s in ("arch=amd64", *sets) for arg in ("--set", s)]
     out = subprocess.run(
-        ["helm", "template", "platform", str(CHART), *args],
+        ["helm", "template", "platform", str(CHART), "-f", str(APP_PROBES), *args],
         capture_output=True,
         text=True,
         check=True,
@@ -451,11 +452,15 @@ def _probes() -> dict[str, dict[str, Any]]:
 
 
 def test_every_hostname_on_the_front_door_is_probed_every_minute() -> None:
-    """One Probe per frontDoorProbes entry, through the module for its listener, at the
-    exporter's Service. The tool routes are all there, at the listener they attach to; the
-    apps' hostnames, on either listener, are checked against their rendered routes by
-    scripts/check-apps.py (as is any other entry: one no route serves fails there)."""
-    entries = yaml.safe_load((CHART / "values.yaml").read_text())["frontDoorProbes"]
+    """One Probe per entry of appFrontDoorProbes (the apps') and frontDoorProbes (the
+    tools'), through the module for its listener, at the exporter's Service. The tool routes
+    are all there, at the listener they attach to; the apps' hostnames, on either listener,
+    are checked against their rendered routes by scripts/check-apps.py (as is any other
+    entry: one no route serves fails there)."""
+    entries = (
+        yaml.safe_load(APP_PROBES.read_text())["appFrontDoorProbes"]
+        + yaml.safe_load((CHART / "values.yaml").read_text())["frontDoorProbes"]
+    )
     probes = _probes()
     assert len(probes) == len(entries)
     exporter = yaml.safe_load((ROOT / "deploy/kind/blackbox-exporter-values.yaml").read_text())
@@ -502,14 +507,17 @@ def test_the_probe_alert_ships_as_the_rules_file_says() -> None:
     assert {p["jobName"] for p in _probes().values()} == {"front-door"}
 
 
-def _check_probes(routes: dict[str, str], probes: dict[str, str]) -> list[str]:
+def _check_probes(
+    routes: dict[str, str], probes: dict[str, str], tools: dict[str, str] | None = None
+) -> list[str]:
     """scripts/check-apps.py's errors for apps serving `routes` (hostname: listener) while
-    frontDoorProbes is `probes` (the same)."""
+    appFrontDoorProbes is `probes` (the same) and frontDoorProbes is `tools`."""
     check_apps.errors.clear()
     check_apps.hostnames.clear()
     check_apps.hostnames.update({h: (ln, "apps/x/envs/ops.yaml") for h, ln in routes.items()})
     check_apps.check_probes(
-        [{"hostname": h, "listener": ln, "path": "/healthz"} for h, ln in probes.items()]
+        [{"hostname": h, "listener": ln, "path": "/healthz"} for h, ln in probes.items()],
+        [{"hostname": h, "listener": ln, "path": "/healthz"} for h, ln in (tools or {}).items()],
     )
     errors = list(check_apps.errors)
     check_apps.errors.clear()
@@ -523,10 +531,23 @@ def test_an_apps_hostname_is_probed_on_the_listener_its_route_names() -> None:
     fails too, unless it is one of the tools' own routes (the test above holds those)."""
     assert _check_probes({"x.localhost": "tools"}, {"x.localhost": "tools"}) == []
     assert _check_probes({"x.localhost": "http"}, {"x.localhost": "http"}) == []
+    assert _check_probes({"x.localhost": "tools"}, {}, {"x.localhost": "tools"}) == []
     (error,) = _check_probes({"x.localhost": "tools"}, {"x.localhost": "http"})
-    assert "x.localhost (apps/x/envs/ops.yaml) is not in frontDoorProbes on listener tools" in error
+    assert error == (
+        "apps/front-door-probes.yaml: x.localhost (apps/x/envs/ops.yaml) "
+        "is not in appFrontDoorProbes on listener tools"
+    )
+    (error,) = _check_probes({"x.localhost": "tools"}, {}, {"x.localhost": "http"})
+    assert error.startswith("deploy/argocd/platform/values.yaml: x.localhost")
+    assert error.endswith("is not in frontDoorProbes on listener tools")
     (error,) = _check_probes({"x.localhost": "tools"}, {})
-    assert "is not in frontDoorProbes" in error
+    assert error.startswith("apps/front-door-probes.yaml: ")
+    assert "is not in appFrontDoorProbes" in error
     (error,) = _check_probes({}, {"x.localhost": "tools"})
-    assert "frontDoorProbes has x.localhost, which no app's route serves" in error
-    assert _check_probes({}, {"grafana.localhost": "tools"}) == []
+    assert error == (
+        "apps/front-door-probes.yaml: appFrontDoorProbes has x.localhost, "
+        "which no app's route serves"
+    )
+    (error,) = _check_probes({}, {}, {"x.localhost": "tools"})
+    assert error.startswith("deploy/argocd/platform/values.yaml: frontDoorProbes has x.localhost")
+    assert _check_probes({}, {}, {"grafana.localhost": "tools"}) == []
