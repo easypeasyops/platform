@@ -1,0 +1,8 @@
+# The apps' hostnames on the front door: one Probe each, asked for every minute as a user
+# would (deploy/argocd/platform/templates/monitoring.yaml; docs/RUNBOOK.md, The front door).
+# A second values file of the platform chart (deploy/argocd/platform-root.yaml), kept in
+# apps/ so that registering an app doesn't run the app e2e (PT-93). The tools' probes stay
+# in the chart's values.yaml (frontDoorProbes). Same fields:
+#   listener  the Gateway listener the hostname is on (a blackbox module per listener)
+#   path      /healthz: the service chart's liveness probe, so the app contract
+appFrontDoorProbes: []

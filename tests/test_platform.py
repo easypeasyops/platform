@@ -759,6 +759,10 @@ def test_root_application_points_at_the_chart() -> None:
     assert root["spec"]["source"]["repoURL"] == REPO
     assert root["spec"]["source"]["path"] == "deploy/argocd/platform"
     assert REPO in PROJECT["sourceRepos"]
+    # Its values files resolve, inside the repo, from the chart's path as Argo CD resolves them.
+    for values in root["spec"]["source"]["helm"]["valueFiles"]:
+        assert (CHART / values).resolve().is_relative_to(ROOT)
+        assert (CHART / values).is_file()
 
 
 def test_argo_cd_alerts_ship_only_with_monitoring() -> None:
