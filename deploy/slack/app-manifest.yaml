@@ -1,0 +1,24 @@
+# The Slack app Alertmanager posts as (PT-103): one bot token for every alert channel.
+# scripts/setup-slack-app.sh copies this file to the clipboard for Slack's "Create New App,
+# From an app manifest"; to change an existing app, paste it on the app's App Manifest page.
+#   chat:write         post messages as the bot
+#   chat:write.public  post in public channels without being added to them (a private channel
+#                      still needs the app added: the channel's Integrations, Add apps)
+# Token rotation stays off: a rotating token expires within 12 hours, and nothing here would
+# refresh it.
+display_information:
+  name: easypeasyops alerts
+  description: Alertmanager's alerts from the easypeasyops platform cluster
+features:
+  bot_user:
+    display_name: easypeasyops-alerts
+    always_online: false
+oauth_config:
+  scopes:
+    bot:
+      - chat:write
+      - chat:write.public
+settings:
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false

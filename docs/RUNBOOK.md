@@ -529,21 +529,29 @@ from whether the store has it. Where it doesn't (no token in Keychain, an app's 
 ExternalSecret and Alertmanager's mount of its Secret are left out, `up` says so, and alerts
 stay in Alertmanager.
 
-**Set up the Slack app, once.** At api.slack.com/apps: **Create New App**, From scratch, in
-the workspace. **OAuth & Permissions**, Bot Token Scopes: `chat:write`. **Install to
-Workspace**, then copy the **Bot User OAuth Token** (`xoxb-…`). In Slack, add the app to each
-channel above (the channel's name, Integrations, Add apps): the bot posts only where it is a
-member. Then save the token in Keychain (it also copies it into the cluster if one is up):
+**Set up the Slack app, once**, in a terminal:
 
 ```sh
-pbpaste | scripts/load-slack.sh   # or run it alone and paste at the prompt; never echoed
+scripts/setup-slack-app.sh
 ```
+
+It copies the app's manifest (`deploy/slack/app-manifest.yaml`: its name, the scopes
+`chat:write` and `chat:write.public`, token rotation off) to the clipboard and opens Slack's
+**Create New App** page. There: From an app manifest, the workspace, paste it in the YAML tab,
+Create, **Install to Workspace**, Allow. Then copy the **Bot User OAuth Token** (`xoxb-…`, on
+OAuth & Permissions) and paste it at the script's prompt (not shown). Slack lets no script do
+those two clicks or read the token. The script hands it to `scripts/load-slack.sh`, which
+asks Slack whose token it is (`auth.test`), saves it in Keychain and copies it into the
+cluster if one is up. With `chat:write.public` the bot posts in a public channel without
+being added to it; a private channel needs the app added (the channel's name, Integrations,
+Add apps).
 
 A replaced token reaches Alertmanager within the hour (the ExternalSecret's refresh); check
 with `kubectl -n monitoring get externalsecret alertmanager-slack` (Ready `True`). If the
 token leaks, revoke it in Slack first (OAuth & Permissions, **Revoke All OAuth Tokens**, then
-reinstall), then save the new one the same way. **A new channel** is a receiver in
-`deploy/kind/monitoring-values.yaml` naming it, and the app added to it in Slack: no new secret.
+reinstall), then save the new one with `scripts/load-slack.sh` (it asks for it). **A new
+channel** is a receiver in `deploy/kind/monitoring-values.yaml` naming it: no new secret, and
+no step in Slack for a public channel.
 
 **Without Keychain** (Linux), load the store by hand; `up` keeps what it finds there:
 
