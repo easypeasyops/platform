@@ -273,7 +273,9 @@ affinity: {}
 # Scheduled jobs (templates/cronjobs.yaml): one CronJob per entry, named <release>-<key>,
 # from the release image, with the app's env plus its own. Their pods are labelled
 # <app.name>-<key>, so neither the HPA nor the PodDisruptionBudget counts them, and get a
-# network policy of their own: DNS and the database only. Set an entry to null to drop it.
+# network policy of their own: no ingress, and the app's egress (DNS, the database, the
+# app's Redis when redis.enabled, networkPolicy.extraEgress) but not the API server
+# (rbac.clusterRead). Set an entry to null to drop it.
 cronJobs: {}
 
 # Long-running processes beside the app, from the same release image (templates/workers.yaml):
