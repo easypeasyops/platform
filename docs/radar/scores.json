@@ -161,6 +161,60 @@
       "evidence": "Everything except Argo CD itself is GitOps, with self-heal and prune. cluster.sh up is idempotent and now waits for the platform's children side by side and ends with a report per pod, the node's CPU and Argo CD's self-heal waits (PT-71). The ApplicationSet reads env files every 60 s (PT-80). The runbook gained the CI node's CPU budget and what to do when a PR's or the nightly app e2e goes red.",
       "gaps": "Unchanged: Slack webhooks and app keys are still loaded by hand, and nothing alerts when one is missing. After the laptop sleeps, cluster.sh wake is manual. Tools use the admin login with no SSO. A change to Argo CD's own values needs cluster.sh up by hand.",
       "next": "Alert when a hand-loaded secret the platform expects is missing from the store."
+    },
+    {
+      "week": "2026-11-19",
+      "commit": "55ecbf7",
+      "axis": "Supply-chain security",
+      "score": 4.5,
+      "evidence": "Unchanged: images by digest, with keyless SLSA provenance from the app's own release.yml, checked at deploy (verify-image.sh) and at admission (Kyverno), both failing closed. Trivy scans every image, actions are pinned by SHA, and the chart is signed and pinned by digest. The new Rust check follows the same rules (--locked, pinned toolchain).",
+      "gaps": "Unchanged: the allowlist policy is still Audit in kind, so a foreign image in an app namespace is reported, not refused. The Argo Rollouts plugin checksums were computed here, not published upstream. Nothing since the last scoring touched admission or provenance.",
+      "next": "Run app-allowed-images in Deny, with a named exception for local builds."
+    },
+    {
+      "week": "2026-11-19",
+      "commit": "55ecbf7",
+      "axis": "Reliability and recovery",
+      "score": 2.5,
+      "evidence": "The chart's defaults are production-shaped: probes, maxUnavailable 0, a preStop sleep, PDB and HPA, and a canary that aborts on failed analysis. A nightly e2e builds the platform from nothing. New: scripts/restore-db.sh restores any app's database from its ObjectStore into restore-drill and checks its tables against the source, and the RUNBOOK has the restore steps and what to do with a lost database's backups (PT-102).",
+      "gaps": "Part of the last next step is done: the restore is a tool now, but a person runs it. Nothing schedules it, CI doesn't run it, and nothing alerts when a restore fails, so it isn't yet proven on a schedule. One kind node is still one failure domain for every replica, database and the backup bucket, and each Argo CD component runs one replica.",
+      "next": "Run restore-db.sh on a schedule for every app's prod database, with an alert when it fails."
+    },
+    {
+      "week": "2026-11-19",
+      "commit": "55ecbf7",
+      "axis": "Observability",
+      "score": 4.0,
+      "evidence": "Metrics, logs and Kubernetes events in one place, with blackbox probes and generated burn-rate SLO alerts, tested with promtool. New: every app's alerts go to its own Slack channel, taken from the namespace, and pages notify in prod only (PT-99, PT-103). A new CronJobRunMissed alert catches a run the controller skipped, and a failed Job reaches the app's channel; both have promtool tests (PT-99).",
+      "gaps": "Unchanged: no trace backend, so the chart's otel endpoint sends nowhere. The 30-day error budget looks back at most 10 days, because that's how long Prometheus keeps data.",
+      "next": "Run an OpenTelemetry collector and a trace store, and set otel.endpoint for every app."
+    },
+    {
+      "week": "2026-11-19",
+      "commit": "55ecbf7",
+      "axis": "Delivery safety",
+      "score": 4.5,
+      "evidence": "Unchanged: app-e2e deploys the template app on kind with the PR's own platform and chart, and the ci gate waits on it. A nightly e2e runs app-template and aipostit on main. The values schema refuses unknown values, and template apps are golden fixtures, now Rust's too (PT-94). The chart's release notes now say where the digest pin goes (PT-101).",
+      "gaps": "Unchanged: the PR e2e runs only on paths that touch what apps run on, and only the template app: aipostit's database and workers are checked nightly, after a merge. A merge reaches the cluster, prod included, within a minute, with no staged rollout of the platform itself.",
+      "next": "Run aipostit's e2e in the PR's app-e2e too, so a real app with a database and workers gates a platform merge."
+    },
+    {
+      "week": "2026-11-19",
+      "commit": "55ecbf7",
+      "axis": "Developer experience",
+      "score": 4.5,
+      "evidence": "The last next step is done: scripts/new-app.py takes a new app from a template to prod in three commands, and writes its apps/<app>/ project, env files and front-door probe in auto-merging PRs. It was proven twice: newapp-e2e2, and rust-hello, the first Rust app, in staging and prod (PT-95). A reusable Rust check joins Python and Java (PT-94), and install-prereqs.sh sets up a Mac or Linux machine.",
+      "gaps": "new-app.py has no tests here: only its end-to-end runs prove it, so a change to it can break onboarding unnoticed. Adding the repo to Renovate and loading an app's keys are still by hand.",
+      "next": "Test new-app.py in CI against a fake GitHub, so a broken onboarding fails a PR."
+    },
+    {
+      "week": "2026-11-19",
+      "commit": "55ecbf7",
+      "axis": "Operability and automation",
+      "score": 4.0,
+      "evidence": "Everything except Argo CD itself is GitOps, with self-heal and prune. New: Slack is one bot token, loaded once into Keychain, and cluster.sh up copies it into the store, so a new cluster comes up with Slack; the channels are in git (PT-103). cluster.sh up also removes Helm's field ownership after handing a release to Argo CD, so a field removed from git really goes (PT-104).",
+      "gaps": "The last next step is not done: when the Slack token or an app's key is missing, cluster.sh prints a line, but nothing alerts. cluster.sh wake is still manual after the laptop sleeps. Tools use the admin login with no SSO. A change to Argo CD's own values needs cluster.sh up by hand.",
+      "next": "Alert when a hand-loaded secret the platform expects is missing from the store."
     }
   ],
   "meta": [
