@@ -9,8 +9,9 @@ SLACK_TOKEN_KEY=bot-token                           # its key there
 
 # Copy the token from Keychain into the store Secret, in the cluster of kube context $1.
 # Nothing to do where there is no Keychain (Linux, CI) or no token in it: the store keeps
-# what it has. The token goes through a pipe, never an argument or a file, and is never
-# printed. Applied server-side under its own field manager, so the Secret's other keys stay.
+# what it has, so a token loaded into the store by hand (Linux) still counts. The token goes
+# through a pipe, never an argument or a file, and is never printed. Applied server-side
+# under its own field manager, so the Secret's other keys stay.
 slack_token_to_store() {
   local context=$1 token
   command -v security >/dev/null || return 0

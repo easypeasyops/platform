@@ -211,21 +211,19 @@ platform() {
   local arch revision found slack params children
   arch=$(kubectl get nodes -o jsonpath='{.items[0].status.nodeInfo.architecture}')
   revision=${PLATFORM_REVISION:-main}
-  # Slack only where the store has the webhooks, which a person loads (RUNBOOK, Slack
-  # alerts): without them the monitoring Application would wait for good on an ExternalSecret
-  # that can't sync. A fresh cluster comes up without Slack; the `up` after loading them
-  # turns it on. A failed lookup stops here (set -e) instead of switching Slack off.
-  # The bot token, where Keychain has it, goes into the same Secret first (PT-103). Until
-  # the receivers read it, Slack still needs the three webhooks: a Secret with the token
-  # alone doesn't switch Slack on.
+  # Slack only where the store has the bot token (RUNBOOK, Slack alerts): without it the
+  # monitoring Application would wait for good on an ExternalSecret that can't sync. Where
+  # Keychain has the token (scripts/load-slack.sh), it goes into the store first, so a new
+  # cluster comes up with Slack. A failed lookup stops here (set -e) instead of switching
+  # Slack off.
   slack_token_to_store "kind-$CLUSTER"
   found=$(kubectl -n secret-store get secret alertmanager-slack --ignore-not-found \
-    -o go-template='{{if and (index .data "aipostit-prod-webhook-url") (index .data "aipostit-staging-webhook-url") (index .data "platform-webhook-url")}}found{{end}}')
+    -o go-template='{{if index .data "bot-token"}}found{{end}}')
   slack=false
   if [[ -n "$found" ]]; then
     slack=true
   elif on MONITORING; then
-    echo "platform: no Slack webhooks in the store, so alerts stay in Alertmanager (RUNBOOK, Slack alerts)"
+    echo "platform: no Slack bot token in Keychain or the store, so alerts stay in Alertmanager (RUNBOOK, Slack alerts)"
   fi
   params=$(printf '[{"name":"arch","value":"%s"},{"name":"revision","value":"%s"},{"name":"components.monitoring","value":"%s"},{"name":"components.slack","value":"%s"},{"name":"components.policies","value":"%s"},{"name":"components.backups","value":"%s"}]' \
     "$arch" "$revision" "$(bool MONITORING)" "$slack" "$(bool POLICIES)" "$(bool BACKUPS)")
