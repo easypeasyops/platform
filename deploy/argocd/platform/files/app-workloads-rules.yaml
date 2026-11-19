@@ -1,0 +1,30 @@
+# Alerts on every app's scheduled work (PT-99), whichever app: the service chart's CronJobs
+# and their Jobs in <app>-prod and <app>-staging. Routed to the app's own channel,
+# #<app>-alerts-<env> (deploy/kind/monitoring-values.yaml, the `apps` routes). The ops
+# namespaces stay out, as in the routes. A failed Job is the stack's own KubeJobFailed,
+# routed there too: nothing to add here for it.
+groups:
+  - name: app-workloads
+    rules:
+      # A run the CronJob controller never started. kube-state-metrics' next schedule time
+      # is the one after the last run started; when that is further in the past than the
+      # CronJob's starting deadline (the chart's: 50 minutes), the controller skips it for
+      # good (a laptop that slept long enough, the controller down, admission refusing the
+      # Job, or the run before still going under concurrencyPolicy Forbid), and nothing else
+      # says so. It resolves when a run starts again. A suspended CronJob runs nothing on
+      # purpose. max(): two kube-state-metrics pods during its rollout are one CronJob.
+      - alert: CronJobRunMissed
+        expr: |
+          (
+            time() - max by (namespace, cronjob) (kube_cronjob_next_schedule_time{namespace=~".+-(prod|staging)"})
+            > on (namespace, cronjob)
+            max by (namespace, cronjob) (kube_cronjob_spec_starting_deadline_seconds{namespace=~".+-(prod|staging)"})
+          )
+          unless on (namespace, cronjob)
+          max by (namespace, cronjob) (kube_cronjob_spec_suspend{namespace=~".+-(prod|staging)"}) == 1
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "CronJob {{ $labels.cronjob }} in {{ $labels.namespace }} skipped the run due {{ $value | humanizeDuration }} ago"
+          runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#app-cronjob-and-job-alerts
