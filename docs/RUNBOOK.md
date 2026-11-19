@@ -64,6 +64,17 @@ edited manifest (the API is away for under a minute):
 `docker exec shortly-control-plane sed -i '/^    image: registry.k8s.io\/kube-apiserver/i\    env:\n    - name: GOMEMLIMIT\n      value: 1280MiB' /etc/kubernetes/manifests/kube-apiserver.yaml`.
 How free the node is: `docker exec shortly-control-plane free -m` (`available`).
 
+`tests/test_memory_budget.py` (PT-107) renders what the platform installs, as the CPU budget
+test does, and fails a PR when the platform's summed memory requests pass 4096Mi or its summed
+limits pass 120% of the node (11877Mi). Each component's figure is in the failure message. The
+budgets are a cap on growth, not a healthy fit. On 2026-11-19 the platform requested 4008Mi and
+limited 11200Mi, and used 4108Mi (7-day peak 4837Mi). kind's own pods used 1973Mi (peak
+2737Mi) and the apps peaked at 1279Mi. Keeping 3 GiB free would leave the platform 3498Mi,
+less than it uses. Freeing that memory and tightening the budget to it is PT-121. To stay
+inside the budget, don't raise it: set a request to the component's 7-day peak plus a margin,
+or lower another to make room. The peak, from Prometheus:
+`max_over_time((max by (namespace,container) (container_memory_working_set_bytes{container!=""}))[7d:5m])`.
+
 **The CI node's CPU budget.** An app's kind e2e (links' "kind e2e (platform)") runs the
 whole platform and the app on one GitHub runner: 4000m CPU allocatable. The scheduler places
 a pod only where its CPU *request* fits, and prod's canary needs room for 2 old and 2 new
