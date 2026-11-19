@@ -61,6 +61,8 @@ as UID 10001 on a read-only root, `/healthz` and `/readyz`), proven by its own C
 README has the steps: create the repo from the template, rename, release `<app>/v0.1.0`.
 [scripts/new-app.py](scripts/new-app.py) runs them, and the platform side below, for any
 template that follows the same layout: `create`, `staging` and `prod`, each stopping at a wait.
+[scripts/install-prereqs.sh](scripts/install-prereqs.sh) installs what that takes (git, gh, uv,
+and the laptop cluster's kind, kubectl and Helm) and says what is left for you.
 
 What the app still decides:
 
