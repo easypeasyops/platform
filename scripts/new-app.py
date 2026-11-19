@@ -138,7 +138,7 @@ def project_yaml(app: str, repo: str, envs: list[str]) -> str:
         f"    - {{ server: https://kubernetes.default.svc, namespace: {app}-{e} }}\n" for e in envs
     )
     nss = "".join(f'    - {{ group: "", kind: Namespace, name: {app}-{e} }}\n' for e in envs)
-    return f"""# {app}'s Argo CD project. Least privilege, as java-hello's: the service chart, its
+    return f"""# {app}'s Argo CD project. Least privilege, as every app's: the service chart, its
 # repo, the platform's repo, and its own namespaces.
 
 apiVersion: argoproj.io/v1alpha1
