@@ -1,10 +1,9 @@
 # rust-hello's Argo CD project: what its Applications may deploy, and where. Least
 # privilege, as aipostit's: the platform's service chart, rust-hello's repo (its values, in
 # easypeasyops/rust-hello apps/rust-hello/deploy/) and the platform's repo (the namespace's
-# baseline, deploy/app-namespace), its namespaces (staging; prod's comes with its env
-# file), and one cluster-scoped thing: those namespaces themselves, which its Applications
-# create (CreateNamespace in apps/applicationset.yaml; Argo CD checks the namespace it
-# creates against this project).
+# baseline, deploy/app-namespace), its two namespaces, and one cluster-scoped thing: those
+# two namespaces themselves, which its Applications create (CreateNamespace in
+# apps/applicationset.yaml; Argo CD checks the namespace it creates against this project).
 
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
@@ -20,7 +19,9 @@ spec:
   destinations:
     # One namespace per app and environment.
     - { server: https://kubernetes.default.svc, namespace: rust-hello-staging }
+    - { server: https://kubernetes.default.svc, namespace: rust-hello-prod }
   clusterResourceWhitelist: # by name: its own namespaces, no other
     - { group: "", kind: Namespace, name: rust-hello-staging }
+    - { group: "", kind: Namespace, name: rust-hello-prod }
   namespaceResourceWhitelist:
     - { group: "*", kind: "*" }
