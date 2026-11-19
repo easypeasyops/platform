@@ -20,6 +20,7 @@ newer; `scripts/install-prereqs.sh` installs them).
 | Without the monitoring stack and the logs (saves about 1 GB of RAM) | `MONITORING=0 scripts/cluster.sh up`, on a fresh cluster: switching it off later removes the Applications but leaves their resources running, by design |
 | Without Kyverno and the admission policies | `POLICIES=0 scripts/cluster.sh up` |
 | Without the backup bucket (the databases can't archive) | `BACKUPS=0 scripts/cluster.sh up` |
+| Without Slack (alerts stay in Alertmanager) | `SLACK=0 scripts/cluster.sh up`. With Slack on (the default), `up` fails at the end when there is no bot token (Slack alerts) |
 | Without the apps' Applications (an app's e2e deploys itself) | `ARGOCD_APPS=0 scripts/cluster.sh up` |
 | Without the front door (ports 8080 and 8090 left free) | `FRONT_DOOR=0 scripts/cluster.sh up`; then port-forward by hand, e.g. `kubectl -n monitoring port-forward svc/grafana 3000:80` |
 | Platform state | `kubectl -n argocd get applications -l app.kubernetes.io/part-of=platform`, or the Argo CD UI |
@@ -180,7 +181,7 @@ A platform Application (`kubectl -n argocd get applications -l app.kubernetes.io
 | What you see | Cause | Fix |
 | --- | --- | --- |
 | `kyverno-policies` fails with a webhook error | Kyverno's admission webhook isn't serving yet | It retries for about 9 minutes; if it still fails, `kubectl -n kyverno get pods` |
-| `monitoring` or `backups` Degraded on an ExternalSecret | It can't read the store: the value isn't there yet (a generator runs within seconds; Slack's bot token comes from Keychain, copied by `cluster.sh up`, and `up` leaves Slack out when there is none: Slack alerts), or the store isn't Ready (`secret-store`, below) | `kubectl -n monitoring get externalsecret -o wide`; `kubectl -n monitoring get externalsecret <name> -o jsonpath='{.status.conditions}'` (or `-n backups … seaweedfs-s3`) |
+| `monitoring` or `backups` Degraded on an ExternalSecret | It can't read the store: the value isn't there yet (a generator runs within seconds; Slack's bot token comes from Keychain, copied by `cluster.sh up`, and `up` leaves Slack out, and fails, when there is none: Slack alerts), or the store isn't Ready (`secret-store`, below) | `kubectl -n monitoring get externalsecret -o wide`; `kubectl -n monitoring get externalsecret <name> -o jsonpath='{.status.conditions}'` (or `-n backups … seaweedfs-s3`) |
 | `barman-cloud` stays Progressing or Degraded | Its Certificates aren't issued: cert-manager isn't running, or its webhook refused the Issuer before it was serving (the sync retry catches up) | `kubectl -n cnpg-system get certificates,issuers`; `kubectl -n cert-manager logs deploy/cert-manager --tail=30` |
 | An app's `<release>-db-backup` ExternalSecret isn't Ready | The `backup-bucket` store refuses it: the namespace lacks the app label its conditions select, or the store's reader can't get `seaweedfs-s3` | `kubectl get clustersecretstore backup-bucket -o jsonpath='{.status.conditions}'`; `kubectl -n <ns> describe externalsecret <release>-db-backup` |
 | `secret-store` stays Degraded | A ClusterSecretStore can't read its namespace: External Secrets isn't running, or its token request for the store's reader was refused | `kubectl get clustersecretstore`; `kubectl get clustersecretstore platform -o jsonpath='{.status.conditions}'`; `kubectl -n external-secrets logs deploy/external-secrets --tail=30` |
@@ -536,11 +537,14 @@ mounts it. The channels are in git, one receiver each (`deploy/kind/monitoring-v
 | `platform` | #platform-alerts |
 | `apps` | #<app>-alerts-<env>, every other app's (below) |
 
-**A new cluster gets Slack by itself.** Every `scripts/cluster.sh up` copies the token from
-Keychain into the store (`scripts/lib/slack.sh`), then sets the platform's `components.slack`
-from whether the store has it. Where it doesn't (no token in Keychain, an app's CI), the
-ExternalSecret and Alertmanager's mount of its Secret are left out, `up` says so, and alerts
-stay in Alertmanager.
+**A new cluster gets Slack by itself.** Slack is on unless `SLACK=0` (and with
+`MONITORING=0`, which has no Alertmanager). With it on, every `scripts/cluster.sh up` copies
+the token from Keychain into the store (`scripts/lib/slack.sh`) and switches on the
+platform's `components.slack`. **No token in Keychain or the store is an error**: `up`
+brings up everything else with Slack left out (the ExternalSecret and Alertmanager's mount
+of its Secret), then exits non-zero and says what to do: load the token (below) and run `up`
+again, or run `SLACK=0 scripts/cluster.sh up`. With `SLACK=0`, Slack is left out without a
+word and alerts stay in Alertmanager; apps' CI runs that way (`reusable-kind-e2e.yml`).
 
 **Set up the Slack app, once**, in a terminal:
 

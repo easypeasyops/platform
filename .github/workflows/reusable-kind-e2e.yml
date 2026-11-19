@@ -133,6 +133,7 @@ jobs:
           PLATFORM_REVISION: ${{ steps.platform.outputs.sha }}
           ARGOCD_APPS: "0" # the app is deployed by the next step, as Argo CD would
           BACKUPS: "0" # no database here; CI's node has little CPU to spare (PT-71)
+          SLACK: "0" # no bot token in CI; alerts stay in Alertmanager (PT-97)
 
       - name: Platform through Argo CD (retry, the first try failed)
         if: inputs.run && steps.up.outcome == 'failure'
@@ -144,6 +145,7 @@ jobs:
           PLATFORM_REVISION: ${{ steps.platform.outputs.sha }}
           ARGOCD_APPS: "0"
           BACKUPS: "0"
+          SLACK: "0"
 
       # When a sync never finishes, the job's timeout kills the wait before it can explain.
       - name: Argo CD state (on failure)

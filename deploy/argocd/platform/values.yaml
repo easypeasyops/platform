@@ -14,7 +14,8 @@ arch: amd64
 components:
   monitoring: true
   # Alertmanager posts to Slack: needs the bot token in the store, which only a person can
-  # get from Slack (RUNBOOK, Slack alerts). cluster.sh sets it from whether it is there.
+  # get from Slack (RUNBOOK, Slack alerts). cluster.sh sets it: on unless SLACK=0, and only
+  # where the store has the token (without it, `up` fails after the rest is up).
   slack: true
   policies: true
   backups: true
