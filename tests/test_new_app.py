@@ -74,6 +74,12 @@ BUILD = {
 }
 
 
+# What create keeps of the template's CI jobs, and its Dependabot entry, per --lang.
+KEPT = {
+    "python": (["check", "image"], "uv"),
+    "java": (["java-check"], "maven"),
+    "rust": (["rust-check", "rust-image"], "cargo"),
+}
 # app-template's CI and Dependabot, trimmed: each template's jobs and entries name its folder.
 CI = """name: CI
 on: [pull_request]
@@ -201,7 +207,7 @@ class World:
     def bare(self, repo: str) -> Path:
         return self.root / "gh/remotes" / f"{repo}.git"
 
-    def new_app(self, *args: str) -> subprocess.CompletedProcess[str]:
+    def new_app(self, *args: str, ok: bool = True) -> subprocess.CompletedProcess[str]:
         script = self.platform / "scripts/new-app.py"
         result = subprocess.run(
             [sys.executable, str(script), *args],
@@ -210,7 +216,7 @@ class World:
             capture_output=True,
             text=True,
         )
-        assert result.returncode == 0, result.stderr
+        assert (result.returncode == 0) is ok, result.stderr
         return result
 
     def show(self, repo: str, ref: str, path: str) -> str:
@@ -259,8 +265,9 @@ def world(tmp_path: Path) -> World:
     return w
 
 
-def test_create_keeps_one_template_and_renames_it(world: World) -> None:
-    world.new_app("create", "shop", "--lang", "python")
+@pytest.mark.parametrize("lang", LANGS)
+def test_create_keeps_one_template_and_renames_it(world: World, lang: str) -> None:
+    world.new_app("create", "shop", "--lang", lang)
     repo = f"{ORG}/shop"
     files = world.files(repo)
     assert {f.split("/")[1] for f in files if f.startswith("apps/")} == {"shop"}
@@ -275,22 +282,29 @@ def test_create_keeps_one_template_and_renames_it(world: World) -> None:
     assert values["image"]["repository"] == f"ghcr.io/{repo}/shop"
     staging = yaml.safe_load(world.show(repo, "main", "apps/shop/deploy/envs/staging.yaml"))
     assert staging["gateway"]["hostnames"] == ["staging.shop.localhost"]
+    for name in BUILD[lang]:
+        assert "shop" in world.show(repo, "main", f"apps/shop/{name}")
 
 
-def test_create_drops_the_other_templates_ci_jobs_and_dependabot_entries(world: World) -> None:
-    world.new_app("create", "shop", "--lang", "python")
+@pytest.mark.parametrize("lang", LANGS)
+def test_create_drops_the_other_templates_ci_jobs_and_dependabot_entries(
+    world: World, lang: str
+) -> None:
+    world.new_app("create", "shop", "--lang", lang)
+    jobs, ecosystem = KEPT[lang]
     ci = yaml.safe_load(world.show(f"{ORG}/shop", "main", ".github/workflows/ci.yml"))
-    assert list(ci["jobs"]) == ["scope", "check", "image", "deploy", "gate"]
-    assert ci["jobs"]["gate"]["needs"] == ["scope", "check", "image", "deploy"]
+    assert list(ci["jobs"]) == ["scope", *jobs, "deploy", "gate"]
+    assert ci["jobs"]["gate"]["needs"] == ["scope", *jobs, "deploy"]
     bot = yaml.safe_load(world.show(f"{ORG}/shop", "main", ".github/dependabot.yaml"))
     assert [(u["package-ecosystem"], u["directories"]) for u in bot["updates"]] == [
-        ("uv", ["/apps/shop"]),
+        (ecosystem, ["/apps/shop"]),
         ("docker", ["/apps/*"]),
     ]
 
 
-def test_create_regenerates_the_slo_rules_for_the_app(world: World) -> None:
-    world.new_app("create", "shop", "--lang", "python")
+@pytest.mark.parametrize("lang", LANGS)
+def test_create_regenerates_the_slo_rules_and_the_lockfile(world: World, lang: str) -> None:
+    world.new_app("create", "shop", "--lang", lang)
     rules = world.show(f"{ORG}/shop", "main", "apps/shop/deploy/service/slo-rules.values.yaml")
     assert "name: slo-shop-availability" in rules
     # What the generator at platform.lock's commit writes: its own --check agrees.
@@ -301,7 +315,7 @@ def test_create_regenerates_the_slo_rules_for_the_app(world: World) -> None:
         cwd=world.work / "shop/apps/shop", check=True, capture_output=True,
     )  # fmt: skip
     lock = world.calls("uv", "lock")
-    assert [Path(c["cwd"]).name for c in lock] == ["shop"]
+    assert [Path(c["cwd"]).name for c in lock] == (["shop"] if lang == "python" else [])
 
 
 def test_create_sets_up_the_repo_and_tags_the_first_release(world: World) -> None:
@@ -426,3 +440,51 @@ def test_prod_promotes_staging_and_leaves_the_merge_to_emrah(
     assert "Emrah merges it" in pr["body"]
     assert not world.calls("gh", "pr", "merge", pr["url"])
     _check_apps(world, branch, monkeypatch)
+
+
+def test_repo_names_the_apps_repo_in_every_step(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result = world.new_app("create", "shop", "--lang", "rust", "--repo", "shop-repo")
+    assert "Next: new-app.py staging shop --repo shop-repo" in result.stdout
+    repo = f"{ORG}/shop-repo"
+    assert (world.work / "shop-repo/apps/shop").is_dir()
+    values = yaml.safe_load(world.show(repo, "main", "apps/shop/deploy/service/values.yaml"))
+    assert values["image"]["repository"] == f"ghcr.io/{repo}/shop"
+    world.new_app("staging", "shop", "--repo", "shop-repo")
+    env = yaml.safe_load(
+        world.show(f"{ORG}/platform", "apps-shop-staging", "apps/shop/envs/staging.yaml")
+    )
+    assert env["values"]["repoURL"] == f"https://github.com/{repo}.git"
+    project = yaml.safe_load(
+        world.show(f"{ORG}/platform", "apps-shop-staging", "apps/shop/project.yaml")
+    )
+    assert f"https://github.com/{repo}.git" in project["spec"]["sourceRepos"]
+    _check_apps(world, "apps-shop-staging", monkeypatch)
+
+
+def test_dir_and_version_name_the_checkout_and_the_first_release(world: World) -> None:
+    (world.work / "checkouts").mkdir()
+    checkout = "checkouts/shop-app"
+    world.new_app("create", "shop", "--lang", "java", "--dir", checkout, "--version", "1.2.0")
+    assert (world.work / checkout / "apps/shop").is_dir()
+    assert _git("tag", cwd=world.bare(f"{ORG}/shop")).split() == ["shop/v1.2.0"]
+    world.new_app("staging", "shop", "--dir", checkout)
+    app_env = world.show(f"{ORG}/shop", "main", "apps/shop/deploy/envs/staging.yaml")
+    assert yaml.safe_load(app_env)["image"]["digest"] == digest("shop/v1.2.0")
+
+
+@pytest.mark.parametrize(
+    ("args", "error"),
+    [
+        (["create", "Shop", "--lang", "python"], "an app name is lowercase letters"),
+        (["create", "shop"], "create needs --lang"),
+        (
+            ["create", "shop", "--lang", "go"],
+            f"{TEMPLATE} has no apps/go-template/, only: "
+            "java-template, python-template, rust-template",
+        ),
+    ],
+)
+def test_create_refuses(world: World, args: list[str], error: str) -> None:
+    assert error in world.new_app(*args, ok=False).stderr

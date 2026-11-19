@@ -62,6 +62,12 @@ as UID 10001 on a read-only root, `/healthz` and `/readyz`), proven by its own C
 README has the steps: create the repo from the template, rename, release `<app>/v0.1.0`.
 [scripts/new-app.py](scripts/new-app.py) runs them, and the platform side below, for any
 template that follows the same layout: `create`, `staging` and `prod`, each stopping at a wait.
+It is tested on every PR: [tests/test_new_app.py](tests/test_new_app.py) runs all three steps,
+for each template and option, against a fake GitHub
+([tests/fake_github.py](tests/fake_github.py): bare git repos, a fake `gh` and `uv` on PATH)
+and a model of app-template's layout, then runs `check-apps.py` on the platform PRs' files,
+with no network or Docker: `uv run pytest -n 0 tests/test_new_app.py`. A change to the
+layout new-app.py expects of a template goes in that model too.
 [scripts/install-prereqs.sh](scripts/install-prereqs.sh) installs what that takes (git, gh, uv,
 and the laptop cluster's kind, kubectl and Helm) and says what is left for you.
 
