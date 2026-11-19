@@ -9,7 +9,7 @@ checks they exist).
 The cluster is one kind cluster, `shortly` (context `kind-shortly`), and it is disposable:
 `scripts/cluster.sh up`, from a checkout of this repo, rebuilds it from nothing in a few
 minutes. It needs Docker Desktop running, and `brew install kind kubectl helm` (Helm 4 or
-newer).
+newer; `scripts/install-prereqs.sh` installs them).
 
 | Task | Command |
 | --- | --- |
