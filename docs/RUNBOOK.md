@@ -946,8 +946,12 @@ Where the apps' databases keep their backups: SeaweedFS serving S3, the Stateful
 `deploy/kind/backups.yaml`), on its own 1Gi volume. An app's database (the service chart's
 `database.cluster`, a CloudNativePG Cluster) archives WAL continuously and takes base
 backups there, to `s3://cnpg-backups/<ns>/<release>-db`, through the Barman Cloud plugin.
-Whether an app's backups run, and how to restore one, is in the app's runbook; this is the
-bucket's side.
+Whether an app's backups run is in the app's runbook; restoring one is Restore an app
+database, below.
+
+Retention (`database.cluster.backup.retention`) is applied by the plugin's sidecar in the
+Cluster's own pods. A folder whose Cluster is gone is never expired: a removed app's
+backups stay until someone deletes them (Remove an app's backups, below).
 
 ```sh
 kubectl -n backups get pods,pvc
@@ -960,10 +964,88 @@ kubectl -n cnpg-system get pods                               # the operator and
 | A database's archiving fails with errors on access or credentials | Its `<release>-db-backup` ExternalSecret isn't Ready, or the bucket's keys were rotated and it still holds the old ones | `kubectl -n <ns> describe externalsecret <release>-db-backup`; after a rotation, the force-sync in Platform secrets |
 | Errors connecting to `seaweedfs.backups.svc` | The bucket is down, or its NetworkPolicy refuses the pod: it admits only a Cluster's pods (label `cnpg.io/cluster`) from an app namespace or `restore-drill` | `kubectl -n backups get pods`; the pod's and its namespace's labels |
 | No new backups at all, on the laptop | The Mac slept, or the operator isn't running | `kubectl -n cnpg-system get pods`; a ScheduledBackup catches up at its next run |
-| Archiving fails with "WAL archive not empty" after a Cluster was recreated | A new Cluster won't archive into a folder that holds another one's WAL | Move the old backups aside in the bucket, or delete them if they aren't needed |
+| Archiving fails with "WAL archive not empty" after a Cluster was recreated | A new Cluster won't archive into a folder that holds another one's WAL: the database was lost (or deleted) and Argo CD recreated `<release>-db` empty | Restore what you need from the old folder first (Restore an app database), then move it aside: A lost database, below |
 
 Deleting the PVC (or the kind cluster) loses every backup; on a real cluster this is a
 bucket in another account, with versioning and object lock.
+
+The bucket's folders, from its own shell (read only):
+
+```sh
+kubectl -n backups exec seaweedfs-0 -- sh -c 'echo "fs.ls -l /buckets/cnpg-backups" | weed shell'
+kubectl -n backups exec seaweedfs-0 -- sh -c 'echo "fs.du /buckets/cnpg-backups/<ns>" | weed shell'
+```
+
+**A lost database.** The recreated, empty Cluster can't archive until its folder is free.
+Once anything worth keeping is restored from the old backups, propose moving them aside,
+under a name that says when, then check the new Cluster archives again (its condition
+`ContinuousArchiving` True: `kubectl -n <ns> get cluster <release>-db -o jsonpath='{.status.conditions}'`):
+
+```sh
+kubectl -n backups exec seaweedfs-0 -- sh -c \
+  'echo "fs.mv /buckets/cnpg-backups/<ns>/<release>-db /buckets/cnpg-backups/<ns>-lost-<yyyymmdd>/" | weed shell'
+```
+
+The moved backups are no longer the source `scripts/restore-db.sh` reads, and nothing
+expires them: delete the folder when they aren't needed (below).
+
+**Remove an app's backups.** Removing an app (Confluence, Remove an app) deletes its
+backups by hand, after its namespaces are gone and after an export if one is wanted
+(`scripts/restore-db.sh <app> <env> --keep`, then `pg_dump` from the copy). Propose, per
+environment:
+
+```sh
+kubectl -n backups exec seaweedfs-0 -- sh -c 'echo "fs.rm -r /buckets/cnpg-backups/<app>-<env>" | weed shell'
+```
+
+It can't be undone. Check with the `fs.ls` above that the folder is gone and the others are
+still there.
+
+## Restore an app database
+
+`scripts/restore-db.sh <app> <env>` restores the service chart's database `<app>-db` in
+`<app>-<env>` from its backups into a new Cluster, `<app>-db-restore` in namespace
+`restore-drill`: the newest base backup and every archived WAL segment after it, so any
+moment of the retention window. It never touches the source, and the copy archives nowhere.
+It checks the copy is healthy and, restoring to the latest moment, has the source's tables,
+and prints how long it took.
+
+The copy is one more Postgres on the node. On the laptop, first check the node has memory
+to spare and nothing else is loading it (an e2e run, a Docker test suite): with under 2 GiB
+available, the node can thrash and take the control plane down with it (PT-102's first
+drill, 2026-11-18).
+
+```sh
+docker exec shortly-control-plane free -m        # "available" over 2048
+```
+
+```sh
+scripts/restore-db.sh <app> <env> --keep                                   # the latest
+scripts/restore-db.sh <app> <env> --keep --target-time "2026-11-18 21:30:00-08"   # as it was then
+scripts/restore-db.sh <app> <env> --check-sql "SELECT count(*) FROM <table>"      # print a check
+kubectl -n restore-drill exec -it <app>-db-restore-1 -c postgres -- psql -d <app>
+```
+
+Without `--keep` the copy is deleted when the script ends (a drill). To put the restored
+data back into the app's database, replacing its content (a logical copy: the Cluster, its
+backups and the app's credentials stay as they are), propose:
+
+```sh
+kubectl -n restore-drill exec <app>-db-restore-1 -c postgres -- pg_dump -d <app> --format=custom --no-owner --no-privileges >/tmp/restore.dump
+kubectl -n <app>-<env> exec -i "$(kubectl -n <app>-<env> get cluster <app>-db -o jsonpath='{.status.currentPrimary}')" -c postgres -- \
+  pg_restore -d <app> --clean --if-exists --no-owner --role=<app> --exit-on-error </tmp/restore.dump
+kubectl delete namespace restore-drill
+rm /tmp/restore.dump
+```
+
+Writes made since the target time are replaced: say so in the incident. The app's own
+runbook may add checks of its data (shortly's restore drill in links).
+
+| Symptom | Likely cause | Fix |
+| --- | --- | --- |
+| `no ObjectStore <app>-db` | The app's backups are off (`database.cluster.backup.enabled`) | Nothing to restore from |
+| The copy never becomes healthy; its logs say no backup was found | No base backup yet, or none before `--target-time` | `kubectl -n <app>-<env> get backups.postgresql.cnpg.io`; a target inside the retention window and after the first base backup |
+| Errors connecting to `seaweedfs.backups.svc` | The bucket's NetworkPolicy admits restores only from `restore-drill` | The backup bucket, above |
 
 ## CloudNativePG alerts
 
