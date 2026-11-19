@@ -34,7 +34,7 @@ groups:
           namespace: kyverno
         annotations:
           summary: Kyverno's reports controller isn't running (or isn't scraped)
-          description: Kyverno's reports controller hasn't been scraped for 15 minutes. PolicyReports are no longer updated, so an image outside an app's allowlist (an Audit policy) runs without being reported; admission is not affected.
+          description: Kyverno's reports controller hasn't been scraped for 15 minutes. PolicyReports are no longer updated, so a pod admitted before a policy change runs without being reported; admission is not affected.
           runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#kyverno-alerts
       # Kyverno up, but the provenance policy couldn't decide: its evaluation errored (the
       # registry unreachable, a digest that isn't there), so the Pod is refused as if it

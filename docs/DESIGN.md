@@ -416,13 +416,13 @@ CLI (offline cases and the real registry) and asserts the gate and the policy ag
 | Policy | Rule | In kind |
 | --- | --- | --- |
 | `require-release-provenance` (ImageValidatingPolicy) | The rule above, for every container of a Pod (init and ephemeral included) in an app namespace, and for the Pod templates of Deployments, StatefulSets, Jobs, CronJobs, ReplicaSets and DaemonSets | Deny |
-| `app-allowed-images` (ValidatingPolicy) | Pods in an app's namespaces run only that app's release, or the images the chart and its drills bring: Postgres 17, Redis 8, k6, CloudNativePG's. In kind, also the app's own local build (`<app>:dev`, `<app>:e2e`) | Audit |
+| `app-allowed-images` (ValidatingPolicy) | Pods in an app's namespaces run only that app's release, or the images the chart and its drills bring: Postgres 17, Redis 8, k6, CloudNativePG's. In kind, also the app's own local build (`<app>:dev`, `<app>:e2e`) | Deny |
 
 - **They need each other.** The first looks only at our images, so alone it is dodged by
   running some other image; the second closes that. Local builds are how the cluster is
   developed, so they pass through one named exception (`localBuild`): the namespace's own
   app's name with a `:dev` or `:e2e` tag, nothing in front, checked per image. A real
-  cluster drops it. Still Audit until the switch to Deny (PT-111).
+  cluster drops it.
 - **Tags are refused, not resolved** (`mutateDigest: false`): what was verified is what runs.
 - **Fail closed.** The gate refuses without `gh`, the network or an attestation; the
   policy's webhook refuses new Pods if Kyverno, the registry or Rekor can't be reached.
@@ -476,9 +476,8 @@ is in the app's repo, against the platform commit it pins.
 
 - Local kind only. The values under `deploy/kind/` and the cluster's name (`shortly`) still
   carry the first app's name.
-- The allowlist policy is Audit in kind, so an unknown image in an app namespace is
-  reported, not refused. Provenance is checked at admission: a policy change doesn't evict
-  running pods.
+- Both policies decide at admission: a policy change doesn't evict running pods. In kind
+  the allowlist admits the app's own `:dev`/`:e2e` build, which nothing verifies.
 - The bucket runs in the cluster it backs up, on the same node, and every app's database
   shares one bucket identity: separation of credentials and network, not of failure domains.
 - The secret store is Kubernetes Secrets in one namespace: whoever may read Secrets there

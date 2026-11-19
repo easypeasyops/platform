@@ -240,6 +240,8 @@ def test_local_builds_are_a_named_exception() -> None:
     variables = {v["name"]: v["expression"] for v in spec["variables"]}
     assert variables["localBuild"] == "'^' + variables.app + ':(dev|e2e)$'"
     assert "!i.matches(variables.localBuild)" in variables["refused"]
+    # An exception, not a weaker rule: everything else is refused at admission (PT-111).
+    assert spec["validationActions"] == ["Deny"]
 
 
 # ------------------------------------------------------------------ Kyverno CLI cases

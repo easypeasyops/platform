@@ -23,7 +23,7 @@ admissionController:
       requests: { cpu: 30m, memory: 128Mi }
       limits: { memory: 384Mi }
 # We only validate. The background controller (generate/mutate-existing) and the cleanup
-# controller aren't used; the reports controller turns Audit results into PolicyReports.
+# controller aren't used; the reports controller turns background scans into PolicyReports.
 backgroundController:
   enabled: false
 cleanupController:
