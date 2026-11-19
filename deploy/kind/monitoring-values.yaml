@@ -506,23 +506,50 @@ grafana:
     - name: plugins
       mountPath: /var/lib/grafana/plugins
       readOnly: false
-  additionalDataSources:
-    - name: VictoriaLogs
-      uid: victorialogs
-      type: victoriametrics-logs-datasource
-      access: proxy # Grafana's server asks the store; the browser never reaches it
-      url: http://victoria-logs.monitoring.svc:9428
+  # All three data sources from this file, read once at start, instead of the stack's
+  # datasources sidecar, which watches for ConfigMaps all day and held 75 MiB of the node's
+  # memory for it (PT-104). With that sidecar off the stack writes no data source ConfigMap,
+  # so Prometheus and Alertmanager are here too, as the stack wrote them (uids `prometheus`
+  # and `alertmanager`, which its dashboards and alert links name).
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          uid: prometheus
+          url: http://kps-prometheus.monitoring:9090/
+          access: proxy
+          isDefault: true
+          jsonData: { httpMethod: POST, timeInterval: 15s }
+        - name: Alertmanager
+          type: alertmanager
+          uid: alertmanager
+          url: http://kps-alertmanager.monitoring:9093/
+          access: proxy
+          jsonData: { handleGrafanaManagedAlerts: false, implementation: prometheus }
+        - name: VictoriaLogs
+          uid: victorialogs
+          type: victoriametrics-logs-datasource
+          access: proxy # Grafana's server asks the store; the browser never reaches it
+          url: http://victoria-logs.monitoring.svc:9428
   # Dashboards come from ConfigMaps labelled grafana_dashboard=1 in any namespace (the
   # chart's defaults); shortly's prod release ships the SLO dashboard that way.
   # Memory from 7 days of use (2026-11-16, PT-39): the process peaked at 640 MiB RSS, typically
   # about 320. Its working set reads higher (~575 MiB) because it counts page cache for the
   # SQLite database and search index on the emptyDirs, which the kernel drops before an OOM
   # kill. The limit is about 1.5x the peak RSS.
+  # Its live heap is about 160 MiB (2026-11-18), but Go let RSS grow to 377: GOMEMLIMIT makes
+  # it collect and hand memory back near 256 MiB (PT-104). A soft limit: a burst can pass it.
+  env:
+    GOMEMLIMIT: 256MiB
   resources:
     requests: { cpu: 50m, memory: 384Mi }
     limits: { memory: 1Gi }
-  # The dashboard and data source sidecars: about 75 MiB each, peak 87.
+  # The dashboard sidecar: about 75 MiB, peak 87. No data source sidecar (`datasources` above).
   sidecar:
+    datasources:
+      enabled: false
     resources:
       requests: { cpu: 5m, memory: 96Mi }
       limits: { memory: 128Mi }

@@ -703,7 +703,11 @@ def test_grafana_reads_the_logs_from_the_store_that_admits_it() -> None:
     (logs,) = [a for a in _render() if a["metadata"]["name"] == "logs"]
     (rule,) = store["networkPolicy"]["ingress"]
     (port,) = rule["ports"]
-    (source,) = grafana["additionalDataSources"]
+    (source,) = [
+        d
+        for d in grafana["datasources"]["datasources.yaml"]["datasources"]
+        if d["uid"] == "victorialogs"
+    ]
     service = store["server"]["fullnameOverride"]
     namespace = logs["spec"]["destination"]["namespace"]
     assert source["url"] == f"http://{service}.{namespace}.svc:{port['port']}"
