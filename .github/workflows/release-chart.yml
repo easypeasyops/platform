@@ -96,12 +96,19 @@ jobs:
             echo "${REF}@${DIGEST}"
             echo '```'
             echo
-            echo "Pin it by digest in the app's Argo CD Application (the version alone can be re-pointed):"
+            echo "Pin it by digest (the version alone can be re-pointed), staging before prod, one PR per"
+            echo "environment. In the platform repo, \`apps/<app>/envs/<env>.yaml\`:"
             echo
             echo '```yaml'
-            echo "repoURL: ${REF%/service}"
-            echo "chart: service"
-            echo "targetRevision: ${DIGEST} # ${VERSION}"
+            echo "chart:"
+            echo "  version: ${VERSION}"
+            echo "  digest: ${DIGEST}"
+            echo '```'
+            echo
+            echo "And in the app's repo, \`CHART:\` in its \`ci.yml\` (the chart its kind e2e renders with):"
+            echo
+            echo '```yaml'
+            echo "CHART: oci://${REF}@${DIGEST} # ${VERSION}"
             echo '```'
             echo
             echo "Verify provenance before moving a pin:"
