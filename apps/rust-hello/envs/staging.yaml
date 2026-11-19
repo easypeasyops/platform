@@ -1,0 +1,17 @@
+# rust-hello in staging: the Application rust-hello-staging, in namespace rust-hello-staging.
+# The first Rust app, started from app-template's rust-template (PT-95).
+app: rust-hello
+env: staging
+# The platform's service chart, pinned by digest (the version is for people). Move a pin
+# only to a released digest whose provenance verifies (the release's notes say how); move
+# staging's first.
+chart:
+  version: 1.7.1
+  digest: sha256:11a7ca25f34cd7a16bf2fbd4a5ad86e3bbc556f19f9ab236e1c2b05f50fb6a7f
+# rust-hello's values, from its repo at this revision, layered in this order.
+values:
+  repoURL: https://github.com/easypeasyops/rust-hello.git
+  revision: main
+  files:
+    - apps/rust-hello/deploy/service/values.yaml
+    - apps/rust-hello/deploy/envs/staging.yaml
