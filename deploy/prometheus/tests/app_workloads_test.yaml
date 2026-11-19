@@ -1,0 +1,73 @@
+# promtool unit tests for the alerts on every app's CronJobs: synthetic series in, expected
+# alerts out, with the labels kube-state-metrics gives them. Run by tests/test_alerting.py
+# with the others.
+rule_files:
+  - ../../argocd/platform/files/app-workloads-rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # The run due at 10m never starts. With the chart's 50-minute starting deadline the
+  # controller skips it from 60m, and the alert fires 10 minutes later. A run started at
+  # 100m moves the next schedule time on, and the alert resolves.
+  - name: a run past its starting deadline is a ticket until a run starts again
+    interval: 1m
+    input_series:
+      - series: 'kube_cronjob_next_schedule_time{job="kube-state-metrics",namespace="shortly-prod",cronjob="shortly-purge"}'
+        values: '600x99 90000x20'
+      - series: 'kube_cronjob_spec_starting_deadline_seconds{job="kube-state-metrics",namespace="shortly-prod",cronjob="shortly-purge"}'
+        values: '3000x120'
+      - series: 'kube_cronjob_spec_suspend{job="kube-state-metrics",namespace="shortly-prod",cronjob="shortly-purge"}'
+        values: '0x120'
+    alert_rule_test:
+      # Late, but within the deadline: the controller still starts it.
+      - eval_time: 55m
+        alertname: CronJobRunMissed
+        exp_alerts: []
+      # Skipped since 60m: not yet 10 minutes.
+      - eval_time: 65m
+        alertname: CronJobRunMissed
+        exp_alerts: []
+      - eval_time: 75m
+        alertname: CronJobRunMissed
+        exp_alerts:
+          - exp_labels: {namespace: shortly-prod, cronjob: shortly-purge, severity: ticket}
+            exp_annotations:
+              summary: CronJob shortly-purge in shortly-prod skipped the run due 1h 5m 0s ago
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#app-cronjob-and-job-alerts
+      - eval_time: 105m
+        alertname: CronJobRunMissed
+        exp_alerts: []
+
+  # Each of these is as late as the one above, and none is a missed run for an app's team.
+  - name: a suspended CronJob, an ops namespace's and a run on time stay quiet
+    interval: 1m
+    input_series:
+      # Suspended on purpose.
+      - series: 'kube_cronjob_next_schedule_time{job="kube-state-metrics",namespace="shortly-staging",cronjob="shortly-purge"}'
+        values: '600x120'
+      - series: 'kube_cronjob_spec_starting_deadline_seconds{job="kube-state-metrics",namespace="shortly-staging",cronjob="shortly-purge"}'
+        values: '3000x120'
+      - series: 'kube_cronjob_spec_suspend{job="kube-state-metrics",namespace="shortly-staging",cronjob="shortly-purge"}'
+        values: '1x120'
+      # An ops namespace: not an app's prod or staging (the routes leave them out too).
+      - series: 'kube_cronjob_next_schedule_time{job="kube-state-metrics",namespace="servicemonitor-ops",cronjob="servicemonitor-collect"}'
+        values: '600x120'
+      - series: 'kube_cronjob_spec_starting_deadline_seconds{job="kube-state-metrics",namespace="servicemonitor-ops",cronjob="servicemonitor-collect"}'
+        values: '3000x120'
+      - series: 'kube_cronjob_spec_suspend{job="kube-state-metrics",namespace="servicemonitor-ops",cronjob="servicemonitor-collect"}'
+        values: '0x120'
+      # Hourly, every run started: the next schedule time moves on each hour.
+      - series: 'kube_cronjob_next_schedule_time{job="kube-state-metrics",namespace="shortly-staging",cronjob="shortly-sync"}'
+        values: '3600x59 7200x60'
+      - series: 'kube_cronjob_spec_starting_deadline_seconds{job="kube-state-metrics",namespace="shortly-staging",cronjob="shortly-sync"}'
+        values: '3000x120'
+      - series: 'kube_cronjob_spec_suspend{job="kube-state-metrics",namespace="shortly-staging",cronjob="shortly-sync"}'
+        values: '0x120'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: CronJobRunMissed
+        exp_alerts: []
+      - eval_time: 119m
+        alertname: CronJobRunMissed
+        exp_alerts: []

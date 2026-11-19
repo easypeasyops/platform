@@ -663,6 +663,24 @@ kubectl -n <app ns> annotate externalsecret <release>-db-backup force-sync=$(dat
 (every key in the file replaces what the Secret held; it prints key names, never values),
 then restart the app's pods, which read their env at start.
 
+## App CronJob and Job alerts
+
+To the app's own channel, #<app>-alerts-<env> (Slack alerts, above), for every app's
+`<app>-prod` and `<app>-staging`; the ops namespaces' stay in Alertmanager. Rules:
+`deploy/argocd/platform/files/app-workloads-rules.yaml`, and the stack's own `KubeJobFailed`.
+
+| Alert | Means | First look |
+| --- | --- | --- |
+| `CronJobRunMissed` (ticket) | A scheduled run was never started, and its starting deadline (the service chart's: 50 minutes) has passed: the controller skipped it for good. Resolves when a run starts again | `kubectl -n <ns> get cronjob <name>` (LAST SCHEDULE); its events in the logs (Logs, Kubernetes events: a `FailedCreate` is a refused Job); none at all is a laptop that slept, or a long wait the controller overslept (below) |
+| `KubeJobFailed` (warning) | A Job failed: a CronJob's run, or one made by hand. Fires until the Job is gone; the chart keeps a CronJob's last three failed runs for a day | `kubectl -n <ns> logs job/<name>`; once understood, `kubectl -n <ns> delete job <name>` clears it |
+
+aipostit's own `AipostitJobFailed` covers `KubeJobFailed` on the same Job (inhibited), so
+its channel hears once. **A run skipped with no event at all:** the CronJob controller waits
+for the next run on the VM's monotonic clock, which stops while the Docker VM is paused. A
+wait of hours that the laptop half-sleeps through can end past the 50-minute deadline
+(PT-99: aipostit's daily purges, 2026-11-17 and 18). Run it by hand if it matters
+(`kubectl -n <ns> create job <name>-now --from=cronjob/<cronjob>`).
+
 ## External Secrets alerts
 
 Warnings, to the platform's channel whichever app the ExternalSecret belongs to: a failed

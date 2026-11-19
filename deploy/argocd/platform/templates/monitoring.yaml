@@ -233,6 +233,18 @@ metadata:
 spec:
   {{- .Files.Get "files/front-door-probes-rules.yaml" | fromYaml | toYaml | nindent 2 }}
 ---
+# Alerts on every app's CronJobs (files/app-workloads-rules.yaml), to the app's channel.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: app-workloads
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true # as above
+spec:
+  {{- .Files.Get "files/app-workloads-rules.yaml" | fromYaml | toYaml | nindent 2 }}
+---
 # The alerts on External Secrets (files/external-secrets-rules.yaml). Its ServiceMonitors
 # come from its own chart (deploy/kind/external-secrets-values.yaml); its namespace exists
 # since wave -1.

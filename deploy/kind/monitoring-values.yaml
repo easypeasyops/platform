@@ -334,6 +334,14 @@ alertmanager:
         - receiver: apps
           matchers: ['alertname =~ "ArgoCD.+"', 'name =~ ".+-(prod|staging)"']
           group_by: [alertname, name]
+        # The stack's KubeJobFailed (warning) on an app's Job, a CronJob's run or one made by
+        # hand: to the app's channel too, aipostit's included. It fires until the Job is
+        # gone: a CronJob's last three failed runs are kept a day (the service chart).
+        # CronJobRunMissed, the platform's (files/app-workloads-rules.yaml), is a ticket in
+        # the app's namespace: the first route above takes it.
+        - receiver: apps
+          matchers: ['alertname = "KubeJobFailed"', 'namespace =~ ".+-(prod|staging)"']
+          group_by: [alertname, namespace]
         - receiver: staging # staging never pages anyone, whatever its severity
           # Any app's staging namespace, <app>-staging (platform plan, Phase 2).
           matchers: ['namespace =~ ".+-staging"']
@@ -353,6 +361,10 @@ alertmanager:
       - source_matchers: ['alertname =~ "Aipostit.+"', 'severity = "page"']
         target_matchers: ['alertname =~ "Aipostit.+"', 'severity = "ticket"']
         equal: [namespace]
+      # aipostit's own rule on a failed Job covers the stack's on the same Job.
+      - source_matchers: ['alertname = "AipostitJobFailed"']
+        target_matchers: ['alertname = "KubeJobFailed"']
+        equal: [namespace, job_name]
       # The front door down: every hostname's probe fails with it, one incident, not a
       # ticket per hostname (deploy/argocd/platform/files/front-door-probes-rules.yaml).
       - source_matchers: ['alertname = "FrontDoorDown"']
@@ -413,7 +425,8 @@ alertmanager:
     # Every other app's messages, as aipostit's: the channel #<app>-alerts-<env> from the
     # group's namespace, or the Application's name for Argo CD's (both <app>-<env>). Title:
     # red for a page, yellow for a ticket, the alert and where. Text: @channel on a firing
-    # page in prod only, each alert's summary, and its runbook link.
+    # page in prod only, each alert's summary (the stack's KubeJobFailed: its description,
+    # which names the Job), and its runbook link.
     apps-slack.tmpl: |-
       {{ define "apps.slack.where" }}{{ or .CommonLabels.namespace .CommonLabels.name }}{{ end }}
       {{ define "apps.slack.channel" }}{{ reReplaceAll "^(.+)-(prod|staging)$" "#${1}-alerts-${2}" (or .CommonLabels.namespace .CommonLabels.name) }}{{ end }}
@@ -424,7 +437,7 @@ alertmanager:
       {{ if and (eq .Status "firing") (eq .CommonLabels.severity "page") (match "-prod$" (or .CommonLabels.namespace .CommonLabels.name)) }}<!channel> {{ end -}}
       severity *{{ .CommonLabels.severity }}*
       {{ range .Alerts -}}
-      • {{ if eq .Status "resolved" }}resolved: {{ end }}{{ .Annotations.summary }}
+      • {{ if eq .Status "resolved" }}resolved: {{ end }}{{ if eq .Labels.severity "warning" }}{{ or .Annotations.description .Annotations.summary }}{{ else }}{{ .Annotations.summary }}{{ end }}
       {{ end -}}
       {{ with (index .Alerts 0).Annotations.runbook_url }}<{{ . }}|Runbook>{{ end }}{{ template "slack.links" . }}
       {{- end }}

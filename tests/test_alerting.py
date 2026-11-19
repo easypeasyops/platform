@@ -207,6 +207,12 @@ def test_alertmanager_config_is_valid(alertmanager_config: Path) -> None:
         (["namespace=shortly-prod", "severity=page"], "apps"),
         (["namespace=java-hello-prod", "severity=ticket"], "apps"),
         (["namespace=rust-hello-staging", "severity=ticket"], "apps"),
+        # A CronJob's run missed (files/app-workloads-rules.yaml), and the stack's failed
+        # Job: to the app's channel, aipostit's included.
+        (["alertname=CronJobRunMissed", "namespace=java-hello-staging", "severity=ticket"], "apps"),
+        (["alertname=KubeJobFailed", "namespace=java-hello-prod", "severity=warning"], "apps"),
+        (["alertname=KubeJobFailed", "namespace=aipostit-prod", "severity=warning"], "apps"),
+        (["alertname=KubeJobFailed", "namespace=servicemonitor-ops", "severity=warning"], "null"),
         # The ops namespaces stay out of it: placeholders, as before.
         (["namespace=servicemonitor-ops", "severity=ticket"], "tickets"),
         (["namespace=servicemonitor-ops", "severity=page"], "pager"),
@@ -649,3 +655,18 @@ def test_an_apps_page_notifies_its_channel_in_prod_only(
     assert message.startswith(f"🔴 AipostitApiDown in {namespace}\n"), message
     assert ("<!channel>" in message) == notifies, message
     assert "<https://example.test#x|Runbook>" in message
+
+
+@pytest.mark.integration
+def test_a_failed_job_message_names_the_job(alertmanager_config: Path) -> None:
+    """The stack's KubeJobFailed: its summary names no Job, its description does."""
+    data = _notification(
+        "apps",
+        "firing",
+        {"alertname": "KubeJobFailed", "namespace": "java-hello-prod", "severity": "warning"},
+        description="Job java-hello-prod/java-hello-purge-1 failed to complete.",
+    )
+    message = _slack(alertmanager_config, data, "apps")
+    assert message.startswith("🟡 KubeJobFailed in java-hello-prod\n"), message
+    assert "• Job java-hello-prod/java-hello-purge-1 failed to complete." in message
+    assert "<!channel>" not in message
