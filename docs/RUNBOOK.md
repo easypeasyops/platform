@@ -472,8 +472,9 @@ kube-state-metrics isn't exporting them (`kubectl -n monitoring logs deploy/kube
 `FrontDoorProbeFailing` (a ticket, to #platform-alerts): for 5 minutes, every request for a
 hostname through the Gateway got no 2xx. The blackbox exporter (`monitoring`,
 `deploy/kind/blackbox-exporter-values.yaml`) asks every minute for each hostname in
-`frontDoorProbes` (`deploy/argocd/platform/values.yaml`): an app's `/healthz` on the `http`
-listener, each tool's health page on `tools`. It sends the request to the proxies' Service
+`appFrontDoorProbes` (`apps/front-door-probes.yaml`, the apps': `/healthz`, on the `http`
+listener) and `frontDoorProbes` (`deploy/argocd/platform/values.yaml`, each tool's health
+page, on `tools`). It sends the request to the proxies' Service
 as an HTTP proxy request, so it takes the listener, the route and the app's NetworkPolicy
 that a user's request takes, and it needs no traffic: a quiet app with a broken route burns
 no SLO budget, and its pods' probes and scrapes go around the Gateway.
@@ -497,8 +498,10 @@ curl -s 'http://localhost:9115/probe?module=front_door_http&target=http://aipost
 
 No series at all for a hostname: the exporter is down or Prometheus doesn't scrape it (the
 stack's `TargetDown` fires for job `front-door`; http://prometheus.localhost:8090/targets).
-A hostname an app adds or drops must be added to or dropped from `frontDoorProbes` in the
-same change: `scripts/check-apps.py` fails CI until they agree.
+A hostname an app adds or drops must be added to or dropped from `appFrontDoorProbes` in
+the same change: `scripts/check-apps.py` fails CI until they agree. That file is a values
+file of the platform chart that the root Application adds (`deploy/argocd/platform-root.yaml`),
+kept in `apps/` so that registering an app doesn't run the app e2e.
 
 What it can't see: the two forwarder containers on the laptop (`shortly-front-door-8080`
 and `-8090`, outside the cluster), which a user's request passes first. A probe that passes

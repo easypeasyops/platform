@@ -5,4 +5,8 @@
 # in the chart's values.yaml (frontDoorProbes). Same fields:
 #   listener  the Gateway listener the hostname is on (a blackbox module per listener)
 #   path      /healthz: the service chart's liveness probe, so the app contract
-appFrontDoorProbes: []
+appFrontDoorProbes:
+  - { hostname: aipostit.localhost, listener: http, path: /healthz } # aipostit-prod
+  - { hostname: staging.aipostit.localhost, listener: http, path: /healthz } # aipostit-staging
+  - { hostname: rust-hello.localhost, listener: http, path: /healthz } # rust-hello-prod
+  - { hostname: staging.rust-hello.localhost, listener: http, path: /healthz } # rust-hello-staging

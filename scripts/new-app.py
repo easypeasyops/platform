@@ -61,7 +61,7 @@ import yaml
 
 ORG = "easypeasyops"
 PLATFORM = Path(__file__).resolve().parent.parent
-PROBES = PLATFORM / "deploy/argocd/platform/values.yaml"
+PROBES = PLATFORM / "apps/front-door-probes.yaml"  # appFrontDoorProbes, the file's last key
 # A lockfile in apps/<app>/ -> the command that refreshes it after the rename. Others, such
 # as Cargo.lock, name the app only as text, and the rename already changed it.
 LOCKFILES = {"uv.lock": ["uv", "lock"]}
@@ -177,14 +177,14 @@ values:
 
 
 def add_probes(values: Path, app: str, env: str, hostnames: list[str]) -> None:
-    """Add the env's hostnames to frontDoorProbes, after the last app (http listener) entry."""
-    lines = values.read_text().splitlines(keepends=True)
-    last = max(i for i, line in enumerate(lines) if "listener: http," in line)
-    new = [
+    """Add the env's hostnames to the end of appFrontDoorProbes."""
+    new = "".join(
         f"  - {{ hostname: {h}, listener: http, path: /healthz }} # {app}-{env}\n"
         for h in hostnames
-    ]
-    values.write_text("".join(lines[: last + 1] + new + lines[last + 1 :]))
+    )
+    values.write_text(
+        values.read_text().replace("appFrontDoorProbes: []\n", "appFrontDoorProbes:\n") + new
+    )
 
 
 def platform_pr(app: str, repo: str, d: Path, env: str, chart: tuple[str, str]) -> None:

@@ -10,8 +10,9 @@
 #                            http://alertmanager.localhost:8090    Alertmanager
 #                            http://servicemonitor.localhost:8090  servicemonitor (an app)
 #
-# Each app's values name its hostnames; every hostname served is also in frontDoorProbes
-# (deploy/argocd/platform/values.yaml), which CI checks against the routes.
+# Each app's values name its hostnames; every hostname served is also probed: an app's in
+# appFrontDoorProbes (apps/front-door-probes.yaml), a tool's in frontDoorProbes
+# (deploy/argocd/platform/values.yaml). CI checks both against the routes.
 #
 # `.localhost` names resolve to 127.0.0.1 on any machine. Ports 8080 and 8090 on the laptop
 # are always there: scripts/cluster.sh runs a small forwarder container next to the kind

@@ -21,19 +21,15 @@ components:
   backups: true
 
 # What the blackbox exporter asks for through the front door, every minute, as a user would
-# (templates/monitoring.yaml: one Probe each; docs/RUNBOOK.md, The front door). A list in
-# git, since Prometheus can't discover an HTTPRoute: scripts/check-apps.py fails CI when
-# the entries and the hostnames the apps' routes serve (their values, rendered as Argo CD
-# renders them), each on its listener, disagree; tests/test_front_door.py, the same for the
-# tool routes (deploy/kind/tools/).
+# (templates/monitoring.yaml: one Probe each; docs/RUNBOOK.md, The front door): the tools'
+# health pages. The apps' hostnames are in apps/front-door-probes.yaml (appFrontDoorProbes),
+# which the root adds as a values file. Lists in git, since Prometheus can't discover an
+# HTTPRoute: scripts/check-apps.py fails CI when the two lists and the hostnames the apps'
+# routes serve (their values, rendered as Argo CD renders them), each on its listener,
+# disagree; tests/test_front_door.py, the same for the tool routes (deploy/kind/tools/).
 #   listener  the Gateway listener the hostname is on (a blackbox module per listener)
-#   path      a page that answers 200 without a login: /healthz for an app (the service
-#             chart's liveness probe, so the app contract), each tool's own health page
+#   path      a page that answers 200 without a login: each tool's own health page
 frontDoorProbes:
-  - { hostname: aipostit.localhost, listener: http, path: /healthz } # aipostit-prod
-  - { hostname: staging.aipostit.localhost, listener: http, path: /healthz } # aipostit-staging
-  - { hostname: rust-hello.localhost, listener: http, path: /healthz } # rust-hello-prod
-  - { hostname: staging.rust-hello.localhost, listener: http, path: /healthz } # rust-hello-staging
   - { hostname: argocd.localhost, listener: tools, path: /healthz }
   - { hostname: grafana.localhost, listener: tools, path: /api/health }
   - { hostname: prometheus.localhost, listener: tools, path: /-/healthy }
