@@ -974,9 +974,24 @@ database's namespace and `cluster` its Cluster (`<release>-db`). Rules:
 | Backups there, phase `failed` | The bucket, its keys, or the plugin: the Backup's description names it | The backup bucket, above; `kubectl -n cnpg-system logs deploy/plugin-barman-cloud --tail=50`; an expired certificate between the two is cert-manager alerts, above |
 | Backups `completed`, and the alert stays | The ObjectStore's status isn't updated, which is what the metric reads | `kubectl -n <ns> get objectstore <release>-db -o jsonpath='{.status}'`; the plugin's sidecar in the instance: `kubectl -n <ns> logs <release>-db-1 -c plugin-barman-cloud --tail=50` |
 
-To take a backup now rather than wait for the schedule, propose
-`kubectl cnpg backup <release>-db -n <ns> --method plugin --plugin-name barman-cloud.cloudnative-pg.io`
-(the `cnpg` kubectl plugin). `CloudNativePGOperatorDown` with the pod running and Ready is
+To take a backup now rather than wait for the schedule, propose a Backup object like the
+ScheduledBackup's (what the `cnpg` kubectl plugin's `backup` creates; the plugin isn't
+installed). Argo CD leaves it alone: it isn't in git and carries no tracking label.
+
+```sh
+kubectl -n <ns> create -f - <<EOF
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  name: <release>-db-manual-$(date +%Y%m%d%H%M)
+spec:
+  cluster: { name: <release>-db }
+  method: plugin
+  pluginConfiguration: { name: barman-cloud.cloudnative-pg.io }
+EOF
+```
+
+`CloudNativePGOperatorDown` with the pod running and Ready is
 the scrape: Prometheus's Targets page (http://prometheus.localhost:8090/targets),
 `cloudnative-pg`. A database is watched only while Prometheus scrapes its instances
 (`<ns>/<release>-db` on the same page): that needs `monitoring.enabled` in the app's values,
@@ -998,7 +1013,7 @@ while kube-state-metrics is down that alert can't fire. Rules:
 | --- | --- | --- |
 | `ArgoRolloutsControllerDown` | The controller hasn't been scraped for 10 minutes: no release to prod starts, a canary in flight neither moves on nor aborts | `kubectl -n argo-rollouts get pods`; `kubectl -n argo-rollouts logs deploy/argo-rollouts --tail=50` (add `--previous` after a crash) |
 | `CanaryAnalysisErrored` | A Rollout is aborted and one of its AnalysisRuns ended in `Error`: it couldn't measure, rather than measured a bad release (`Failed`, which is the app's and doesn't alert here) | Reading an aborted canary, below |
-| `CanaryPausedTooLong` | A Rollout has been paused for 30 minutes, longer than all its timed pause steps together (`canary.pauseWithoutAnalysis`, 60s a step; an app that sets pauses adding up to more will get this alert): an analysis ended `Inconclusive`, or someone paused it by hand. Part of the traffic is on the new version and nothing moves | `kubectl argo rollouts get rollout <rollout> -n <ns>`, or `kubectl -n <ns> get rollout <rollout> -o jsonpath='{.status.pauseConditions}{"\n"}{.spec.paused}{"\n"}'`: `InconclusiveRun` (read the run as below), or `spec.paused` true. Then it is the app's call: propose `kubectl argo rollouts promote <rollout> -n <ns>` or `abort` |
+| `CanaryPausedTooLong` | A Rollout has been paused for 30 minutes, longer than all its timed pause steps together (`canary.pauseWithoutAnalysis`, 60s a step; an app that sets pauses adding up to more will get this alert): an analysis ended `Inconclusive`, or someone paused it by hand. Part of the traffic is on the new version and nothing moves | `kubectl -n <ns> get rollout <rollout> -o jsonpath='{.status.pauseConditions}{"\n"}{.spec.paused}{"\n"}'`: `InconclusiveRun` (read the run as below), or `spec.paused` true. Then it is the app's call: propose to promote or abort it (Moving a canary by hand, below) |
 | `CanaryTimedOut` | A Rollout has been past its progress deadline for 5 minutes: the new pods aren't ready, and it doesn't abort by itself. Not the service chart's Rollouts: they abort on the deadline (`progressDeadlineAbort`), which Argo CD reports as `ArgoCDAppUnhealthy` | `kubectl -n <ns> get pods -l rollouts-pod-template-hash` and `describe` the ones not Ready (image, probe, admission); `kubectl -n <ns> get rollout <rollout> -o jsonpath='{.status.message}{"\n"}'` |
 | `ArgoRolloutsReconcileFailing` | The controller runs, but every pass over one Rollout or AnalysisRun (label `kind`, `exported_namespace`, `name`) has returned an error for 15 minutes: an API error, an object it can't patch, the Gateway API plugin refusing a route. That release doesn't move, and Argo CD may still show it Healthy. One error, or a burst a retry ends, doesn't alert | `kubectl -n argo-rollouts logs deploy/argo-rollouts \| grep <name>`: the `syncHandler error` lines say what it can't do. A permission or a plugin error is the platform's; a Rollout that names a Service or an HTTPRoute that isn't there is the app's values |
 
@@ -1011,10 +1026,9 @@ while kube-state-metrics is down that alert can't fire. Rules:
 ### Reading an aborted canary
 
 ```sh
-# The steps, where it stopped, and each AnalysisRun with its status (the kubectl plugin)
-kubectl argo rollouts get rollout <rollout> -n <ns>
-# Without the plugin: why it aborted ("RolloutAborted: ... analysis phase error/failed: ...")
-kubectl -n <ns> get rollout <rollout> -o jsonpath='{.status.message}{"\n"}'
+# Why it aborted ("RolloutAborted: ... analysis phase error/failed: ..."), the step it
+# stopped at, and the current release's pod hash
+kubectl -n <ns> get rollout <rollout> -o jsonpath='{.status.message}{"\n"}{.status.currentStepIndex}{"\n"}{.status.currentPodHash}{"\n"}'
 kubectl -n <ns> get analysisruns --sort-by=.metadata.creationTimestamp   # newest last
 # The run's message, then each measurement's phase and its last error
 kubectl -n <ns> get analysisrun <run> -o jsonpath='{.status.message}{"\n"}'
@@ -1023,7 +1037,7 @@ kubectl -n <ns> get analysisrun <run> -o jsonpath='{range .status.metricResults[
 
 A run is named `<rollout>-<pod hash>-<revision>-<step>`. The alert names every `Error` run
 the aborted Rollout still has: one of an older revision says only that that release
-errored too, and `get rollout` shows which run stopped the current one.
+errored too; the current release's runs carry the Rollout's `currentPodHash`.
 
 | What you find | Cause | Fix |
 | --- | --- | --- |
@@ -1031,6 +1045,26 @@ errored too, and `get rollout` shows which run stopped the current one.
 | Run `Error`, a Prometheus measurement's message a connection error or timeout | The analysis couldn't query Prometheus (`canary.analysis.prometheusUrl`) | `kubectl -n monitoring get pods`; Prometheus data, above |
 | Run `Error` on `synthetic-traffic` | The k6 Job didn't start or didn't finish: refused at admission, its image, its deadline | `kubectl -n <ns> get jobs,pods -l app.kubernetes.io/name=canary-traffic`; `kubectl -n <ns> describe job <job>`; Admission policy refuses pods, above |
 
-Once the cause is fixed, propose `kubectl argo rollouts retry rollout <rollout> -n <ns>`:
-the canary starts again from its first step (a new release does too), and the alert ends
-when the Rollout is no longer aborted.
+Once the cause is fixed, propose a retry (Moving a canary by hand, below): the canary
+starts again from its first step (a new release does too), and the alert ends when the
+Rollout is no longer aborted.
+
+### Moving a canary by hand
+
+Plain `kubectl`, the same patches the `kubectl argo rollouts` plugin sends (it isn't
+installed). Each is a change to the cluster: propose it, and run it on a yes. Abort, retry
+and promote from a pause the controller set write the Rollout's `status` subresource,
+which Argo CD doesn't compare with git.
+
+```sh
+# Abort: traffic back to the stable version (plugin: abort)
+kubectl -n <ns> patch rollout <rollout> --subresource=status --type merge -p '{"status":{"abort":true}}'
+# Retry an aborted one, from its first step (plugin: retry rollout)
+kubectl -n <ns> patch rollout <rollout> --subresource=status --type merge -p '{"status":{"abort":false}}'
+# Promote one paused by hand (spec.paused true)
+kubectl -n <ns> patch rollout <rollout> --type merge -p '{"spec":{"paused":false}}'
+# Promote one paused on InconclusiveRun: clear the pause and move to the next step,
+# <n> being .status.currentStepIndex plus one
+kubectl -n <ns> patch rollout <rollout> --subresource=status --type merge \
+  -p '{"status":{"pauseConditions":null,"controllerPause":false,"currentStepIndex":<n>}}'
+```
