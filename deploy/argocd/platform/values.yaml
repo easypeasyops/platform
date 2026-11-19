@@ -31,8 +31,6 @@ components:
 frontDoorProbes:
   - { hostname: aipostit.localhost, listener: http, path: /healthz } # aipostit-prod
   - { hostname: staging.aipostit.localhost, listener: http, path: /healthz } # aipostit-staging
-  - { hostname: java-hello.localhost, listener: http, path: /healthz } # java-hello-prod
-  - { hostname: staging.java-hello.localhost, listener: http, path: /healthz } # java-hello-staging
   - { hostname: rust-hello.localhost, listener: http, path: /healthz } # rust-hello-prod
   - { hostname: staging.rust-hello.localhost, listener: http, path: /healthz } # rust-hello-staging
   - { hostname: argocd.localhost, listener: tools, path: /healthz }

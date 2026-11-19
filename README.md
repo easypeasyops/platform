@@ -7,14 +7,14 @@ its own code, values and the release each environment runs; this repo owns every
 
 ## Status
 
-Five apps run on the platform, each in its own namespaces and from its own repo's values:
+Four apps run on the platform, each in its own namespaces and from its own repo's values:
 aipostit and deploybot
 ([easypeasyops/hotel_social_posts](https://github.com/easypeasyops/hotel_social_posts)),
-java-hello ([easypeasyops/java-hello](https://github.com/easypeasyops/java-hello)),
 rust-hello ([easypeasyops/rust-hello](https://github.com/easypeasyops/rust-hello)), and
-the platform's own servicemonitor. java-hello is the first app started from
-[app-template](https://github.com/easypeasyops/app-template): from an empty repo it was live
-in staging in 17 minutes and in prod 7 minutes later (PT-48).
+the platform's own servicemonitor. The first app started from
+[app-template](https://github.com/easypeasyops/app-template), java-hello, went from an empty
+repo to staging in 17 minutes and to prod 7 minutes later (PT-48); it was removed to give the
+laptop's node memory back (PT-104).
 
 The platform moved here from [easypeasyops/links](https://github.com/easypeasyops/links)
 (formerly `statsguy/shortly`) with its history, plan steps 3.1 to 3.5, all done. This repo
