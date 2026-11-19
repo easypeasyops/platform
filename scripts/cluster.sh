@@ -35,6 +35,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # ENVS: the environments, whose old Applications take_over_apps() hands over
 # shellcheck source=scripts/lib/namespaces.sh
 source "$ROOT/scripts/lib/namespaces.sh"
+# Slack's bot token, copied from Keychain into the store by platform()
+# shellcheck source=scripts/lib/slack.sh
+source "$ROOT/scripts/lib/slack.sh"
 # Argo CD: deploys the platform and the app from git. Pinned by version and digest: the
 # tag says what it is, the digest that it can't change. (The platform's chart pins are in
 # deploy/argocd/platform/values.yaml.)
@@ -212,7 +215,12 @@ platform() {
   # alerts): without them the monitoring Application would wait for good on an ExternalSecret
   # that can't sync. A fresh cluster comes up without Slack; the `up` after loading them
   # turns it on. A failed lookup stops here (set -e) instead of switching Slack off.
-  found=$(kubectl -n secret-store get secret alertmanager-slack --ignore-not-found -o name)
+  # The bot token, where Keychain has it, goes into the same Secret first (PT-103). Until
+  # the receivers read it, Slack still needs the three webhooks: a Secret with the token
+  # alone doesn't switch Slack on.
+  slack_token_to_store "kind-$CLUSTER"
+  found=$(kubectl -n secret-store get secret alertmanager-slack --ignore-not-found \
+    -o go-template='{{if and (index .data "aipostit-prod-webhook-url") (index .data "aipostit-staging-webhook-url") (index .data "platform-webhook-url")}}found{{end}}')
   slack=false
   if [[ -n "$found" ]]; then
     slack=true

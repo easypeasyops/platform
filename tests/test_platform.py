@@ -190,7 +190,7 @@ def test_slack_is_wired_only_where_the_store_has_the_webhooks() -> None:
     (es,) = yaml.safe_load_all((ROOT / "deploy/secrets/alertmanager-slack.yaml").read_text())
     assert {ref["remoteRef"]["key"] for ref in es["spec"]["data"]} == {"alertmanager-slack"}
     script = (ROOT / "scripts/cluster.sh").read_text()
-    assert "-n secret-store get secret alertmanager-slack --ignore-not-found" in script
+    assert "-n secret-store get secret alertmanager-slack --ignore-not-found \\\n" in script
     assert '{"name":"components.slack","value":"%s"}' in script
 
 
