@@ -307,6 +307,37 @@ flowchart TB
 | Argo CD not under itself | A bad change to it from git could take down the thing that would fix it. Its pin is in `cluster.sh`; a change to its values needs `cluster.sh up` |
 | metrics-server vendored | The release manifest, byte for byte, with its SHA-256; a kustomize patch adds the kind-only flag |
 
+### Components
+
+Each platform component, the Application (or script) that installs it, and its role. Versions
+and digests are in `deploy/argocd/platform/values.yaml`; values in `deploy/kind/`.
+
+| Component | Application · namespace | Role |
+| --- | --- | --- |
+| Argo CD | `cluster.sh` (Helm) · `argocd` | GitOps: syncs the platform chart, the policies and `apps/` from `main`, and renders each app's service chart into its namespaces |
+| External Secrets Operator | `external-secrets` · `external-secrets` | Copies each secret from the secret store to the namespaces that use it, from ExternalSecrets; its generators make the passwords |
+| Secret store | `secret-store` · `secret-store` | The source of every platform and app secret, and the ClusterSecretStores that bound who may read which (below, The secret store) |
+| cert-manager | `cert-manager` · `cert-manager` | Issues the certificates CloudNativePG and the Barman Cloud plugin talk mutual TLS over |
+| CloudNativePG | `cloudnative-pg` · `cnpg-system` | Operator that runs each app's Postgres from the `Cluster` its chart renders: failover, base backups, point-in-time recovery |
+| Barman Cloud plugin | `barman-cloud` · `cnpg-system` | CloudNativePG's backups (base backups and WAL) to the bucket |
+| SeaweedFS | `backups` · `backups` | The S3 bucket the backups go to, reachable only by backup and restore pods (kind only: a cloud bucket elsewhere) |
+| Envoy Gateway | `envoy-gateway` · `envoy-gateway-system` | Gateway API implementation: runs the Envoy proxies of the front door and ships the Gateway API CRDs |
+| Gateway | `gateway` · `gateway` | The front door: one Gateway, routed by hostname, with an `http` listener for apps and a `tools` one for the platform's UIs |
+| Tool routes | `tool-routes` · `argocd` | HTTPRoutes for Argo CD, Grafana, Prometheus and Alertmanager on the `tools` listener |
+| Argo Rollouts | `argo-rollouts` · `argo-rollouts` | Prod's canary releases, shifting traffic through the Gateway API traffic-router plugin and judging each step by analysis |
+| metrics-server | `metrics-server` · `kube-system` | Resource metrics for `kubectl top` and the HorizontalPodAutoscalers |
+| kube-prometheus-stack | `monitoring` · `monitoring` | Prometheus Operator, Prometheus, Alertmanager (to Slack, by namespace), Grafana and kube-state-metrics: each app's ServiceMonitors, rules and dashboards come with its chart |
+| VictoriaLogs | `logs` · `monitoring` | Keeps every pod's log lines and the cluster's events, queried from Grafana |
+| Log collector (vlagent) | `log-collector` · `log-collector` | Sends every pod's log lines from the node to VictoriaLogs (Pod Security `privileged`: reads the node's files) |
+| Event exporter | `event-exporter` · `event-exporter` | Writes every Kubernetes event as a log line, so events outlive the API server's hour |
+| node-exporter | `node-exporter` · `node-exporter` | The node's CPU, memory and disk for Prometheus (`privileged`: reads the node's files) |
+| Blackbox exporter | `blackbox-exporter` · `monitoring` | Asks each hostname through the front door every minute, as a user would |
+| Kyverno | `kyverno` · `kyverno` | Admission control: the webhook that runs the admission policies |
+| Admission policies | `kyverno-policies` · `kyverno` | Release provenance and the image allowlist for app namespaces (below, Admission policies) |
+| Provenance canary | `provenance-canary` · `provenance-canary` | Every 15 minutes, a dry-run Pod with a released image, so a policy that refuses releases is noticed before a deploy |
+| Platform AppProject | `platform-project` · `argocd` | What the platform's Applications may deploy, and where (wave -2) |
+| The platform's alerts | the root (`templates/monitoring.yaml`) · component namespaces | Scrapes, probes and PrometheusRules that watch the components above (wave 1) |
+
 What the children are for:
 
 - **Front door.** One Gateway (Gateway API, served by Envoy Gateway), routed by hostname.
