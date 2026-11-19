@@ -29,3 +29,18 @@ slack_token_to_store() {
     | kubectl --context "$context" apply --server-side --field-manager=slack-bot-token -f - >/dev/null
   echo "slack: bot token copied from Keychain into secret-store/$SLACK_STORE_SECRET"
 }
+
+# Prints "found" when the store Secret has the token, in the cluster of kube context $1. A
+# failed lookup fails (under set -e, the caller stops) rather than reading as "no token".
+slack_token_in_store() {
+  kubectl --context "$1" -n secret-store get secret "$SLACK_STORE_SECRET" --ignore-not-found \
+    -o go-template="{{if index .data \"$SLACK_TOKEN_KEY\"}}found{{end}}"
+}
+
+# What `up` says, then exits non-zero, when Slack is on but has no token (PT-97).
+slack_token_missing() {
+  echo "FAIL: Slack is on, but there is no Slack bot token in Keychain or the store," >&2
+  echo "      so alerts stay in Alertmanager. The rest of the cluster is up. Either:" >&2
+  echo "      - load the token (RUNBOOK, Slack alerts) and run scripts/cluster.sh up again, or" >&2
+  echo "      - run SLACK=0 scripts/cluster.sh up, to go without Slack" >&2
+}

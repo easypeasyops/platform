@@ -189,9 +189,54 @@ def test_slack_is_wired_only_where_the_store_has_the_webhooks() -> None:
     assert values["alertmanager"]["alertmanagerSpec"]["secrets"] == ["alertmanager-slack"]
     (es,) = yaml.safe_load_all((ROOT / "deploy/secrets/alertmanager-slack.yaml").read_text())
     assert {ref["remoteRef"]["key"] for ref in es["spec"]["data"]} == {"alertmanager-slack"}
+    lib = (ROOT / "scripts/lib/slack.sh").read_text()
+    assert "SLACK_STORE_SECRET=alertmanager-slack " in lib
+    assert "SLACK_TOKEN_KEY=bot-token " in lib
     script = (ROOT / "scripts/cluster.sh").read_text()
-    assert "-n secret-store get secret alertmanager-slack --ignore-not-found \\\n" in script
     assert '{"name":"components.slack","value":"%s"}' in script
+
+
+def _store_lookup(kubectl: str, tmp_path: Path) -> subprocess.CompletedProcess[str]:
+    """scripts/lib/slack.sh's store lookup, as cluster.sh calls it (set -e, an assignment),
+    with `kubectl` replaced by a script whose body is `kubectl`."""
+    stub = tmp_path / "kubectl"
+    stub.write_text(f"#!/bin/sh\n{kubectl}\n")
+    stub.chmod(0o755)
+    lookup = 'found=$(slack_token_in_store kind-x); echo "[$found]"'
+    return subprocess.run(
+        ["bash", "-c", f"set -euo pipefail; source scripts/lib/slack.sh; {lookup}"],
+        cwd=ROOT,
+        env={**os.environ, "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_slack_token_lookup_tells_found_missing_and_failed_apart(tmp_path: Path) -> None:
+    """cluster.sh switches Slack on with "found", fails `up` at the end on "" (PT-97), and
+    stops at once when the lookup itself fails: an unreachable API server isn't a missing
+    token."""
+    found = _store_lookup("printf found", tmp_path)
+    assert (found.returncode, found.stdout) == (0, "[found]\n")
+    missing = _store_lookup("true", tmp_path)
+    assert (missing.returncode, missing.stdout) == (0, "[]\n")
+    failed = _store_lookup("exit 1", tmp_path)
+    assert failed.returncode != 0
+    assert failed.stdout == ""
+
+
+def test_slack_on_without_its_token_fails_up_after_the_rest() -> None:
+    """SLACK=0 leaves Slack out, quietly; Slack on (with monitoring) needs the token, and
+    without it `up` brings up everything else, then exits non-zero (PT-97). Apps' CI has no
+    token: the reusable kind e2e runs `up` with SLACK=0, on both tries."""
+    script = (ROOT / "scripts/cluster.sh").read_text()
+    assert "  if on MONITORING && on SLACK; then\n" in script
+    up = script[script.index("\nup() {") : script.index("\n}\n", script.index("\nup() {"))]
+    last = "  if ((SLACK_MISSING)); then\n    slack_token_missing\n    exit 1\n  fi"
+    assert up.endswith(last)
+    e2e = (ROOT / ".github/workflows/reusable-kind-e2e.yml").read_text()
+    assert e2e.count(".platform/scripts/cluster.sh up") == e2e.count('SLACK: "0"') == 2
 
 
 def test_privileged_namespaces_hold_one_application_each() -> None:

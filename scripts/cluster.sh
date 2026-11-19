@@ -6,6 +6,10 @@
 #   MONITORING=0 scripts/cluster.sh up # skip kube-prometheus-stack, node-exporter, VictoriaLogs and the log collector (saves ~1 GB of RAM)
 #   POLICIES=0 scripts/cluster.sh up   # skip Kyverno and the admission policies
 #   BACKUPS=0 scripts/cluster.sh up    # skip the backup bucket (the databases can't archive)
+#   SLACK=0 scripts/cluster.sh up      # alerts stay in Alertmanager. With Slack on (the
+#                                       # default, with monitoring), no bot token in Keychain
+#                                       # or the store is an error: `up` brings up the rest,
+#                                       # then exits non-zero (RUNBOOK, Slack alerts)
 #   ARGOCD_APPS=0 scripts/cluster.sh up # don't let Argo CD manage the app (CI: the e2e
 #                                       # deploys with deploy.sh instead)
 #   PLATFORM_REVISION=<sha> scripts/cluster.sh up # the platform from that commit, not main
@@ -57,6 +61,7 @@ HELM_RELEASES=(monitoring/monitoring kyverno/kyverno envoy-gateway-system/eg arg
 
 on() { [[ "${!1:-1}" != 0 ]]; } # on MONITORING: the knob is unset or anything but 0
 bool() { if on "$1"; then echo true; else echo false; fi; }
+SLACK_MISSING=0 # set by platform(): Slack on, but no bot token anywhere
 
 up() {
   if ! kind get clusters 2>/dev/null | grep -qx "$CLUSTER"; then
@@ -81,6 +86,12 @@ up() {
       wait_synced "$(basename "$(dirname "$(dirname "$f")")")-$(basename "$f" .yaml)" 300
     done
     kubectl -n argocd get applications
+  fi
+
+  # Last of all, so everything else is up: Slack on without its token is an error.
+  if ((SLACK_MISSING)); then
+    slack_token_missing
+    exit 1
   fi
 }
 
@@ -208,22 +219,19 @@ EOF
 # Its Helm parameters are what git can't know: the node's architecture, which commit to
 # deploy, and which components this cluster wants.
 platform() {
-  local arch revision found slack params children
+  local arch revision found slack=false params children
   arch=$(kubectl get nodes -o jsonpath='{.items[0].status.nodeInfo.architecture}')
   revision=${PLATFORM_REVISION:-main}
-  # Slack only where the store has the bot token (RUNBOOK, Slack alerts): without it the
-  # monitoring Application would wait for good on an ExternalSecret that can't sync. Where
-  # Keychain has the token (scripts/load-slack.sh), it goes into the store first, so a new
-  # cluster comes up with Slack. A failed lookup stops here (set -e) instead of switching
-  # Slack off.
-  slack_token_to_store "kind-$CLUSTER"
-  found=$(kubectl -n secret-store get secret alertmanager-slack --ignore-not-found \
-    -o go-template='{{if index .data "bot-token"}}found{{end}}')
-  slack=false
-  if [[ -n "$found" ]]; then
-    slack=true
-  elif on MONITORING; then
-    echo "platform: no Slack bot token in Keychain or the store, so alerts stay in Alertmanager (RUNBOOK, Slack alerts)"
+  # Slack (on unless SLACK=0; part of monitoring) only where the store has the bot token
+  # (RUNBOOK, Slack alerts): without it the monitoring Application would wait for good on an
+  # ExternalSecret that can't sync. Where Keychain has the token (scripts/load-slack.sh), it
+  # goes into the store first, so a new cluster comes up with Slack. Where neither has it,
+  # the rest comes up without Slack and `up` fails at the end (SLACK_MISSING): a new cluster
+  # needs to be up before the token can be loaded. A failed lookup stops here (set -e).
+  if on MONITORING && on SLACK; then
+    slack_token_to_store "kind-$CLUSTER"
+    found=$(slack_token_in_store "kind-$CLUSTER")
+    if [[ -n "$found" ]]; then slack=true; else SLACK_MISSING=1; fi
   fi
   params=$(printf '[{"name":"arch","value":"%s"},{"name":"revision","value":"%s"},{"name":"components.monitoring","value":"%s"},{"name":"components.slack","value":"%s"},{"name":"components.policies","value":"%s"},{"name":"components.backups","value":"%s"}]' \
     "$arch" "$revision" "$(bool MONITORING)" "$slack" "$(bool POLICIES)" "$(bool BACKUPS)")
