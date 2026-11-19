@@ -210,6 +210,19 @@ def test_alertmanager_config_is_valid(alertmanager_config: Path) -> None:
         # A CronJob's run missed (files/app-workloads-rules.yaml), and the stack's failed
         # Job: to the app's channel, aipostit's included.
         (["alertname=CronJobRunMissed", "namespace=java-hello-staging", "severity=ticket"], "apps"),
+        (
+            ["alertname=CronJobLastRunFailed", "namespace=java-hello-prod", "severity=ticket"],
+            "apps",
+        ),
+        (
+            ["alertname=CronJobLastRunFailed", "namespace=aipostit-prod", "severity=ticket"],
+            "aipostit-prod",
+        ),
+        # Only an inhibit rule's source: never sent.
+        (
+            ["alertname=CronJobRunFailedInhibitor", "namespace=java-hello-prod", "severity=none"],
+            "null",
+        ),
         (["alertname=KubeJobFailed", "namespace=java-hello-prod", "severity=warning"], "apps"),
         (["alertname=KubeJobFailed", "namespace=aipostit-prod", "severity=warning"], "apps"),
         (["alertname=KubeJobFailed", "namespace=servicemonitor-ops", "severity=warning"], "null"),

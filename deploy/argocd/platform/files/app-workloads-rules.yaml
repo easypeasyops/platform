@@ -2,7 +2,8 @@
 # and their Jobs in <app>-prod and <app>-staging. Routed to the app's own channel,
 # #<app>-alerts-<env> (deploy/kind/monitoring-values.yaml, the `apps` routes). The ops
 # namespaces stay out, as in the routes. A failed Job is the stack's own KubeJobFailed,
-# routed there too: nothing to add here for it.
+# routed there too, except a CronJob's run: CronJobLastRunFailed says that, and stops once
+# a later run succeeds (PT-64).
 groups:
   - name: app-workloads
     rules:
@@ -27,4 +28,43 @@ groups:
           severity: ticket
         annotations:
           summary: "CronJob {{ $labels.cronjob }} in {{ $labels.namespace }} skipped the run due {{ $value | humanizeDuration }} ago"
+          runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#app-cronjob-and-job-alerts
+      # A CronJob's latest run failed: a failed run of it that started after its last
+      # successful run (or, never successful, after it was created). A later run that
+      # succeeds clears it, though the failed Job is kept a day (the service chart).
+      # max(): two kube-state-metrics pods during its rollout are one Job.
+      - alert: CronJobLastRunFailed
+        expr: |
+          (
+            max by (namespace, job_name) (kube_job_status_start_time{namespace=~".+-(prod|staging)"})
+            * on (namespace, job_name) group_left (cronjob)
+            max by (namespace, job_name, cronjob) (label_replace(kube_job_owner{namespace=~".+-(prod|staging)", owner_kind="CronJob"}, "cronjob", "$1", "owner_name", "(.+)"))
+            and on (namespace, job_name)
+            max by (namespace, job_name) (kube_job_failed{namespace=~".+-(prod|staging)", condition="true"}) == 1
+          )
+          > on (namespace, cronjob) group_left ()
+          (
+            max by (namespace, cronjob) (kube_cronjob_status_last_successful_time{namespace=~".+-(prod|staging)"})
+            or
+            0 * max by (namespace, cronjob) (kube_cronjob_created{namespace=~".+-(prod|staging)"})
+          )
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "CronJob {{ $labels.cronjob }} in {{ $labels.namespace }}: its last run, {{ $labels.job_name }}, failed"
+          runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#app-cronjob-and-job-alerts
+      # Not a message: it holds back the stack's KubeJobFailed on a CronJob's failed run (an
+      # inhibit rule, deploy/kind/monitoring-values.yaml), which would otherwise fire for the
+      # day the Job is kept, later successes or not. A Job no CronJob owns keeps its
+      # KubeJobFailed. severity none: no route sends it anywhere.
+      - alert: CronJobRunFailedInhibitor
+        expr: |
+          max by (namespace, job_name) (kube_job_failed{namespace=~".+-(prod|staging)", condition="true"}) == 1
+          and on (namespace, job_name)
+          kube_job_owner{namespace=~".+-(prod|staging)", owner_kind="CronJob"}
+        labels:
+          severity: none
+        annotations:
+          summary: "Holds back KubeJobFailed on {{ $labels.namespace }}/{{ $labels.job_name }}, a CronJob's run"
           runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#app-cronjob-and-job-alerts

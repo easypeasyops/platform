@@ -698,10 +698,15 @@ To the app's own channel, #<app>-alerts-<env> (Slack alerts, above), for every a
 | Alert | Means | First look |
 | --- | --- | --- |
 | `CronJobRunMissed` (ticket) | A scheduled run was never started, and its starting deadline (the service chart's: 50 minutes) has passed: the controller skipped it for good. Resolves when a run starts again | `kubectl -n <ns> get cronjob <name>` (LAST SCHEDULE); its events in the logs (Logs, Kubernetes events: a `FailedCreate` is a refused Job); none at all is a laptop that slept, or a long wait the controller overslept (below) |
-| `KubeJobFailed` (warning) | A Job failed: a CronJob's run, or one made by hand. Fires until the Job is gone; the chart keeps a CronJob's last three failed runs for a day | `kubectl -n <ns> logs job/<name>`; once understood, `kubectl -n <ns> delete job <name>` clears it |
+| `CronJobLastRunFailed` (ticket) | A CronJob's latest run failed: no run of it has succeeded since that one started. Resolves when a later run succeeds, or when the failed Job is gone (the chart keeps it a day) | `kubectl -n <ns> logs job/<job_name>` while its pod is kept; after, its lines in the logs (Logs) and its events (Logs, Kubernetes events: `DeadlineExceeded` is a run longer than the job's `activeDeadlineSeconds`) |
+| `KubeJobFailed` (warning) | A Job no CronJob owns failed (one made by hand). Fires until the Job is gone | `kubectl -n <ns> logs job/<name>`; once understood, `kubectl -n <ns> delete job <name>` clears it |
 
-aipostit's own `AipostitJobFailed` covers `KubeJobFailed` on the same Job (inhibited), so
-its channel hears once. **A run skipped with no event at all:** the CronJob controller waits
+On a CronJob's run the stack's `KubeJobFailed` is held back (an inhibit rule, source
+`CronJobRunFailedInhibitor`, which is never sent): it would fire for the day the failed Job
+is kept, later successes or not (PT-64). aipostit's own `AipostitJobFailed` covers both
+`KubeJobFailed` and `CronJobLastRunFailed` on the same Job, so its channel hears once while
+it fires (6 hours); after that, `CronJobLastRunFailed` speaks only if no run has succeeded
+since. **A run skipped with no event at all:** the CronJob controller waits
 for the next run on the VM's monotonic clock, which stops while the Docker VM is paused. A
 wait of hours that the laptop half-sleeps through can end past the 50-minute deadline
 (PT-99: aipostit's daily purges, 2026-11-17 and 18). Run it by hand if it matters

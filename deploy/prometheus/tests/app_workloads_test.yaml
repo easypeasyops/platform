@@ -71,3 +71,108 @@ tests:
       - eval_time: 119m
         alertname: CronJobRunMissed
         exp_alerts: []
+
+  # PT-64. The run that started at 1m failed; the next one, started at 60m, succeeded at
+  # 60m05s. A ticket from 16m (15 minutes on), cleared by the success, though the failed Job
+  # is still there: the inhibitor keeps holding back the stack's KubeJobFailed on it.
+  - name: a failed run followed by a success is a ticket only until the success
+    interval: 1m
+    input_series:
+      - series: 'kube_job_owner{job="kube-state-metrics",namespace="shortly-prod",job_name="shortly-sync-1",owner_kind="CronJob",owner_name="shortly-sync",owner_is_controller="true"}'
+        values: '1x120'
+      - series: 'kube_job_status_start_time{job="kube-state-metrics",namespace="shortly-prod",job_name="shortly-sync-1"}'
+        values: '60x120'
+      - series: 'kube_job_failed{job="kube-state-metrics",namespace="shortly-prod",job_name="shortly-sync-1",condition="true"}'
+        values: '1x120'
+      - series: 'kube_job_failed{job="kube-state-metrics",namespace="shortly-prod",job_name="shortly-sync-1",condition="false"}'
+        values: '0x120'
+      - series: 'kube_cronjob_status_last_successful_time{job="kube-state-metrics",namespace="shortly-prod",cronjob="shortly-sync"}'
+        values: '30x59 3605x60'
+      - series: 'kube_cronjob_created{job="kube-state-metrics",namespace="shortly-prod",cronjob="shortly-sync"}'
+        values: '0x120'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: CronJobLastRunFailed
+        exp_alerts: []
+      - eval_time: 59m
+        alertname: CronJobLastRunFailed
+        exp_alerts:
+          - exp_labels: {namespace: shortly-prod, cronjob: shortly-sync, job_name: shortly-sync-1, severity: ticket}
+            exp_annotations:
+              summary: "CronJob shortly-sync in shortly-prod: its last run, shortly-sync-1, failed"
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#app-cronjob-and-job-alerts
+      - eval_time: 61m
+        alertname: CronJobLastRunFailed
+        exp_alerts: []
+      - eval_time: 61m
+        alertname: CronJobRunFailedInhibitor
+        exp_alerts:
+          - exp_labels: {namespace: shortly-prod, job_name: shortly-sync-1, severity: none}
+            exp_annotations:
+              summary: "Holds back KubeJobFailed on shortly-prod/shortly-sync-1, a CronJob's run"
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#app-cronjob-and-job-alerts
+
+  # The last run failed and none succeeded since: a ticket for as long as that holds. One
+  # CronJob last succeeded before the failed run; the other never has.
+  - name: a failed last run is a ticket, whether or not the CronJob ever succeeded
+    interval: 1m
+    input_series:
+      - series: 'kube_job_owner{job="kube-state-metrics",namespace="shortly-staging",job_name="shortly-purge-1",owner_kind="CronJob",owner_name="shortly-purge",owner_is_controller="true"}'
+        values: '1x120'
+      - series: 'kube_job_status_start_time{job="kube-state-metrics",namespace="shortly-staging",job_name="shortly-purge-1"}'
+        values: '600x120'
+      - series: 'kube_job_failed{job="kube-state-metrics",namespace="shortly-staging",job_name="shortly-purge-1",condition="true"}'
+        values: '1x120'
+      - series: 'kube_cronjob_status_last_successful_time{job="kube-state-metrics",namespace="shortly-staging",cronjob="shortly-purge"}'
+        values: '300x120'
+      - series: 'kube_cronjob_created{job="kube-state-metrics",namespace="shortly-staging",cronjob="shortly-purge"}'
+        values: '0x120'
+      # Never succeeded: kube-state-metrics has no last successful time for it.
+      - series: 'kube_job_owner{job="kube-state-metrics",namespace="shortly-prod",job_name="shortly-new-1",owner_kind="CronJob",owner_name="shortly-new",owner_is_controller="true"}'
+        values: '1x120'
+      - series: 'kube_job_status_start_time{job="kube-state-metrics",namespace="shortly-prod",job_name="shortly-new-1"}'
+        values: '60x120'
+      - series: 'kube_job_failed{job="kube-state-metrics",namespace="shortly-prod",job_name="shortly-new-1",condition="true"}'
+        values: '1x120'
+      - series: 'kube_cronjob_created{job="kube-state-metrics",namespace="shortly-prod",cronjob="shortly-new"}'
+        values: '0x120'
+    alert_rule_test:
+      - eval_time: 120m
+        alertname: CronJobLastRunFailed
+        exp_alerts:
+          - exp_labels: {namespace: shortly-staging, cronjob: shortly-purge, job_name: shortly-purge-1, severity: ticket}
+            exp_annotations:
+              summary: "CronJob shortly-purge in shortly-staging: its last run, shortly-purge-1, failed"
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#app-cronjob-and-job-alerts
+          - exp_labels: {namespace: shortly-prod, cronjob: shortly-new, job_name: shortly-new-1, severity: ticket}
+            exp_annotations:
+              summary: "CronJob shortly-new in shortly-prod: its last run, shortly-new-1, failed"
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#app-cronjob-and-job-alerts
+
+  # A failed Job no CronJob owns (kube-state-metrics gives it no owner_kind) stays the
+  # stack's KubeJobFailed, not held back; an ops namespace's CronJob is no app's prod or
+  # staging.
+  - name: a standalone failed Job and an ops namespace's run are left to KubeJobFailed
+    interval: 1m
+    input_series:
+      - series: 'kube_job_owner{job="kube-state-metrics",namespace="shortly-prod",job_name="shortly-backfill"}'
+        values: '1x60'
+      - series: 'kube_job_status_start_time{job="kube-state-metrics",namespace="shortly-prod",job_name="shortly-backfill"}'
+        values: '60x60'
+      - series: 'kube_job_failed{job="kube-state-metrics",namespace="shortly-prod",job_name="shortly-backfill",condition="true"}'
+        values: '1x60'
+      - series: 'kube_job_owner{job="kube-state-metrics",namespace="servicemonitor-ops",job_name="servicemonitor-collect-1",owner_kind="CronJob",owner_name="servicemonitor-collect",owner_is_controller="true"}'
+        values: '1x60'
+      - series: 'kube_job_status_start_time{job="kube-state-metrics",namespace="servicemonitor-ops",job_name="servicemonitor-collect-1"}'
+        values: '60x60'
+      - series: 'kube_job_failed{job="kube-state-metrics",namespace="servicemonitor-ops",job_name="servicemonitor-collect-1",condition="true"}'
+        values: '1x60'
+      - series: 'kube_cronjob_created{job="kube-state-metrics",namespace="servicemonitor-ops",cronjob="servicemonitor-collect"}'
+        values: '0x60'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: CronJobLastRunFailed
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: CronJobRunFailedInhibitor
+        exp_alerts: []
