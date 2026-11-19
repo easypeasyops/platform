@@ -74,9 +74,11 @@ def run(*cmd: str, cwd: Path | None = None) -> str:
 
 
 def wait_merged(pr: str, repo: str) -> None:
-    for _ in range(90):  # 30 minutes
+    print(f"waiting for {pr} to merge", file=sys.stderr)
+    view = ["gh", "pr", "view", pr, "-R", repo, "--json", "state", "-q", ".state"]
+    for _ in range(90):  # 30 minutes; quietly, not a `run` line every 20 seconds
         if (
-            json.loads(run("gh", "pr", "view", pr, "-R", repo, "--json", "state"))["state"]
+            subprocess.run(view, check=True, text=True, capture_output=True).stdout.strip()
             == "MERGED"
         ):
             return
@@ -353,9 +355,10 @@ def create(app: str, repo: str, d: Path, template: str, lang: str, version: str)
     tag = f"{app}/v{version}"
     run("git", "tag", tag, cwd=d)
     run("git", "push", "origin", tag, cwd=d)
+    same_repo = "" if repo == f"{ORG}/{app}" else f" --repo {repo.split('/')[1]}"
     print(
         f"\nTagged {tag}: release.yml is releasing the image. By hand: add {repo} to the "
-        f"Renovate app. Next: new-app.py staging {app} (with the same --repo)"
+        f"Renovate app. Next: new-app.py staging {app}{same_repo}"
     )
 
 
