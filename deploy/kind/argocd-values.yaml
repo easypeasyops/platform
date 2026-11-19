@@ -132,8 +132,12 @@ controller:
   # Go lets the heap double before it collects, so a sync burst took it to 1.8 GiB for a live
   # heap of at most 0.6 GiB: memory the kind node needs then (PT-50, docs/RUNBOOK.md, Node
   # memory). A soft limit: past it the controller collects harder, it isn't killed.
+  # 768MiB, not 1GiB (PT-104): a sync burst is when the node runs out of room, so the limit
+  # sits about 25% above that 0.6 GiB burst peak, close enough to cap the burst and far
+  # enough that the collector doesn't run all the time. At rest it holds about 570 MiB for
+  # a 425 MiB live heap (2026-11-19).
   env:
-    - { name: GOMEMLIMIT, value: 1GiB }
+    - { name: GOMEMLIMIT, value: 768MiB }
 server:
   replicas: 1
   resources:

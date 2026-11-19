@@ -41,10 +41,22 @@ the secrets come from the store (Platform secrets, below), and each app's Applic
 creates its namespace. From then on git decides what runs: a merged change reaches the
 cluster within a minute.
 
-**Node memory.** Docker Desktop gives the VM 9.7 GiB, and the node needs about 3 GiB of it
-free: below that a burst (several charts syncing, a local test run) sends it into swap, etcd
-stalls and kube-scheduler and kube-controller-manager lose their leases and restart. The
-biggest holder is the API server, so `deploy/kind/cluster.yaml` caps its Go heap with
+**Node memory.** Docker Desktop's 10 GB setting gives the VM 9.67 GiB, and the node needs
+about 3 GiB of it free. The danger is swap, not running out: the VM swaps to a file on the
+disk that holds etcd's data, so a burst (several syncs in a row, `cluster.sh up`, a local test
+run) that reads swapped-out memory back stalls etcd, and kube-scheduler and
+kube-controller-manager lose their leases and restart. On 2026-11-18 that happened with 2.2
+GiB still available, at 13–17 MB/s of swap-in (PT-104). Signs: `docker exec
+shortly-control-plane vmstat 1 5` (the `si` column, KiB/s) and `cat /proc/pressure/io` in the
+node. What the cluster holds, by namespace: `sum by (namespace) (max by
+(namespace,pod,container) (container_memory_rss{container!=""}))` in Prometheus (the `max`
+drops restarted containers' leftover series). Cut first what nothing needs: an app that only
+proved a template (java-hello, PT-104), a sidecar that does a one-off job. Changing Docker
+Desktop's memory restarts the VM and the whole cluster with it. The Go processes hold far
+more than their live heap unless capped: Argo CD's controller has `GOMEMLIMIT=768MiB`
+(`deploy/kind/argocd-values.yaml`, applied by `cluster.sh up`), Grafana `256MiB`
+(`deploy/kind/monitoring-values.yaml`). The biggest holder is the API server, so
+`deploy/kind/cluster.yaml` caps its Go heap with
 `GOMEMLIMIT=1280MiB` (it held 1.8 GiB for a 0.8 GiB live heap). That applies when the cluster
 is created. To give an older cluster the same, let the kubelet restart the API server from its
 edited manifest (the API is away for under a minute):
