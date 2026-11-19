@@ -388,7 +388,7 @@ front_door() {
       echo "  stop it and rerun scripts/cluster.sh up" >&2
     fi
   done
-  echo "front door: http://sho.rt.localhost:8080 (prod), http://staging.sho.rt.localhost:8080,"
+  echo "front door: http://<app>.localhost:8080 (prod), http://staging.<app>.localhost:8080,"
   echo "  http://{argocd,grafana,prometheus,alertmanager}.localhost:8090"
 }
 
