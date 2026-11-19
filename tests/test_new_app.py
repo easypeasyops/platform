@@ -9,17 +9,23 @@ The template repo is a model of easypeasyops/app-template (TEMPLATE): the layout
 docstring asks of a template, with python, java and rust templates.
 """
 
+import importlib.util
+import io
+import itertools
 import json
 import os
 import re
 import subprocess
 import sys
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
+
+from tests.fake_github import digest
 
 ROOT = Path(__file__).resolve().parent.parent
 FAKE = Path(__file__).resolve().parent / "fake_github.py"
@@ -240,6 +246,9 @@ def world(tmp_path: Path) -> World:
     files["apps/front-door-probes.yaml"] = re.sub(
         r"(?ms)^appFrontDoorProbes:\n.*", "appFrontDoorProbes: []\n", probes
     )
+    # servicemonitor's probe is with the tools' (it is on their listener): it goes too.
+    tools = files["deploy/argocd/platform/values.yaml"]
+    files["deploy/argocd/platform/values.yaml"] = re.sub(r".*# servicemonitor-.*\n", "", tools)
     sha = _commit(w.platform, files, w.bare(f"{ORG}/platform"))
     for tag in CHART_TAGS:
         _git("tag", tag, cwd=w.platform)
@@ -308,3 +317,112 @@ def test_create_sets_up_the_repo_and_tags_the_first_release(world: World) -> Non
     rules = json.loads(ruleset["stdin"])["rules"]
     assert rules[0]["parameters"]["required_status_checks"] == [{"context": "ci"}]
     assert _git("tag", cwd=world.bare(repo)).split() == ["shop/v0.1.0"]
+
+
+def _check_apps(world: World, branch: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """scripts/check-apps.py, as the platform's branch has it, on that branch, with helm and
+    GitHub's raw files faked: the chart releases are CHART_TAGS, and render the HTTPRoute of
+    the layered values' gateway.hostnames; an app's values files come from its fake repo."""
+    checkout = world.root / f"checkout-{branch}"
+    platform = world.bare(f"{ORG}/platform")
+    _git("clone", "-q", "-b", branch, str(platform), str(checkout), cwd=world.root)
+    spec = importlib.util.spec_from_file_location("check_apps", checkout / "scripts/check-apps.py")
+    assert spec
+    assert spec.loader
+    check_apps = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(check_apps)
+    charts = {digest(t): t.removeprefix("service/v") for t in CHART_TAGS}
+
+    def helm(*cmd: str) -> str:
+        chart = next(a for a in cmd if a.startswith("oci://")).split("@")[1]
+        if chart not in charts:
+            raise subprocess.CalledProcessError(1, cmd, stderr="not found")
+        if cmd[1] == "show":
+            return yaml.safe_dump({"version": charts[chart]})
+        values: dict[str, Any] = {}
+        for flag, path in itertools.pairwise(cmd):
+            if flag == "--values":
+                values |= yaml.safe_load(Path(path).read_text())
+        route = {
+            "parentRefs": [{"name": "front-door"}],
+            "hostnames": values["gateway"]["hostnames"],
+        }
+        return yaml.safe_dump({"kind": "HTTPRoute", "metadata": {"name": cmd[2]}, "spec": route})
+
+    def urlopen(url: str, timeout: float) -> io.BytesIO:
+        raw = url.removeprefix("https://raw.githubusercontent.com/")
+        owner, repo, revision, path = raw.split("/", 3)
+        return io.BytesIO(world.show(f"{owner}/{repo}", revision, path).encode())
+
+    monkeypatch.setattr(check_apps, "run", helm)
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(sys, "argv", ["check-apps.py", "--out", str(world.root / "renders")])
+    assert check_apps.main() == 0, check_apps.errors
+
+
+def _platform_pr(world: World, env: str) -> dict[str, Any]:
+    """The platform PR that adds the app's env."""
+    prs = json.loads((world.root / "gh/prs.json").read_text())
+    [pr] = [p for p in prs if p["repo"] == f"{ORG}/platform" and p["head"] == f"apps-shop-{env}"]
+    return dict(pr)
+
+
+def test_staging_deploys_the_release_and_registers_the_app(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    world.new_app("create", "shop", "--lang", "python")
+    world.new_app("staging", "shop")
+    # The app's staging runs its first release: the deploy PR merged.
+    app_env = world.show(f"{ORG}/shop", "main", "apps/shop/deploy/envs/staging.yaml")
+    assert yaml.safe_load(app_env)["image"]["digest"] == digest("shop/v0.1.0")
+
+    branch = "apps-shop-staging"
+    env = yaml.safe_load(world.show(f"{ORG}/platform", branch, "apps/shop/envs/staging.yaml"))
+    assert env == {
+        "app": "shop",
+        "env": "staging",
+        "chart": {"version": "1.7.1", "digest": digest("service/v1.7.1")},  # the latest
+        "values": {
+            "repoURL": f"https://github.com/{ORG}/shop.git",
+            "revision": "main",
+            "files": ["apps/shop/deploy/service/values.yaml", "apps/shop/deploy/envs/staging.yaml"],
+        },
+    }
+    project = yaml.safe_load(world.show(f"{ORG}/platform", branch, "apps/shop/project.yaml"))
+    assert [d["namespace"] for d in project["spec"]["destinations"]] == ["shop-staging"]
+    probes = yaml.safe_load(world.show(f"{ORG}/platform", branch, "apps/front-door-probes.yaml"))
+    assert probes["appFrontDoorProbes"] == [
+        {"hostname": "staging.shop.localhost", "listener": "http", "path": "/healthz"}
+    ]
+    assert _platform_pr(world, "staging")["merged"]  # auto-merge
+    _check_apps(world, branch, monkeypatch)
+
+
+def test_prod_promotes_staging_and_leaves_the_merge_to_emrah(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    world.new_app("create", "shop", "--lang", "python")
+    world.new_app("staging", "shop")
+    world.new_app("prod", "shop")
+    app_env = world.show(f"{ORG}/shop", "main", "apps/shop/deploy/envs/prod.yaml")
+    assert yaml.safe_load(app_env)["image"]["digest"] == digest("shop/v0.1.0")
+
+    branch = "apps-shop-prod"
+    env = yaml.safe_load(world.show(f"{ORG}/platform", branch, "apps/shop/envs/prod.yaml"))
+    assert env["chart"] == {"version": "1.7.1", "digest": digest("service/v1.7.1")}  # staging's
+    assert env["values"]["files"] == [
+        "apps/shop/deploy/service/values.yaml",
+        "apps/shop/deploy/service/slo-rules.values.yaml",  # prod ships the SLO rules
+        "apps/shop/deploy/envs/prod.yaml",
+    ]
+    project = yaml.safe_load(world.show(f"{ORG}/platform", branch, "apps/shop/project.yaml"))
+    namespaces = [d["namespace"] for d in project["spec"]["destinations"]]
+    assert namespaces == ["shop-staging", "shop-prod"]
+    probes = yaml.safe_load(world.show(f"{ORG}/platform", branch, "apps/front-door-probes.yaml"))
+    hostnames = [p["hostname"] for p in probes["appFrontDoorProbes"]]
+    assert hostnames == ["staging.shop.localhost", "shop.localhost"]
+    pr = _platform_pr(world, "prod")
+    assert not pr["merged"]
+    assert "Emrah merges it" in pr["body"]
+    assert not world.calls("gh", "pr", "merge", pr["url"])
+    _check_apps(world, branch, monkeypatch)
