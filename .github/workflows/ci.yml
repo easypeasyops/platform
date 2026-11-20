@@ -52,7 +52,7 @@ jobs:
           # with every optional component switched off once, with the values file the root
           # adds (deploy/argocd/platform-root.yaml).
           helm lint deploy/argocd/platform --set arch=amd64
-          for args in "--set arch=amd64" "--set arch=arm64" \
+          for args in "--set arch=amd64 --set components.argocd=true" "--set arch=arm64" \
             "--set arch=amd64 --set components.monitoring=false --set components.policies=false --set components.backups=false"; do
             # shellcheck disable=SC2086 # word splitting intended
             helm template platform deploy/argocd/platform -f apps/front-door-probes.yaml $args | kc -

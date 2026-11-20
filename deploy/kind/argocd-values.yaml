@@ -6,6 +6,13 @@
 global:
   domain: argocd.localhost:8090
 
+crds:
+  # The chart's default (server-side apply: they are too large for the last-applied
+  # annotation), and never pruned once Argo CD manages its own install (PT-109): deleting
+  # the Application CRD deletes every Application.
+  annotations:
+    argocd.argoproj.io/sync-options: ServerSideApply=true,Prune=false
+
 configs:
   params:
     # No TLS between the browser and the server: the front door listens on 127.0.0.1 only

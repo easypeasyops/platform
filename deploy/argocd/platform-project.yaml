@@ -24,6 +24,7 @@ spec:
     - oci://quay.io/jetstack/charts/cert-manager
     - oci://ghcr.io/cloudnative-pg/charts/cloudnative-pg
     - oci://ghcr.io/cloudnative-pg/charts/plugin-barman-cloud
+    - oci://ghcr.io/argoproj/argo-helm/argo-cd # Argo CD itself (the argocd Application)
   destinations:
     # Platform namespaces only: staging and prod belong to the app's project.
     - { server: https://kubernetes.default.svc, namespace: argocd } # the child Applications, tool routes
