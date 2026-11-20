@@ -147,6 +147,32 @@ jobs:
           BACKUPS: "0"
           SLACK: "0"
 
+      # Argo CD manages its own install (PT-109): its Application is Synced and Healthy (up
+      # waited for it with the other platform children), Helm's release is handed over, and
+      # a live edit to its config is put back from git. On the platform repo's own runs
+      # only: an app's e2e doesn't pay for checking the platform.
+      - name: Argo CD manages itself
+        if: inputs.run && github.repository == 'easypeasyops/platform'
+        run: |
+          state=$(kubectl -n argocd get application argocd -o jsonpath='{.status.sync.status}/{.status.health.status}')
+          echo "argocd Application: $state"
+          [[ "$state" == Synced/Healthy ]]
+          records=$(kubectl -n argocd get secret -l owner=helm,name=argocd -o name)
+          [[ -z "$records" ]] || { echo "::error::Helm still has release records for Argo CD: $records"; exit 1; }
+          read_cap() { kubectl -n argocd get cm argocd-cmd-params-cm -o jsonpath='{.data.controller\.self\.heal\.backoff\.cap\.seconds}'; }
+          want=$(read_cap)
+          kubectl -n argocd patch cm argocd-cmd-params-cm --type merge \
+            -p '{"data":{"controller.self.heal.backoff.cap.seconds":"31"}}'
+          for i in $(seq 1 60); do
+            if [[ "$(read_cap)" == "$want" ]]; then
+              echo "argocd-cmd-params-cm edited by hand, put back to git's $want by Argo CD in about $((i * 2)) s"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Argo CD didn't put its own argocd-cmd-params-cm back to git's value in 120 s"
+          exit 1
+
       # When a sync never finishes, the job's timeout kills the wait before it can explain.
       - name: Argo CD state (on failure)
         if: (failure() || cancelled()) && inputs.run

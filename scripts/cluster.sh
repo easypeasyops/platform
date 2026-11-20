@@ -19,12 +19,16 @@
 #   PLATFORM_REVISION=<sha> scripts/cluster.sh up # the platform from that commit, not main
 #   FRONT_DOOR=0 scripts/cluster.sh up  # no forwarders on the laptop's ports 8080 and 8090
 #                                       # (create's knob)
+#   ARGOCD_HELM=1 scripts/cluster.sh install # re-install Argo CD with Helm though it
+#                                       # manages itself: when a change broke it (RUNBOOK,
+#                                       # Argo CD broke itself)
 #   scripts/cluster.sh wake            # after the laptop slept: restart the CronJob
 #                                       # scheduler, so the cleanup CronJob runs on time
 #   scripts/cluster.sh down
 #
 # What runs where:
-#   - Argo CD: bootstrapped here with Helm, the one component not deployed from git.
+#   - Argo CD: bootstrapped here with Helm, once; then its own `argocd` Application (in the
+#     platform chart) owns it, from the same pin and values file, like the rest.
 #   - The platform (Envoy Gateway and the Gateway, Argo Rollouts, metrics-server,
 #     kube-prometheus-stack, node-exporter, VictoriaLogs and its log collector, Kyverno and its policies, the backup bucket, the tool routes):
 #     Argo CD, from deploy/argocd/platform/ (app-of-apps). A merged change to it reaches the
@@ -63,9 +67,10 @@ read -r ARGOCD_CHART ARGOCD_VERSION ARGOCD_DIGEST < <(awk '
 # extraPortMappings, which only take effect when the cluster is created.
 FRONT_DOOR_IMAGE=docker.io/alpine/socat:1.8.1.3@sha256:22d77becaeeea8ef56b8c4bb2312323acafe85354be6a85714ff5050e3537842
 FRONT_DOOR_PORTS=("8080:30080" "8090:30081") # host:nodePort, users (http) and dev tools (tools)
-# Releases scripts/cluster.sh used to install with Helm, now Argo CD's (namespace/release):
-# their Helm records are removed once Argo CD has adopted the resources.
-HELM_RELEASES=(monitoring/monitoring kyverno/kyverno envoy-gateway-system/eg argo-rollouts/argo-rollouts)
+# Releases scripts/cluster.sh installs (or used to) with Helm, now Argo CD's
+# (namespace/release): their Helm records are removed once Argo CD has adopted the
+# resources. Argo CD's own (argocd/argocd) is installed again on each fresh cluster.
+HELM_RELEASES=(monitoring/monitoring kyverno/kyverno envoy-gateway-system/eg argo-rollouts/argo-rollouts argocd/argocd)
 
 on() { [[ "${!1:-1}" != 0 ]]; } # on MONITORING: the knob is unset or anything but 0
 bool() { if on "$1"; then echo true; else echo false; fi; }
@@ -255,7 +260,8 @@ platform() {
     found=$(slack_token_in_store "$CONTEXT")
     if [[ -n "$found" ]]; then slack=true; else SLACK_MISSING=1; fi
   fi
-  params=$(printf '[{"name":"arch","value":"%s"},{"name":"revision","value":"%s"},{"name":"components.monitoring","value":"%s"},{"name":"components.slack","value":"%s"},{"name":"components.policies","value":"%s"},{"name":"components.backups","value":"%s"}]' \
+  # components.argocd: Argo CD manages its own install from here on (PT-109).
+  params=$(printf '[{"name":"arch","value":"%s"},{"name":"revision","value":"%s"},{"name":"components.monitoring","value":"%s"},{"name":"components.slack","value":"%s"},{"name":"components.policies","value":"%s"},{"name":"components.backups","value":"%s"},{"name":"components.argocd","value":"true"}]' \
     "$arch" "$revision" "$(bool MONITORING)" "$slack" "$(bool POLICIES)" "$(bool BACKUPS)")
   # The project, to bootstrap: the root's platform-project child keeps it in sync from git
   # after that (wave -2).
@@ -305,7 +311,7 @@ json.dump(app, sys.stdout)' \
 }
 
 # A cluster built before the platform moved under Argo CD has Helm releases for the same
-# resources. Once Argo CD manages them, the Helm records only mislead (helm list would show
+# resources, and every cluster has Argo CD's own once install_argocd bootstrapped it. Once Argo CD manages them, the Helm records only mislead (helm list would show
 # releases nobody upgrades): remove them. The resources stay; Argo CD owns them now.
 take_over_from_helm() {
   local entry ns release
@@ -323,8 +329,7 @@ take_over_from_helm() {
 # hold a `helm` entry. The fields it owns outlive a removal from git: Argo CD drops only its
 # own share, and a container Helm half-owns is left without an image (PT-104's Grafana).
 # Remove that entry from every object of those releases (CRDs from a chart's crds/ carry no
-# release annotation, and neither do they belong to Argo CD's own release, which Helm still
-# installs). A `test` on the manager guards each `remove` against a shifted index. Only field
+# release annotation; Argo CD's are in its chart's templates/ and carry its own). A `test` on the manager guards each `remove` against a shifted index. Only field
 # ownership changes: no spec, nothing restarts.
 drop_helm_field_ownership() {
   local resource ns name patch removed=0
@@ -388,11 +393,22 @@ take_over_apps() {
   done
 }
 
+# Argo CD, with Helm: on a fresh cluster (bootstrap), on one from before PT-109 (its
+# Application adopts the release, take_over_from_helm hands the release over), and with
+# ARGOCD_HELM=1 (recovery). Otherwise its `argocd` Application owns it: installing it here
+# too would put this checkout's values over git's, maybe an older Argo CD. Over objects
+# Argo CD owns, Helm takes them (--take-ownership: their release records are gone) and wins
+# each field (--force-conflicts); the Application then syncs them back to git.
 install_argocd() {
   kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   kubectl label namespace argocd --overwrite pod-security.kubernetes.io/enforce=restricted >/dev/null
+  if [[ "${ARGOCD_HELM:-0}" == 0 ]] && kubectl -n argocd get application argocd >/dev/null 2>&1; then
+    echo "argocd: managed by its own Application, not installed with Helm (ARGOCD_HELM=1 does)"
+    return 0
+  fi
   if ! helm upgrade --install argocd "$ARGOCD_CHART@$ARGOCD_DIGEST" --version "$ARGOCD_VERSION" \
     --namespace argocd --values "$ROOT/deploy/kind/argocd-values.yaml" \
+    --server-side=true --force-conflicts --take-ownership \
     --wait --timeout 5m >/dev/null; then
     kubectl -n argocd get pods -o wide >&2 || true
     kubectl -n argocd get events --sort-by=.lastTimestamp 2>/dev/null | grep -iE 'fail|error|back-off' | tail -10 >&2 || true

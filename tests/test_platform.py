@@ -160,14 +160,17 @@ def test_rollouts_plugin_matches_the_node_architecture(arch: str) -> None:
 
 def test_helm_releases_handed_over_are_the_ones_argo_cd_renders() -> None:
     """cluster.sh deletes these Helm records once Argo CD owns the resources: each name must
-    be one Argo CD renders (charts added later, like External Secrets, were never Helm's)."""
+    be one Argo CD renders (charts added later, like External Secrets, were never Helm's),
+    with every component cluster.sh turns on (Argo CD's own included, PT-109)."""
     script = (ROOT / "scripts/cluster.sh").read_text()
     match = re.search(r"^HELM_RELEASES=\(([^)]*)\)", script, re.M)
     assert match
     handed_over = set(match[1].split())
+    assert "argocd/argocd" in handed_over
+    assert '{"name":"components.argocd","value":"true"}' in script
     rendered = {
         f"{a['spec']['destination']['namespace']}/{a['spec']['sources'][0]['helm']['releaseName']}"
-        for a in _render()
+        for a in _render(*ALL_ON)
         if "helm" in a["spec"].get("sources", [{}])[0]  # a chart (backups is git only)
     }
     assert handed_over <= rendered

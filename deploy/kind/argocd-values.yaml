@@ -1,6 +1,8 @@
-# Argo CD for the kind cluster, bootstrapped by scripts/cluster.sh (the one component not
-# deployed from git): GitOps for the app's two environments and for the platform under
-# them (deploy/argocd/). One replica of everything, no SSO, no notifications: a laptop, not a
+# Argo CD for the kind cluster: GitOps for the apps' environments and for the platform under
+# them (deploy/argocd/). scripts/cluster.sh bootstraps it with Helm on a fresh cluster; from
+# then on its own `argocd` Application syncs this file, so a merged change here lands within
+# a minute (PT-109). A change that breaks Argo CD stops it syncing its own fix: RUNBOOK,
+# Argo CD broke itself. One replica of everything, no SSO, no notifications: a laptop, not a
 # team. The UI is at http://argocd.localhost:8090, through the Gateway's tools listener
 # (deploy/kind/tools/argocd.yaml).
 global:
