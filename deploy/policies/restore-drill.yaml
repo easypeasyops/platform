@@ -1,0 +1,102 @@
+# The daily restore drill (PT-44): for each database with backups (its ScheduledBackup, which
+# the service chart renders only then), a CronJob in restore-drill that restores the
+# database's latest backup into a scratch Cluster, checks it, and deletes it
+# (scripts/restore-db.sh --drill, run as restore-drill/restore-drill: deploy/restore-drill/).
+# A new database gets its drill when its ScheduledBackup is created, with no edit here; a
+# removed one loses it (synchronize). Kyverno's background controller does the generating
+# (deploy/kind/kyverno-values.yaml).
+#
+# Each CronJob is kube-state-metrics' record of its drill: kube_cronjob_status_last_successful_time
+# and the Jobs' failures, labelled by the CronJob's name, drill-<namespace> (the alerts:
+# deploy/argocd/platform/files/cloudnative-pg-rules.yaml; docs/RUNBOOK.md, Restore drills).
+#
+# The Job runs the service chart's default Postgres image (bash and coreutils, already on the
+# node for the databases) with kubectl mounted from its own image as a read-only image
+# volume, and the script from the ConfigMap restore-db. 04:30 in the laptop's time zone,
+# while nothing else runs; a drill missed while the laptop slept starts on waking, up to 6
+# hours late. One copy of a database at a time (about 128Mi each); all drills start
+# together, which is fine while there are a few.
+apiVersion: policies.kyverno.io/v1
+kind: GeneratingPolicy
+metadata:
+  name: restore-drill
+  annotations:
+    policies.kyverno.io/title: A daily restore drill for every database with backups
+    policies.kyverno.io/description: >-
+      For each CloudNativePG ScheduledBackup, a CronJob in restore-drill that restores that
+      database's latest backup into a scratch Cluster every day and checks it.
+spec:
+  evaluation:
+    generateExisting: { enabled: true } # the databases already there when this is applied
+    synchronize: { enabled: true } # kept as written here, and deleted with the database
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [postgresql.cnpg.io]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [scheduledbackups]
+  generate:
+    - template:
+        interpolate: cel
+        value: |
+          apiVersion: batch/v1
+          kind: CronJob
+          metadata:
+            name: drill-((object.metadata.namespace))
+            namespace: restore-drill
+            labels:
+              app.kubernetes.io/name: restore-drill
+          spec:
+            schedule: "30 4 * * *"
+            timeZone: America/Los_Angeles
+            startingDeadlineSeconds: 21600
+            concurrencyPolicy: Forbid
+            successfulJobsHistoryLimit: 1
+            failedJobsHistoryLimit: 1
+            jobTemplate:
+              spec:
+                backoffLimit: 0 # a failed drill is a finding, not something to retry
+                activeDeadlineSeconds: 900
+                template:
+                  metadata:
+                    labels:
+                      app.kubernetes.io/name: restore-drill
+                  spec:
+                    serviceAccountName: restore-drill
+                    restartPolicy: Never
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 26
+                      runAsGroup: 26
+                      seccompProfile: { type: RuntimeDefault }
+                    containers:
+                      - name: drill
+                        image: ghcr.io/cloudnative-pg/postgresql:17.11-minimal-trixie@sha256:87f97b9a922e469b91faaaa36ced7c2092cf890efd3622f29095d252b70b9718
+                        command:
+                          - bash
+                          - /drill/restore-db.sh
+                          - --drill
+                          - ((object.metadata.namespace))/((object.spec.cluster.name))
+                        env:
+                          - { name: PATH, value: /kubectl/bin:/usr/local/bin:/usr/bin:/bin }
+                          - { name: HOME, value: /tmp } # kubectl's cache
+                        resources:
+                          requests: { cpu: 10m, memory: 32Mi }
+                          limits: { memory: 128Mi }
+                        securityContext:
+                          allowPrivilegeEscalation: false
+                          capabilities: { drop: [ALL] }
+                          readOnlyRootFilesystem: true
+                        volumeMounts:
+                          - { name: script, mountPath: /drill, readOnly: true }
+                          - { name: kubectl, mountPath: /kubectl, readOnly: true }
+                          - { name: tmp, mountPath: /tmp }
+                    volumes:
+                      - name: script
+                        configMap: { name: restore-db }
+                      - name: kubectl
+                        image:
+                          reference: registry.k8s.io/kubectl@sha256:5ed410ebac5dc976cc717098994dcdb29bbbd38f6bd65f582311f5be4ba719cf # v1.37.0
+                          pullPolicy: IfNotPresent
+                      - name: tmp
+                        emptyDir: { sizeLimit: 16Mi }
