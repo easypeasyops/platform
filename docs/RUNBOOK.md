@@ -1123,6 +1123,42 @@ runbook may add checks of its data (shortly's restore drill in links).
 | The copy never becomes healthy; its logs say no backup was found | No base backup yet, or none before `--target-time` | `kubectl -n <app>-<env> get backups.postgresql.cnpg.io`; a target inside the retention window and after the first base backup |
 | Errors connecting to `seaweedfs.backups.svc` | The bucket's NetworkPolicy admits restores only from `restore-drill` | The backup bucket, above |
 
+## The database canary
+
+`dbcanary-ops` is a database the platform owns (PT-106; `tools/dbcanary/`, registered in
+`apps/dbcanary/`), so the service chart's `database.cluster` and its backups are proven
+on the cluster whether or not any app uses one. It is deployed like an app's database:
+same namespace label, same policies, same bucket store and network rules. `dbcanary-db` is
+one instance that archives WAL continuously and takes a base backup every hour to
+`s3://cnpg-backups/dbcanary-ops/dbcanary-db`. The CronJob `dbcanary-write` inserts a row
+into `beats` every 15 minutes, so there is always fresh WAL and a recent row to look for
+after a restore. It requests 128Mi for the database (limit 256Mi) and 16Mi for the writer
+while it runs; what it adds to the node, measured, is on PT-106.
+
+**Don't remove it.** The backup alert (`DatabaseBackupTooOld`) and the restore drills
+target it: without it, a broken backup path goes unseen until an app needs a restore.
+Removing it, or pausing it to save memory, is Emrah's call.
+
+```sh
+kubectl -n dbcanary-ops get cluster dbcanary-db              # STATUS "Cluster in healthy state"
+kubectl -n dbcanary-ops get backups.postgresql.cnpg.io       # one an hour, phase completed
+kubectl -n dbcanary-ops get cronjob,jobs                     # the writer's runs
+kubectl -n dbcanary-ops exec dbcanary-db-1 -c postgres -- psql -d dbcanary -tAc 'SELECT count(*), max(at) FROM beats'
+scripts/restore-db.sh dbcanary ops --check-sql 'SELECT max(at) FROM beats'   # a drill
+```
+
+In Prometheus: the last base backup's age in seconds, and WAL segments that failed to
+archive over the last day (0 is healthy):
+
+```promql
+time() - max(barman_cloud_cloudnative_pg_io_last_available_backup_timestamp{namespace="dbcanary-ops"})
+increase(cnpg_pg_stat_archiver_failed_count{namespace="dbcanary-ops"}[24h])
+```
+
+A failure here is the platform's backup path, not the canary: start at The backup bucket
+and CloudNativePG alerts. A failed writer run is the database or its network policy:
+`kubectl -n dbcanary-ops logs job/<job>`.
+
 ## CloudNativePG alerts
 
 Warnings, to the platform's channel whichever app the database belongs to. Neither breaks

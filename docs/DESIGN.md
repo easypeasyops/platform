@@ -278,6 +278,11 @@ admission policies.
   keeps `release-chart.yml` and its `service/v*` tags, which `release.yml` leaves out
   (`tests/test_release_workflows.py`).
 
+`tools/dbcanary/` (PT-106) is a tool with no code: only its `deploy/` values. It is a
+database the platform owns, so backups are proven without waiting for an app to need one.
+Its writer runs `psql` from the database's own image, which the image allowlist admits
+in every app namespace.
+
 ## The platform chart
 
 `deploy/argocd/platform/` is a Helm chart whose templates are Argo CD Applications

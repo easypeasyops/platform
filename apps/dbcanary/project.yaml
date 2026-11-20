@@ -1,0 +1,22 @@
+# dbcanary's Argo CD project (tools/dbcanary in this repo): the platform's own database, so
+# the service chart's database and its backups are proven whether or not an app uses one
+# (PT-106). Least privilege, as servicemonitor's: the platform's service chart and this repo
+# (its values and the namespace's baseline), its one namespace and the namespace itself.
+
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: dbcanary
+  namespace: argocd
+spec:
+  description: dbcanary's environment (apps/dbcanary/envs)
+  sourceRepos:
+    - oci://ghcr.io/easypeasyops/charts/service
+    - https://github.com/easypeasyops/platform.git
+  destinations:
+    # One environment: part of the platform, not a stage of a product.
+    - { server: https://kubernetes.default.svc, namespace: dbcanary-ops }
+  clusterResourceWhitelist: # by name: its own namespace, no other
+    - { group: "", kind: Namespace, name: dbcanary-ops }
+  namespaceResourceWhitelist:
+    - { group: "*", kind: "*" }
