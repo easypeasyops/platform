@@ -235,6 +235,18 @@ spec:
       directory: { include: backups.yaml }
   destination: { server: {{ $dest }}, namespace: backups }
   {{- include "platform.syncPolicy" (dict "labels" (dict "pod-security.kubernetes.io/enforce" "restricted")) | nindent 2 }}
+---
+# The restore drills' namespace, what the drills run as, and the bucket's keys for their
+# scratch Clusters (deploy/restore-drill/; the CronJobs come from Kyverno, PT-44).
+{{ include "platform.meta" (dict "name" "restore-drill" "wave" 0) }}
+spec:
+  project: platform
+  source:
+    repoURL: {{ $v.repoURL }}
+    targetRevision: {{ $v.revision }}
+    path: deploy/restore-drill
+  destination: { server: {{ $dest }}, namespace: restore-drill }
+  {{- include "platform.syncPolicy" (dict "labels" (dict "pod-security.kubernetes.io/enforce" "restricted")) | nindent 2 }}
 {{- end }}
 
 # The Gateway and the tool routes need only Envoy Gateway's CRDs, which arrive within

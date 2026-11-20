@@ -39,6 +39,7 @@ spec:
     - { server: https://kubernetes.default.svc, namespace: kyverno }
     - { server: https://kubernetes.default.svc, namespace: provenance-canary } # where the provenance canary asks, empty
     - { server: https://kubernetes.default.svc, namespace: backups }
+    - { server: https://kubernetes.default.svc, namespace: restore-drill } # the restore drills (PT-44)
     - { server: https://kubernetes.default.svc, namespace: external-secrets }
     - { server: https://kubernetes.default.svc, namespace: secret-store }
     - { server: https://kubernetes.default.svc, namespace: cert-manager }

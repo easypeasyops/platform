@@ -1,0 +1,87 @@
+# The restore drills' namespace (PT-44): every day, for each database with backups, a Job
+# here restores its latest backup into a scratch Cluster, checks it, and deletes it
+# (scripts/restore-db.sh --drill; docs/RUNBOOK.md, Restore drills). The CronJobs are
+# generated per database by Kyverno (deploy/policies/); what they run as is here. Restores
+# by hand (scripts/restore-db.sh) use this namespace too. Applied by the platform's
+# `restore-drill` Application, which creates the namespace (restricted Pod Security).
+#
+# The drill reads only the source's Cluster and ObjectStore (their spec: image, database,
+# bucket folder) and works only here: it never reads a Secret or execs into a pod in an
+# app's namespace. The bucket's keys come from the backup-bucket store, which admits this
+# namespace (deploy/secrets/bucket-store.yaml), and the bucket admits its Clusters' pods
+# (deploy/kind/backups.yaml).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: restore-drill
+  namespace: restore-drill
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: restore-drill:read-databases
+rules:
+  - apiGroups: [postgresql.cnpg.io]
+    resources: [clusters]
+    verbs: [get]
+  - apiGroups: [barmancloud.cnpg.io]
+    resources: [objectstores]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: restore-drill:read-databases
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: restore-drill:read-databases }
+subjects:
+  - { kind: ServiceAccount, name: restore-drill, namespace: restore-drill }
+---
+# Here only: the scratch Cluster and its ObjectStore, made and deleted; its pod, read and
+# queried (psql through exec), and its logs when it fails.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: restore-drill
+  namespace: restore-drill
+rules:
+  - apiGroups: [postgresql.cnpg.io]
+    resources: [clusters]
+    verbs: [get, list, create, delete]
+  - apiGroups: [barmancloud.cnpg.io]
+    resources: [objectstores]
+    verbs: [get, create, delete]
+  - apiGroups: [""]
+    resources: [pods, pods/log]
+    verbs: [get, list]
+  - apiGroups: [""]
+    resources: [pods/exec]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: restore-drill
+  namespace: restore-drill
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: restore-drill }
+subjects:
+  - { kind: ServiceAccount, name: restore-drill, namespace: restore-drill }
+---
+# The bucket's keys, as the service chart's ExternalSecret makes them in an app namespace
+# (same store, same keys): the scratch Clusters' ObjectStores read this Secret.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: drill-backup
+  namespace: restore-drill
+spec:
+  refreshInterval: 1h
+  secretStoreRef: { kind: ClusterSecretStore, name: backup-bucket }
+  target:
+    name: drill-backup
+    template:
+      metadata: { annotations: {} } # not Argo CD's tracking annotation: the Secret isn't in git
+  data:
+    - secretKey: ACCESS_KEY_ID
+      remoteRef: { key: seaweedfs-s3, property: access-key }
+    - secretKey: ACCESS_SECRET_KEY
+      remoteRef: { key: seaweedfs-s3, property: secret-key }

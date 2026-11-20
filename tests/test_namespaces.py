@@ -64,7 +64,10 @@ def test_project_and_backups_admit_the_apps_namespaces() -> None:
     ]
     bucket = yaml.safe_load_all((ROOT / "deploy/secrets/bucket-store.yaml").read_text())
     (store,) = [d for d in bucket if d["kind"] == "ClusterSecretStore"]
-    assert store["spec"]["conditions"] == [{"namespaceSelector": APP_NAMESPACES}]
+    assert store["spec"]["conditions"] == [
+        {"namespaceSelector": APP_NAMESPACES},
+        {"namespaceSelector": {"matchExpressions": [drill]}},
+    ]
     monitoring = yaml.safe_load((ROOT / "deploy/kind/monitoring-values.yaml").read_text())
     routes = monitoring["alertmanager"]["config"]["route"]["routes"]
     assert ['namespace =~ ".+-staging"'] in [r["matchers"] for r in routes]
