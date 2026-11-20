@@ -105,6 +105,9 @@ kube-state-metrics:
       - apiGroups: [argoproj.io]
         resources: [analysisruns]
         verbs: [list, watch]
+      - apiGroups: [postgresql.cnpg.io]
+        resources: [scheduledbackups]
+        verbs: [list, watch]
   customResourceState:
     enabled: true
     config:
@@ -191,6 +194,23 @@ kube-state-metrics:
                   info:
                     path: [metadata, ownerReferences]
                     labelsFromPath: { owner_kind: [kind], owner: [name] }
+          # Which databases have backups on: the service chart renders a ScheduledBackup only
+          # then, naming its Cluster. cnpg_scheduledbackup_info{exported_namespace, cluster},
+          # the list DatabaseBackupNotWatched compares with the databases that report a backup
+          # (deploy/argocd/platform/files/cloudnative-pg-rules.yaml). The operator exports no
+          # series per Cluster of its own.
+          - groupVersionKind: { group: postgresql.cnpg.io, version: v1, kind: ScheduledBackup }
+            metricNamePrefix: cnpg_scheduledbackup
+            labelsFromPath:
+              exported_namespace: [metadata, namespace]
+            metrics:
+              - name: info
+                help: A database whose base backups are scheduled (its Cluster)
+                each:
+                  type: Info
+                  info:
+                    path: [spec, cluster]
+                    labelsFromPath: { cluster: [name] }
           - groupVersionKind: { group: gateway.networking.k8s.io, version: v1, kind: Gateway }
             metricNamePrefix: gateway
             labelsFromPath:
