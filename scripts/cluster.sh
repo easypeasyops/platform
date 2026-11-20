@@ -51,7 +51,8 @@ source "$ROOT/scripts/lib/slack.sh"
 # the platform's other chart pins (deploy/argocd/platform/values.yaml, charts.argocd, which
 # Renovate bumps): the tag says what it is, the digest that it can't change.
 read -r ARGOCD_CHART ARGOCD_VERSION ARGOCD_DIGEST < <(awk '
-  /^  argocd:/ { pin = 1; next }
+  /^charts:/ { charts = 1 }
+  charts && /^  argocd:/ { pin = 1; next }
   pin && $1 == "repo:" { repo = $2 }
   pin && $1 == "version:" { version = $2 }
   pin && $1 == "digest:" { print repo, version, $2; exit }' "$ROOT/deploy/argocd/platform/values.yaml")

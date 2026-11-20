@@ -52,7 +52,7 @@ def _render(*sets: str) -> list[dict[str, Any]]:
     return [d for d in yaml.safe_load_all(out) if d and d["kind"] == "Application"]
 
 
-ALL_ON = ()
+ALL_ON = ("components.argocd=true",)
 ALL_OFF = ("components.monitoring=false", "components.policies=false", "components.backups=false")
 
 
@@ -114,6 +114,38 @@ def test_components_can_be_switched_off() -> None:
     }
     routes = next(a for a in _render(*ALL_OFF) if a["metadata"]["name"] == "tool-routes")
     assert routes["spec"]["source"]["directory"]["include"] == "argocd.yaml"
+
+
+def test_argo_cd_manages_itself_from_what_cluster_sh_bootstraps() -> None:
+    """The argocd Application (PT-109) renders the chart cluster.sh installs with Helm: the
+    same pin, release name, namespace and values file, so it adopts Helm's objects as they
+    are. Off unless cluster.sh asks, and never able to prune its own CRDs."""
+    assert "argocd" not in {a["metadata"]["name"] for a in _render()}
+    (app,) = [a for a in _render(*ALL_ON) if a["metadata"]["name"] == "argocd"]
+    chart = app["spec"]["sources"][0]
+    pin = VALUES["charts"]["argocd"]
+    assert (chart["repoURL"], chart["targetRevision"]) == (pin["repo"], pin["digest"])
+    assert chart["helm"]["releaseName"] == "argocd"
+    assert chart["helm"]["valueFiles"] == ["$values/deploy/kind/argocd-values.yaml"]
+    assert app["spec"]["destination"]["namespace"] == "argocd"
+    assert "managedNamespaceMetadata" not in app["spec"]["syncPolicy"]
+    assert not app["spec"]["syncPolicy"]["automated"].get("allowEmpty")
+    script = (ROOT / "scripts/cluster.sh").read_text()
+    start = script.index("read -r ARGOCD_CHART")
+    read_pin = script[start : script.index("\n", script.index("values.yaml", start))]
+    echo = 'echo "$ARGOCD_CHART $ARGOCD_VERSION $ARGOCD_DIGEST"'
+    read = subprocess.run(
+        ["bash", "-c", f"ROOT={ROOT}\n{read_pin}\n{echo}"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert read.stdout.split() == [pin["repo"], pin["version"], pin["digest"]]
+    assert '--namespace argocd --values "$ROOT/deploy/kind/argocd-values.yaml"' in script
+    assert 'helm upgrade --install argocd "$ARGOCD_CHART@$ARGOCD_DIGEST"' in script
+    crds = yaml.safe_load((ROOT / "deploy/kind/argocd-values.yaml").read_text())["crds"]
+    options = crds["annotations"]["argocd.argoproj.io/sync-options"].split(",")
+    assert {"Prune=false", "ServerSideApply=true"} <= set(options)
 
 
 @pytest.mark.parametrize("arch", ["amd64", "arm64"])

@@ -105,6 +105,21 @@ spec:
   {{- include "platform.chartSources" (dict "root" $ "chart" $v.charts.argoRollouts "release" "argo-rollouts" "values" "deploy/kind/argo-rollouts-values.yaml" "valuesObject" (dict "controller" (dict "trafficRouterPlugins" (list $plugin)))) | nindent 2 }}
   destination: { server: {{ $dest }}, namespace: argo-rollouts }
   {{- include "platform.syncPolicy" (dict "labels" (dict "pod-security.kubernetes.io/enforce" "restricted")) | nindent 2 }}
+{{- if $v.components.argocd }}
+---
+# Argo CD itself (PT-109): scripts/cluster.sh bootstraps it with Helm, from the same pin and
+# values file; from then on this Application owns it, so a merged change to its values
+# reaches the cluster like any other. The same release name as Helm's, so it adopts the
+# same objects. Guards against it breaking itself: its CRDs are never pruned (Prune=false,
+# deploy/kind/argocd-values.yaml), and automated sync refuses to prune everything (no
+# allowEmpty). No namespace metadata: cluster.sh makes the namespace and its labels.
+{{ include "platform.meta" (dict "name" "argocd" "wave" 0) }}
+spec:
+  project: platform
+  {{- include "platform.chartSources" (dict "root" $ "chart" $v.charts.argocd "release" "argocd" "values" "deploy/kind/argocd-values.yaml") | nindent 2 }}
+  destination: { server: {{ $dest }}, namespace: argocd }
+  {{- include "platform.syncPolicy" (dict) | nindent 2 }}
+{{- end }}
 {{- if $v.components.monitoring }}
 ---
 # kube-prometheus-stack, and the ExternalSecret that makes its Grafana admin login from the

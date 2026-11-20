@@ -19,6 +19,10 @@ components:
   slack: true
   policies: true
   backups: true
+  # Argo CD managing its own install (the `argocd` Application, PT-109). Off by default, so
+  # a running cluster adopts it only when cluster.sh sets it (its next `up` or `install`),
+  # where the Helm records are handed over in the same run, not on the merge.
+  argocd: false
 
 # What the blackbox exporter asks for through the front door, every minute, as a user would
 # (templates/monitoring.yaml: one Probe each; docs/RUNBOOK.md, The front door): the tools'
@@ -84,8 +88,8 @@ charts:
     repo: oci://ghcr.io/cloudnative-pg/charts/plugin-barman-cloud
     version: 0.9.0
     digest: sha256:d34ada2eedffaee9153c6ae31e0e5b93fd28765cc8fba7c5fb45d4ed6b60df1a
-  # Argo CD v3.5.6 itself: scripts/cluster.sh installs it with Helm before the platform,
-  # from this pin and deploy/kind/argocd-values.yaml.
+  # Argo CD v3.5.6 itself: scripts/cluster.sh bootstraps it with Helm before the platform,
+  # from this pin and deploy/kind/argocd-values.yaml; the `argocd` Application, the same.
   argocd:
     repo: oci://ghcr.io/argoproj/argo-helm/argo-cd
     version: 10.11.1
