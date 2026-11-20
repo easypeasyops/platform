@@ -752,7 +752,54 @@ is the ExternalSecret's namespace (`namespace` is the controller's). Rules:
 | Nothing wrong, after a fix | The next try is up to an hour away | `kubectl -n <ns> annotate externalsecret <name> force-sync=$(date +%s) --overwrite` |
 
 `ExternalSecretsDown` with the pod running is the scrape: Prometheus's Targets page
-(http://prometheus.localhost:8090/targets), `external-secrets-metrics`.
+(http://prometheus.localhost:8090/targets), `external-secrets-metrics`. On a Monday
+morning, `ExternalSecretsDown` firing and then resolving is the chaos drill (below).
+
+## The chaos drill
+
+Every Monday at 10:00 (America/Los_Angeles) the CronJob `monitoring/chaos-drill` (PT-110;
+`deploy/platform/chaos-drill/`) sets off `ExternalSecretsDown` on purpose: it deletes the
+External Secrets controller's pod, and each new one as it appears, until the alert is in
+Alertmanager (the rule's 10 minutes, about 11 in all). Then it stops and checks that the
+Deployment is Ready again within 5 minutes and the alert resolved within 5 more. While it
+holds, no ExternalSecret is refreshed; every Secret keeps its value. A Monday the laptop
+slept through runs on wake.
+
+A run that passes shows in #platform-alerts as `ExternalSecretsDown` firing, then resolved.
+A run that fails is a failed Job: the stack's `KubeJobFailed` (warning) in #platform-alerts
+15 minutes later, for as long as the Job is kept (6 days).
+
+Run it by hand: one at a time, not while another change loads the cluster, and with over
+2 GiB available on the node (Node metrics, below).
+
+```sh
+kubectl -n monitoring create job chaos-drill-$(date +%s) --from=cronjob/chaos-drill
+kubectl -n monitoring logs -f job/<that name>      # about 12 minutes
+```
+
+The log's last lines are the result, in seconds from the first delete, for example:
+
+```text
+ExternalSecretsDown: fired at 655s, drill stopped at 655s (37 pods deleted), external-secrets Ready at 662s, alert resolved at 710s (seconds from the first delete)
+PASS
+```
+
+| The log says | Means | First look |
+| --- | --- | --- |
+| `not starting: ... isn't Ready` or `... is already active` | The component was already down: the drill left it alone | External Secrets alerts, above |
+| `FAIL: ExternalSecretsDown didn't reach Alertmanager within 900s` | The rule, the metric it reads or the way to Alertmanager is broken: a real outage would go unseen | The rule on http://prometheus.localhost:8090/alerts; `up{job="external-secrets-metrics"}` |
+| `FAIL: ... wasn't Ready within 300s` | The controller doesn't come back on its own | `kubectl -n external-secrets get pods`; their events (Logs, Kubernetes events) |
+| `FAIL: ... didn't resolve within 300s` | Back, but not scraped again, or the alert stuck | Prometheus's Targets page, `external-secrets-metrics` |
+
+Once a failure is understood, `kubectl -n monitoring delete job <name>` clears its
+`KubeJobFailed`. To see the failing path without a 15-minute outage, give the alert a
+deadline it can't meet (one minute of outage, then a failed Job):
+
+```sh
+kubectl -n monitoring create job chaos-drill-fail-$(date +%s) --from=cronjob/chaos-drill --dry-run=client -o json \
+  | jq '.spec.template.spec.containers[0].env += [{"name": "DRILL_FIRE_WITHIN", "value": "60"}]' \
+  | kubectl create -f -
+```
 
 ## cert-manager alerts
 
