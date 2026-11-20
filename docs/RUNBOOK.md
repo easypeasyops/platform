@@ -266,9 +266,12 @@ scripts/cluster.sh up
 Afterwards, check that everything running is a release: `scripts/verify-image.sh` on each
 image from `kubectl -n <ns> get pods -o jsonpath='{..image}'`.
 
-**Allowlist reports.** `app-allowed-images` is Audit in kind, so nothing is refused: an
-image outside the allowlist, or another app's image, runs and is reported. The namespace's
-own app's local build (`<app>:dev`, `<app>:e2e`) passes.
+**Allowlist.** `app-allowed-images` refuses a Pod (or a Deployment, Job...) in an app's
+namespaces that runs an image outside the allowlist or another app's image: `kubectl apply`
+or Argo CD's sync says `image not allowed in the namespaces of app <app>: <image>`. The
+namespace's own app's local build (`<app>:dev`, `<app>:e2e`) is admitted. A refused image
+the app really needs is a PR to `deploy/policies/allowed-images.yaml`, never a hand edit.
+What ran before the switch keeps running; the reports show it:
 
 ```sh
 kubectl get policyreport -A -o wide                  # FAIL > 0: an image outside the allowlist ran
@@ -284,7 +287,7 @@ keeps running. Rules: `deploy/argocd/platform/files/kyverno-rules.yaml`.
 | Alert | Means | First look |
 | --- | --- | --- |
 | `KyvernoAdmissionControllerDown` | The admission controller hasn't been scraped for 5 minutes: no Pod can be created in an app's namespace | `kubectl -n kyverno get pods`; `kubectl -n kyverno describe pod -l app.kubernetes.io/component=admission-controller` (OOMKilled? its limit is in `deploy/kind/kyverno-values.yaml`); `kubectl -n kyverno logs deploy/kyverno-admission-controller --tail=50` (add `--previous` after a crash) |
-| `KyvernoReportsControllerDown` | The reports controller hasn't been scraped for 15 minutes: PolicyReports go stale (the allowlist's Audit results), admission still works | `kubectl -n kyverno get pods`; `kubectl -n kyverno logs deploy/kyverno-reports-controller --tail=50` |
+| `KyvernoReportsControllerDown` | The reports controller hasn't been scraped for 15 minutes: PolicyReports go stale (the allowlist's background results), admission still works | `kubectl -n kyverno get pods`; `kubectl -n kyverno logs deploy/kyverno-reports-controller --tail=50` |
 | `KyvernoProvenanceCheckErrors` | Kyverno is up but the provenance policy couldn't run for a request in `resource_namespace` (it errored, it didn't refuse): that Pod or rollout was refused. Usually `ghcr.io` unreachable from Kyverno; in one namespace only, maybe a digest that doesn't exist | `kubectl -n <resource_namespace> get events --sort-by=.lastTimestamp \| grep -i -E 'denied\|webhook' \| tail`; `kubectl -n kyverno logs deploy/kyverno-admission-controller --tail=50 \| grep -i -E 'imagedata\|error'`; `scripts/verify-image.sh <ref>` from the laptop |
 | `KyvernoWebhookCallsFailing` | The API server got no answer from the provenance webhook (a 30 s timeout, or Kyverno unreachable) and refused the request: no Pod can be created in an app's namespace. Fires beside `KyvernoAdmissionControllerDown` when the pod is down, and before it | As `KyvernoAdmissionControllerDown`; with the pod Ready, it is slow: `kubectl -n kyverno top pod`, and its log for registry or Rekor timeouts |
 | `ProvenanceCanaryFailing` | The provenance canary (below) hasn't had a released image admitted for 50 minutes, three runs in a row: the provenance policy is refusing releases, so every new Pod in the apps' namespaces is refused, or the canary itself is broken. The one alert that sees Sigstore (Rekor, TUF) unreachable | The last run's answer: `{kubernetes.pod_namespace="monitoring", kubernetes.container_name="kubectl"}` in Explore. `our images must be a release digest…`: Kyverno can't verify, `kubectl -n kyverno logs deploy/kyverno-admission-controller --tail=50`, and `scripts/verify-image.sh <ref>` from the laptop (it passing means the laptop reaches Sigstore and Kyverno doesn't: propose a restart, below). `failed calling webhook`: as `KyvernoWebhookCallsFailing`. `forbidden` or anything else: the canary's own Role or policy, `kubectl -n argocd get application provenance-canary` |

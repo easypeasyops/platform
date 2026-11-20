@@ -4,9 +4,9 @@
 # easypeasyops.github.io/app label), so one app's namespace can't run another app.
 #
 # Local builds (an app's :dev and :e2e images) are how this cluster is developed and tested:
-# they pass through a named exception (localBuild, below), not a weaker rule. Still Audit,
-# so violations are only reported (kubectl get policyreport -A), until the switch to Deny
-# (PT-111). Tested offline by tests/test_admission_policies.py.
+# they pass through a named exception (localBuild, below), not a weaker rule. Anything else
+# is refused at admission (Deny, PT-111); what already runs keeps running and shows in
+# `kubectl get policyreport -A`. Tested offline by tests/test_admission_policies.py.
 apiVersion: policies.kyverno.io/v1
 kind: ValidatingPolicy
 metadata:
@@ -20,7 +20,7 @@ metadata:
       the operator's (its instance manager) and the Barman Cloud plugin's sidecar. In kind,
       also the app's own local build, <app>:dev or <app>:e2e.
 spec:
-  validationActions: [Audit]
+  validationActions: [Deny]
   matchConstraints:
     namespaceSelector:
       matchExpressions:
