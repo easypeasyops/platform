@@ -34,8 +34,12 @@ newer; `scripts/install-prereqs.sh` installs them).
 
 **What `cluster.sh up` does.** Two steps, which also run on their own. `create` is what only
 kind needs: the kind cluster and the front door's forwarders. `install` is the same on any
-cluster, and works on the current kube context (or `CONTEXT`). It installs Argo CD with Helm (pinned by version and digest
-with the platform's other charts, `charts.argocd` in `deploy/argocd/platform/values.yaml`; values in `deploy/kind/argocd-values.yaml`), the one component not deployed from git. It
+cluster, and works on the current kube context (or `CONTEXT`). On a fresh cluster it installs Argo CD with Helm (pinned by version and digest
+with the platform's other charts, `charts.argocd` in `deploy/argocd/platform/values.yaml`; values in `deploy/kind/argocd-values.yaml`).
+From then on Argo CD's own `argocd` Application owns it, from the same pin and values file,
+and `cluster.sh` removes Helm's release records: a merged change to either reaches the
+cluster within a minute, and a later `up` leaves Argo CD to that Application (Argo CD broke
+itself, below, when it can't). It
 applies the platform's AppProject and its root Application (`deploy/argocd/platform-root.yaml`,
 with the node's architecture and `PLATFORM_REVISION`, default `main`) and waits until every
 platform Application is Synced and Healthy, the Gateway is programmed and the policies are
@@ -58,7 +62,7 @@ drops restarted containers' leftover series). Cut first what nothing needs: an a
 proved a template (java-hello, PT-104), a sidecar that does a one-off job. Changing Docker
 Desktop's memory restarts the VM and the whole cluster with it. The Go processes hold far
 more than their live heap unless capped: Argo CD's controller has `GOMEMLIMIT=768MiB`
-(`deploy/kind/argocd-values.yaml`, applied by `cluster.sh up`), Grafana `256MiB`
+(`deploy/kind/argocd-values.yaml`), Grafana `256MiB`
 (`deploy/kind/monitoring-values.yaml`). The biggest holder is the API server, so
 `deploy/kind/cluster.yaml` caps its Go heap with
 `GOMEMLIMIT=1280MiB` (it held 1.8 GiB for a 0.8 GiB live heap). That applies when the cluster
@@ -220,6 +224,29 @@ kubectl -n argocd patch application <name> --type merge -p '{"spec":{"syncPolicy
 - **A platform Application.** The root (`platform`) puts a child's spec back, so patch the
   root first, then the child. To restore both: `scripts/cluster.sh up`, which applies the
   root as git has it.
+
+### Argo CD broke itself
+
+Argo CD syncs its own install (the `argocd` Application: `charts.argocd` in
+`deploy/argocd/platform/values.yaml`, values in `deploy/kind/argocd-values.yaml`). A bad
+change there can stop it syncing anything, the fix included: the controller or repo server
+crash-looping, `argocd-cm` refused, a version that won't start. Its CRDs are never pruned
+(`Prune=false`), and an Application that would render nothing prunes nothing, so the
+Applications and what they run stay; only syncing stops. Signs: `ArgoCDDown`,
+`ArgoCDRepoServerDown`, or every Application stuck at the revision before the change.
+
+1. Revert the change on `main` (a PR, as usual): the fix has to be in git first, or Argo CD
+   breaks itself again as soon as it is back.
+2. From a checkout of that `main`: `ARGOCD_HELM=1 scripts/cluster.sh install`. Helm
+   installs this checkout's Argo CD over the broken one (taking its objects over), the
+   Application then finds git and the cluster the same, and `install` hands the release back
+   to it, as on a fresh cluster.
+3. Check: `kubectl -n argocd get application argocd` Synced and Healthy;
+   `kubectl -n argocd get secret -l owner=helm` empty.
+
+If it still syncs but keeps putting a bad value back while the revert waits for review: break
+glass on `platform`, then on `argocd` (above), and the same `ARGOCD_HELM=1` install.
+`cluster.sh up` puts both back.
 
 ## Admission policy refuses pods
 

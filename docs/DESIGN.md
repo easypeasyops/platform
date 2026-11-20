@@ -286,9 +286,10 @@ in every app namespace.
 ## The platform chart
 
 `deploy/argocd/platform/` is a Helm chart whose templates are Argo CD Applications
-(app-of-apps), one per platform component. `scripts/cluster.sh up` installs Argo CD with
-Helm, applies the platform root and the apps root, and waits; nothing else is put in the
-cluster by hand.
+(app-of-apps), one per platform component. `scripts/cluster.sh up` bootstraps Argo CD with
+Helm on a fresh cluster, applies the platform root and the apps root, and waits; nothing
+else is put in the cluster by hand. From then on Argo CD manages its own install too (the
+`argocd` child).
 
 `up` is two steps, split where a cluster stops being kind's (PT-116). `cluster.sh create`
 makes what only kind needs: the cluster and the front door's forwarders, which stand in for
@@ -298,10 +299,10 @@ kube context points at, and names nothing kind-specific. Another cluster gets it
 
 ```mermaid
 flowchart TB
-  CS["scripts/cluster.sh install<br/>Helm: Argo CD"] --> Root["Application platform (root)<br/>parameters: revision, arch, components"]
+  CS["scripts/cluster.sh install<br/>Helm: Argo CD, on a fresh cluster"] --> Root["Application platform (root)<br/>parameters: revision, arch, components"]
   Root --> WP["wave -2<br/>platform-project"]
   WP --> WB["wave -1<br/>external-secrets, cert-manager"]
-  WB --> W0["wave 0<br/>secret-store · cloudnative-pg, barman-cloud · metrics-server<br/>envoy-gateway, gateway, tool-routes · argo-rollouts<br/>monitoring, node-exporter, blackbox-exporter, logs, log-collector · kyverno · backups"]
+  WB --> W0["wave 0<br/>secret-store · cloudnative-pg, barman-cloud · metrics-server<br/>envoy-gateway, gateway, tool-routes · argo-rollouts · argocd<br/>monitoring, node-exporter, blackbox-exporter, logs, log-collector · kyverno · backups"]
   W0 --> W1["wave 1<br/>kyverno-policies · the platform's alerts"]
 ```
 
@@ -315,7 +316,7 @@ flowchart TB
 | A `platform` AppProject, kept from git | The platform must create CRDs, ClusterRoles and webhooks; apps must not. Neither project may deploy into the other's namespaces |
 | No finalizer on the children | Deleting a child, or the root, orphans its resources instead of deleting the monitoring stack or the admission webhook |
 | Server-side apply and diff | Several charts' CRDs are too big for client-side apply, and fields other controllers write (webhook CA bundles) are not drift |
-| Argo CD not under itself | A bad change to it from git could take down the thing that would fix it. Its pin is in `cluster.sh`; a change to its values needs `cluster.sh up` |
+| Argo CD under itself, bootstrapped by Helm | The usual pattern: Helm installs it once, then its `argocd` Application owns the same pin and values, so a change to them lands on merge like any other (PT-109; until then one needed `cluster.sh up`). A bad change can stop the thing that would sync its fix, so: its CRDs are never pruned, `cluster.sh up` leaves it to the Application but `ARGOCD_HELM=1` re-installs it with Helm, and the RUNBOOK (Argo CD broke itself) says when. Helm's release records and field ownership are removed once the Application has adopted it, as for the charts before it (PT-104) |
 | metrics-server vendored | The release manifest, byte for byte, with its SHA-256; a kustomize patch adds the kind-only flag |
 
 ### Components
@@ -325,7 +326,7 @@ and digests are in `deploy/argocd/platform/values.yaml`; values in `deploy/kind/
 
 | Component | Application · namespace | Role |
 | --- | --- | --- |
-| Argo CD | `cluster.sh` (Helm) · `argocd` | GitOps: syncs the platform chart, the policies and `apps/` from `main`, and renders each app's service chart into its namespaces |
+| Argo CD | `argocd` (bootstrapped by `cluster.sh` with Helm) · `argocd` | GitOps: syncs the platform chart, the policies and `apps/` from `main`, and renders each app's service chart into its namespaces |
 | External Secrets Operator | `external-secrets` · `external-secrets` | Copies each secret from the secret store to the namespaces that use it, from ExternalSecrets; its generators make the passwords |
 | Secret store | `secret-store` · `secret-store` | The source of every platform and app secret, and the ClusterSecretStores that bound who may read which (below, The secret store) |
 | cert-manager | `cert-manager` · `cert-manager` | Issues the certificates CloudNativePG and the Barman Cloud plugin talk mutual TLS over |
