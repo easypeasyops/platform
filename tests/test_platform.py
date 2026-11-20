@@ -229,12 +229,15 @@ def test_slack_token_lookup_tells_found_missing_and_failed_apart(tmp_path: Path)
 def test_slack_on_without_its_token_fails_up_after_the_rest() -> None:
     """SLACK=0 leaves Slack out, quietly; Slack on (with monitoring) needs the token, and
     without it `up` brings up everything else, then exits non-zero (PT-97). Apps' CI has no
-    token: the reusable kind e2e runs `up` with SLACK=0, on both tries."""
+    token: the reusable kind e2e runs `up` with SLACK=0, on both tries. (`up` is create, then
+    install: the platform and its Slack check are install's.)"""
     script = (ROOT / "scripts/cluster.sh").read_text()
     assert "  if on MONITORING && on SLACK; then\n" in script
-    up = script[script.index("\nup() {") : script.index("\n}\n", script.index("\nup() {"))]
+    install = script[
+        script.index("\ninstall() {") : script.index("\n}\n", script.index("\ninstall() {"))
+    ]
     last = "  if ((SLACK_MISSING)); then\n    slack_token_missing\n    exit 1\n  fi"
-    assert up.endswith(last)
+    assert install.endswith(last)
     e2e = (ROOT / ".github/workflows/reusable-kind-e2e.yml").read_text()
     assert e2e.count(".platform/scripts/cluster.sh up") == e2e.count('SLACK: "0"') == 2
 
