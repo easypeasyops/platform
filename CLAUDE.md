@@ -24,14 +24,16 @@ its pin, in a PR of its own. So a platform change that an app's e2e would catch 
 on the app's lock PR, not here. Renovate opens that PR weekly in app-template and
 hotel_social_posts, and it auto-merges once green; after a change that touches what apps run,
 don't wait for Monday: trigger it from the repo's Dependency Dashboard. links still moves
-its lock by hand.
+its lock by hand, but runs its own nightly kind e2e against this repo's `main` (PT-113), so a
+change here that breaks links shows the next morning.
 
 ## Checks
 
 CI (`ci.yml`): kubeconform on every manifest and on the platform chart rendered three ways,
 the metrics-server checksum, `uv run pytest` (tests/, through the platform's own
 `reusable-python-check.yml`, so ruff and mypy too), shellcheck (`-x`, entry points only) and
-actionlint. Run the same locally before pushing when a change touches them. `ci` is the one
+actionlint. Run the Docker-free ones locally before pushing when a change touches them (see
+"The laptop cluster has no spare memory" below). `ci` is the one
 required check: add every new job to the gate's `needs`. A test that needs Docker or the
 network is marked `integration`.
 
@@ -48,6 +50,19 @@ same PR (`scripts/test-slo-generator.sh` fails on a stale one).
 `deploy/platform/metrics-server/components.yaml` is vendored byte for byte; never edit it.
 To bump it, replace it with the upstream release and update `SHA256SUMS` in the same PR.
 
+## The laptop cluster has no spare memory
+
+Local tests share the Docker VM with the kind node that prod runs on, and two loads at once
+took it down on 2026-11-18. So, locally: no Docker-backed tests (kyverno-cli, promtool,
+amtool containers), `uv run pytest -n 0` on the files you touched only, never
+`scripts/cluster.sh` against the live cluster to try something out, and only one
+cluster-loading step at a time across sessions and agents. CI runs the rest. Say this in
+every subagent's brief: subagents don't read the session's memory.
+
+The `platform` root Application is applied by `cluster.sh`, not synced from git: a change to
+`deploy/argocd/platform-root.yaml` reaches the cluster only at the next `up` (or a patch),
+so re-apply it before merging anything that depends on it.
+
 ## apps/
 
 `apps/<app>/envs/<env>.yaml` is a deploy of the platform's side of an app: a changed chart
@@ -60,7 +75,8 @@ locally (`uv run --script scripts/check-apps.py --out <dir>`) before pushing a c
 ## Releasing the chart
 
 A release is a PR that bumps `charts/service/Chart.yaml`'s `version`, then a
-`service/vX.Y.Z` tag on its merge commit, pushed by Emrah (the session can't push tags).
+`service/vX.Y.Z` tag on its merge commit. The session can push it, but only when Emrah says
+so for that tag; one go-ahead doesn't cover later tags.
 `scripts/release-chart.sh` holds the logic `release-chart.yml` runs; change them together.
 A published version is immutable: never re-tag, never delete and re-push; a fix is a new
 version.
