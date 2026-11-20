@@ -13,6 +13,8 @@ fullnameOverride: kps # predictable Service names: kps-prometheus, kps-alertmana
 # the chart's crds/ directory, which takes no annotation: they stay in wave 0.)
 prometheusOperator:
   annotations: { argocd.argoproj.io/sync-wave: "1" }
+  resources:
+    requests: { memory: 64Mi } # memory: median +10% (PT-121)
 
 # The control-plane components aren't reachable for scraping in kind; their targets and
 # rules would only produce permanent TargetDown noise.
@@ -82,6 +84,8 @@ defaultRules:
 
 kube-state-metrics:
   fullnameOverride: kube-state-metrics
+  resources:
+    requests: { memory: 160Mi } # memory: median +10% (PT-121)
   # Every HTTPRoute's status conditions as series (custom resource state): the route's
   # status is the one place that says a route has no backend to send to. Envoy counts those
   # answers per listener only, and only when someone asks (docs/RUNBOOK.md, A route with no
@@ -262,7 +266,7 @@ prometheus:
     # Memory from 7 days of use (2026-11-16, PT-39): working set p95 970 MiB, peak RSS 907.
     # The limit is about 1.5x the peak RSS; fewer series (PT-37) would lower all three.
     resources:
-      requests: { cpu: 100m, memory: 1Gi }
+      requests: { cpu: 100m, memory: 944Mi } # memory: median +10% (PT-121)
       limits: { memory: 1536Mi }
 
 alertmanager:
@@ -273,7 +277,7 @@ alertmanager:
     # /etc/alertmanager/secrets/alertmanager-slack/bot-token for the receivers' app_token_file.
     secrets: [alertmanager-slack]
     resources:
-      requests: { cpu: 10m, memory: 32Mi }
+      requests: { cpu: 10m, memory: 56Mi } # memory: median +10% (PT-121)
   # Routing. Every app's alerts go to its environment's Slack channel, #<app>-alerts-<env>
   # (aipostit's with its own messages), and the platform's own (Argo CD's, and the stack's
   # warning and critical alerts on the platform's namespaces) to #platform-alerts
@@ -572,7 +576,7 @@ grafana:
   env:
     GOMEMLIMIT: 256MiB
   resources:
-    requests: { cpu: 50m, memory: 384Mi }
+    requests: { cpu: 50m, memory: 648Mi } # memory: median +10% (PT-121)
     limits: { memory: 1Gi }
   # The dashboard sidecar: about 75 MiB, peak 87. No data source sidecar (`datasources` above).
   sidecar:

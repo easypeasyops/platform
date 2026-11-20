@@ -96,7 +96,7 @@ spec:
             capabilities: { drop: [ALL] }
             readOnlyRootFilesystem: true
           resources:
-            requests: { cpu: 10m, memory: 32Mi }
+            requests: { cpu: 10m, memory: 48Mi } # memory: median +10% (PT-121)
             limits: { memory: 128Mi }
           volumeMounts:
             - { name: config, mountPath: /config, readOnly: true }

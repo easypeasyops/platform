@@ -5,7 +5,7 @@ controller:
   resources:
     # Uses 8m at its peak on the laptop (5-minute rate, a day of use, 2026-11-17): 20m is
     # 2.5x that, and fits the CI node's CPU budget (PT-71, docs/RUNBOOK.md, The CI node's CPU budget).
-    requests: { cpu: 20m, memory: 64Mi }
+    requests: { cpu: 20m, memory: 120Mi } # memory: median +10% (PT-121)
     limits: { memory: 256Mi }
   # The Gateway API traffic router is a plugin the controller downloads at start, pinned by
   # version and checksum. The platform chart sets `trafficRouterPlugins` for the node's

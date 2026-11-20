@@ -1,29 +1,26 @@
-"""The laptop node's memory budget (PT-107; docs/RUNBOOK.md, Node memory).
+"""The laptop node's memory budget (PT-107, PT-121; docs/RUNBOOK.md, Node memory).
 
-The laptop runs the platform, kind's own pods and the apps on one node with 9898Mi
-allocatable (Docker Desktop's 10 GB VM). Measured on 2026-11-19 (Prometheus, working set,
-7 days):
+The laptop runs the platform, kind's own pods and the apps on one node: 11902Mi allocatable
+from Docker Desktop's 12 GB VM (10 GB until PT-121, when the platform no longer fitted).
+The node needs 3 GiB free: below it the VM swaps and etcd stalls (PT-104). Measured in
+Prometheus (working set, each container once) on 2026-11-19, kind's own pods peaked at 2129Mi
+since the API server's GOMEMLIMIT (metrics-server left out: it is the platform's, below) and
+the apps at 1280Mi over 7 days. What is left is the platform's (REQUESTS):
 
-                     requests   limits   working set   7-day peak
-    the platform      4008Mi   11200Mi      4108Mi        4837Mi
-    kind's own         290Mi     340Mi      1973Mi        2737Mi
-    the apps           256Mi     512Mi       116Mi        1279Mi
+  11902 - 3072 free - 2129 kind's own - 1280 the apps = 5421Mi
 
-The node needs about 3 GiB free (below it the VM swaps and etcd stalls, PT-104). With
-that, kind's own pods and the apps' peak, the platform would get 9898 - 3072 - 2048 - 1280
-= 3498Mi: it already uses more. So these budgets are a cap on growth, not a fit:
-
-  REQUESTS  4096Mi  today's 4008Mi rounded up: the platform's requests, summed
-  LIMITS   11877Mi  120% of the node's allocatable: the platform's limits, summed
-
-Freeing memory and tightening REQUESTS to keep 3 GiB free is PT-121.
+and its requests, summed, must fit in it. Each is the component's median working set over 2
+days plus 10%, rounded up to 8Mi (RUNBOOK, Node memory): their sum is close to the platform's
+real peak (4875Mi), while summing each container's own peak would count spikes that never
+coincide. LIMITS is 120% of the node's allocatable: the platform's limits, summed.
 
 The test renders what test_cpu_budget.py renders (Argo CD and every child Application,
 monitoring on) and sums the memory of the same long-running pods, counted the same way.
 
-Over budget? Don't raise it. Set a request to the component's measured peak with a margin
-(RUNBOOK, Node memory), or lower another to make room, and say which in the PR. A request
-below real use only hides memory from the scheduler; it doesn't free any.
+Over budget? Don't raise it. Measure the new component the same way and size its request,
+or lower another to make room, and say which in the PR. A request below real use only hides
+memory from the scheduler; it doesn't free any. A new kind's own or apps' peak, or a bigger
+VM, changes the constants below, each from Prometheus.
 """
 
 from pathlib import Path
@@ -34,8 +31,11 @@ import pytest
 from tests.test_cpu_budget import _application, _argocd
 from tests.test_platform import _render
 
-ALLOCATABLE = 9898
-REQUESTS = 4096
+ALLOCATABLE = 11902
+FREE = 3072
+KIND_OWN = 2129
+APPS = 1280
+REQUESTS = ALLOCATABLE - FREE - KIND_OWN - APPS
 LIMITS = int(1.2 * ALLOCATABLE)
 # Envoy Gateway adds a shutdown-manager container to each proxy pod with this request and
 # no limit (its default; the live proxy pod requests 96Mi for our 64Mi).

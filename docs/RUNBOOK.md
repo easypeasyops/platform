@@ -49,8 +49,8 @@ the secrets come from the store (Platform secrets, below), and each app's Applic
 creates its namespace. From then on git decides what runs: a merged change reaches the
 cluster within a minute.
 
-**Node memory.** Docker Desktop's 10 GB setting gives the VM 9.67 GiB, and the node needs
-about 3 GiB of it free. The danger is swap, not running out: the VM swaps to a file on the
+**Node memory.** Docker Desktop's 12 GB setting gives the node 11902Mi (10 GB until PT-121,
+when the platform no longer fitted), and the node needs about 3 GiB of it free. The danger is swap, not running out: the VM swaps to a file on the
 disk that holds etcd's data, so a burst (several syncs in a row, `cluster.sh up`, a local test
 run) that reads swapped-out memory back stalls etcd, and kube-scheduler and
 kube-controller-manager lose their leases and restart. On 2026-11-18 that happened with 2.2
@@ -71,16 +71,19 @@ edited manifest (the API is away for under a minute):
 `docker exec shortly-control-plane sed -i '/^    image: registry.k8s.io\/kube-apiserver/i\    env:\n    - name: GOMEMLIMIT\n      value: 1280MiB' /etc/kubernetes/manifests/kube-apiserver.yaml`.
 How free the node is: `docker exec shortly-control-plane free -m` (`available`).
 
-`tests/test_memory_budget.py` (PT-107) renders what the platform installs, as the CPU budget
-test does, and fails a PR when the platform's summed memory requests pass 4096Mi or its summed
-limits pass 120% of the node (11877Mi). Each component's figure is in the failure message. The
-budgets are a cap on growth, not a healthy fit. On 2026-11-19 the platform requested 4008Mi and
-limited 11200Mi, and used 4108Mi (7-day peak 4837Mi). kind's own pods used 1973Mi (peak
-2737Mi) and the apps peaked at 1279Mi. Keeping 3 GiB free would leave the platform 3498Mi,
-less than it uses. Freeing that memory and tightening the budget to it is PT-121. To stay
-inside the budget, don't raise it: set a request to the component's 7-day peak plus a margin,
-or lower another to make room. The peak, from Prometheus:
-`max_over_time((max by (namespace,container) (container_memory_working_set_bytes{container!=""}))[7d:5m])`.
+`tests/test_memory_budget.py` (PT-107, PT-121) renders what the platform installs, as the CPU
+budget test does, and fails a PR when the platform's summed memory requests pass what the node
+leaves it with 3 GiB free, or its summed limits pass 120% of the node (14282Mi). The requests
+budget is derived from the node: 11902 - 3072 free - 2129 kind's own pods' peak (since the API
+server's GOMEMLIMIT, metrics-server left out) - 1280 the apps' 7-day peak = 5421Mi. On
+2026-11-19 the platform requested 5264Mi and peaked at 4875Mi (7 days). Each component's figure
+is in the failure message. A request is the component's median working set over 2 days plus
+10%, rounded up to 8Mi: the requests then add up to about the platform's real peak, where each
+container's own peak, summed, would count spikes that never coincide. The median, from
+Prometheus: `max by (namespace,container) (quantile_over_time(0.5,
+container_memory_working_set_bytes{container!=""}[2d]))`. To stay inside the budget, don't raise
+it: size the new request that way, or lower another to make room. A new peak for kind's own pods
+or the apps, or another VM size, changes the test's constants, each measured as the test says.
 
 **The CI node's CPU budget.** An app's kind e2e (links' "kind e2e (platform)") runs the
 whole platform and the app on one GitHub runner: 4000m CPU allocatable. The scheduler places

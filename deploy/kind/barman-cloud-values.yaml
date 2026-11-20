@@ -4,5 +4,5 @@
 # Installed beside the operator (same namespace, as the plugin requires); the two talk over
 # mutual TLS with certificates from cert-manager.
 resources:
-  requests: { cpu: 10m, memory: 32Mi }
+  requests: { cpu: 10m, memory: 40Mi } # memory: median +10% (PT-121)
   limits: { memory: 128Mi }

@@ -54,5 +54,5 @@ securityContext:
   capabilities: { drop: [ALL] }
 
 resources:
-  requests: { cpu: 10m, memory: 32Mi }
+  requests: { cpu: 10m, memory: 48Mi } # memory: median +10% (PT-121)
   limits: { memory: 64Mi }
