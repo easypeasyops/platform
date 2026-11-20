@@ -130,6 +130,16 @@ def test_argo_cd_manages_itself_from_what_cluster_sh_bootstraps() -> None:
     assert "managedNamespaceMetadata" not in app["spec"]["syncPolicy"]
     assert not app["spec"]["syncPolicy"]["automated"].get("allowEmpty")
     script = (ROOT / "scripts/cluster.sh").read_text()
+    start = script.index("read -r ARGOCD_CHART")
+    read_pin = script[start : script.index("\n", script.index("values.yaml", start))]
+    echo = 'echo "$ARGOCD_CHART $ARGOCD_VERSION $ARGOCD_DIGEST"'
+    read = subprocess.run(
+        ["bash", "-c", f"ROOT={ROOT}\n{read_pin}\n{echo}"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert read.stdout.split() == [pin["repo"], pin["version"], pin["digest"]]
     assert '--namespace argocd --values "$ROOT/deploy/kind/argocd-values.yaml"' in script
     assert 'helm upgrade --install argocd "$ARGOCD_CHART@$ARGOCD_DIGEST"' in script
     crds = yaml.safe_load((ROOT / "deploy/kind/argocd-values.yaml").read_text())["crds"]
