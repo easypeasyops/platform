@@ -46,7 +46,7 @@ securityContext:
   readOnlyRootFilesystem: true
 
 resources:
-  requests: { cpu: 20m, memory: 64Mi }
+  requests: { cpu: 20m, memory: 80Mi } # memory: median +10% (PT-121)
 
 # Its own metrics (vlagent_*), scraped like everything else; nothing but Prometheus may
 # connect to it.

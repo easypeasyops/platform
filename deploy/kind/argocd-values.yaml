@@ -123,6 +123,8 @@ dex:
 notifications:
   enabled: false
 applicationSet:
+  resources:
+    requests: { memory: 96Mi } # memory: median +10% (PT-121)
   replicas: 1 # generates every app's Applications from the platform repo's apps/ (platform plan 3.3)
   # Its metrics Service, scraped by the platform as the controller's is (below): with it
   # down, a new app or environment never gets its Application, and nothing else says so.
@@ -140,7 +142,7 @@ controller:
   # (kube-prometheus-stack, Kyverno, Envoy Gateway and their large CRDs) it crash-looped in
   # CI, and nothing synced while it was down.
   resources:
-    requests: { cpu: 100m, memory: 512Mi }
+    requests: { cpu: 100m, memory: 824Mi } # memory: median +10% (PT-121)
     limits: { memory: 2Gi }
   # Go lets the heap double before it collects, so a sync burst took it to 1.8 GiB for a live
   # heap of at most 0.6 GiB: memory the kind node needs then (PT-50, docs/RUNBOOK.md, Node
@@ -155,7 +157,7 @@ server:
   replicas: 1
   resources:
     # Peak 9m on the laptop (5-minute rate, a day of use, 2026-11-17; PT-71).
-    requests: { cpu: 15m, memory: 64Mi }
+    requests: { cpu: 15m, memory: 72Mi } # memory: median +10% (PT-121)
     limits: { memory: 256Mi }
 repoServer:
   replicas: 1
@@ -164,7 +166,7 @@ repoServer:
   metrics:
     enabled: true
   resources:
-    requests: { cpu: 50m, memory: 128Mi }
+    requests: { cpu: 50m, memory: 112Mi } # memory: median +10% (PT-121)
     limits: { memory: 512Mi }
 redis:
   # The chart pulls Redis from ECR Public, which refuses anonymous pulls from shared runner
@@ -175,5 +177,5 @@ redis:
     repository: docker.io/library/redis
     tag: 8.6.4-alpine@sha256:2cc044fc5a07c9b701f8f1255a309ae9ad7856e694ac03513bf3648c01e40763
   resources:
-    requests: { cpu: 10m, memory: 32Mi }
+    requests: { cpu: 10m, memory: 72Mi } # memory: median +10% (PT-121)
     limits: { memory: 128Mi }

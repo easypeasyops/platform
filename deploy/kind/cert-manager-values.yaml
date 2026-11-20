@@ -8,15 +8,15 @@ global:
   leaderElection:
     namespace: cert-manager # not kube-system: everything it touches stays in its namespace
 resources:
-  requests: { cpu: 10m, memory: 64Mi }
+  requests: { cpu: 10m, memory: 56Mi } # memory: median +10% (PT-121)
   limits: { memory: 256Mi }
 webhook:
   resources:
-    requests: { cpu: 10m, memory: 32Mi }
+    requests: { cpu: 10m, memory: 40Mi } # memory: median +10% (PT-121)
     limits: { memory: 128Mi }
 cainjector:
   resources:
-    requests: { cpu: 10m, memory: 64Mi }
+    requests: { cpu: 10m, memory: 144Mi } # memory: median +10% (PT-121)
     limits: { memory: 256Mi }
 # A Helm post-install hook that waits for the webhook: Argo CD's health check and the sync
 # retry already wait for it.

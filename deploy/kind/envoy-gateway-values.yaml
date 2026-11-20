@@ -4,7 +4,7 @@ deployment:
   replicas: 1
   envoyGateway:
     resources:
-      requests: { cpu: 50m, memory: 128Mi }
+      requests: { cpu: 50m, memory: 112Mi } # memory: median +10% (PT-121)
       limits: { memory: 512Mi }
     # 5 s for each probe to answer, not the chart's 1 s (merged into its probes: path, port
     # and thresholds stay the chart's). On a laptop node busy with something else the
