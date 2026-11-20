@@ -215,6 +215,60 @@
       "evidence": "Everything except Argo CD itself is GitOps, with self-heal and prune. New: Slack is one bot token, loaded once into Keychain, and cluster.sh up copies it into the store, so a new cluster comes up with Slack; the channels are in git (PT-103). cluster.sh up also removes Helm's field ownership after handing a release to Argo CD, so a field removed from git really goes (PT-104).",
       "gaps": "The last next step is not done: when the Slack token or an app's key is missing, cluster.sh prints a line, but nothing alerts. cluster.sh wake is still manual after the laptop sleeps. Tools use the admin login with no SSO. A change to Argo CD's own values needs cluster.sh up by hand.",
       "next": "Alert when a hand-loaded secret the platform expects is missing from the store."
+    },
+    {
+      "week": "2026-11-20",
+      "commit": "9323797",
+      "axis": "Supply-chain security",
+      "score": 4.5,
+      "evidence": "The last next step is done: app-allowed-images now runs in Deny, so a foreign image in an app namespace is refused at admission (PT-111). Local builds pass through a named exception for exactly <app>:dev or <app>:e2e, per image, tested offline by test_admission_policies.py. Images by digest with SLSA provenance, checked at deploy and at admission, Trivy, SHA-pinned actions and the signed chart are unchanged.",
+      "gaps": "Nothing in CI or the cluster shows a refusal happening: no e2e step applies a foreign or unsigned image and expects it refused, so Deny is proven only by offline tests. The local-build exception admits an image nothing verifies. The Argo Rollouts plugin checksums were still computed here, not published upstream.",
+      "next": "Add an e2e step that applies a foreign image and an image without provenance to an app namespace and fails unless both are refused."
+    },
+    {
+      "week": "2026-11-20",
+      "commit": "9323797",
+      "axis": "Reliability and recovery",
+      "score": 3.0,
+      "evidence": "A weekly chaos drill now holds the External Secrets controller down with its scrape cut until its alert fires, then checks it recovers and the alert resolves; a failed run alerts (PT-110). restore-db.sh --from restores a lost database from its moved-aside backups (PT-105), and --drill runs in the cluster with no Secret copy and no exec into the source (PT-44). dbcanary, a platform-owned canary database, runs in dbcanary-ops (PT-106). New CloudNativePG alerts catch a database with backups but no backup series, and the Barman Cloud plugin down (PT-19).",
+      "gaps": "The last next step is half done: the restore drill's namespace, RBAC, bucket keys and script are in, but the per-database CronJobs (PT-44's Kyverno policy) are not, so nothing restores a backup on a schedule yet. The chaos drill covers one component. One kind node is still one failure domain for every replica, database and the backup bucket, and each Argo CD component runs one replica.",
+      "next": "Finish PT-44: generate the daily restore-drill CronJob for every database with backups, with an alert when a drill fails."
+    },
+    {
+      "week": "2026-11-20",
+      "commit": "9323797",
+      "axis": "Observability",
+      "score": 4.0,
+      "evidence": "The weekly chaos drill proves an alert fires and resolves end to end in the live cluster, not just in promtool (PT-110). New alerts, each with promtool tests: DatabaseBackupNotWatched and BarmanCloudPluginDown (PT-19), and a CronJob's failed run now clears once a later run succeeds (PT-64). Metrics, logs, events, probes and generated burn-rate SLO alerts are unchanged.",
+      "gaps": "Unchanged: no trace backend, so the chart's otel endpoint sends nowhere. The 30-day error budget looks back at most 10 days, because that's how long Prometheus keeps data. Alerting still can't report its own outage; the heartbeat is only planned (RUNBOOK, PT-14).",
+      "next": "Run an OpenTelemetry collector and a trace store, and set otel.endpoint for every app."
+    },
+    {
+      "week": "2026-11-20",
+      "commit": "9323797",
+      "axis": "Delivery safety",
+      "score": 4.5,
+      "evidence": "Unchanged at the core: app-e2e deploys the template app on kind with the PR's own platform and chart, and the ci gate waits on it; a nightly e2e runs real apps on main. New: the platform's own e2e checks that Argo CD's Application is Synced and Healthy, that Helm no longer owns it, and that a live edit to its config is put back from git (PT-109). The kind e2e runs with SLACK=0, so it no longer depends on a bot token (PT-97).",
+      "gaps": "Unchanged: the PR e2e runs only the template app, so aipostit's database and workers are checked nightly, after a merge. A merge reaches the cluster, prod included, within a minute, with no staged rollout of the platform itself.",
+      "next": "Run aipostit's e2e in the PR's app-e2e too, so a real app with a database and workers gates a platform merge."
+    },
+    {
+      "week": "2026-11-20",
+      "commit": "9323797",
+      "axis": "Developer experience",
+      "score": 4.5,
+      "evidence": "The last next step is done: new-app.py is tested in CI against a fake GitHub, for create, staging and prod, each template and option, and check-apps.py runs on what it writes (PT-112). The apps' front-door probes moved to their own file, apps/front-door-probes.yaml, so new-app.py appends to a list instead of editing the platform's values (PT-93). cluster.sh now creates a kind cluster and installs onto any cluster as separate steps (PT-116).",
+      "gaps": "Adding a new app's repo to Renovate and loading its keys are still by hand. A new app's first deploy is proven only by the end-to-end runs done when it was built, not on a schedule.",
+      "next": "Have new-app.py add the new repo to Renovate and load its keys, so onboarding has no step by hand."
+    },
+    {
+      "week": "2026-11-20",
+      "commit": "9323797",
+      "axis": "Operability and automation",
+      "score": 4.5,
+      "evidence": "Argo CD now manages its own install: cluster.sh bootstraps it once, then its own Application owns it, and the first values-only change to it went through Argo CD with no cluster.sh up (PT-109). That closes the gap that everything except Argo CD was GitOps. CI tests keep the platform's memory and CPU requests inside the node's budget, now derived from its 12 GB (PT-107, PT-121). cluster.sh fails up when Slack is on without its token, and SLACK=0 switches it off (PT-97).",
+      "gaps": "The last next step is partly done: a missing Slack token now stops cluster.sh, but nothing alerts when it or an app's hand-loaded key goes missing later. cluster.sh wake is still manual after the laptop sleeps. Tools use the admin login with no SSO. The root Application is applied by cluster.sh, not synced from git.",
+      "next": "Alert when a hand-loaded secret the platform expects is missing from the store."
     }
   ],
   "meta": [
