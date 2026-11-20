@@ -23,10 +23,28 @@ admissionController:
       # memory: median +10% (PT-121)
       requests: { cpu: 30m, memory: 120Mi }
       limits: { memory: 384Mi }
-# We only validate. The background controller (generate/mutate-existing) and the cleanup
-# controller aren't used; the reports controller turns background scans into PolicyReports.
+# We validate, and generate one thing: the background controller runs the restore drills'
+# GeneratingPolicy (a CronJob in restore-drill per database with backups, PT-44). Its
+# ClusterRole gets only what that needs, on top of the chart's: read the databases'
+# ScheduledBackups (the trigger) and manage CronJobs (what it generates). The cleanup
+# controller isn't used; the reports controller turns background scans into PolicyReports.
 backgroundController:
-  enabled: false
+  enabled: true
+  rbac:
+    clusterRole:
+      extraResources:
+        - apiGroups: [postgresql.cnpg.io]
+          resources: [scheduledbackups]
+          verbs: [get, list, watch]
+        - apiGroups: [batch]
+          resources: [cronjobs]
+          verbs: [get, list, watch, create, update, patch, delete]
+  # The chart's 64Mi request and 128Mi limit are below what its sibling, the reports
+  # controller, uses on the laptop (about 100Mi, 2026-11-19): requested at that, with room.
+  # CPU as the admission controller's: it works only when a ScheduledBackup changes.
+  resources:
+    requests: { cpu: 25m, memory: 96Mi }
+    limits: { memory: 256Mi }
 cleanupController:
   enabled: false
 reportsController:
