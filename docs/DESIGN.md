@@ -285,9 +285,15 @@ admission policies.
 Helm, applies the platform root and the apps root, and waits; nothing else is put in the
 cluster by hand.
 
+`up` is two steps, split where a cluster stops being kind's (PT-116). `cluster.sh create`
+makes what only kind needs: the cluster and the front door's forwarders, which stand in for
+a cloud's load balancer. `cluster.sh install` is everything above, on whatever cluster the
+kube context points at, and names nothing kind-specific. Another cluster gets its own
+`create` (a cloud's Terraform, PT-114) and the same `install`.
+
 ```mermaid
 flowchart TB
-  CS["scripts/cluster.sh up<br/>Helm: Argo CD"] --> Root["Application platform (root)<br/>parameters: revision, arch, components"]
+  CS["scripts/cluster.sh install<br/>Helm: Argo CD"] --> Root["Application platform (root)<br/>parameters: revision, arch, components"]
   Root --> WP["wave -2<br/>platform-project"]
   WP --> WB["wave -1<br/>external-secrets, cert-manager"]
   WB --> W0["wave 0<br/>secret-store · cloudnative-pg, barman-cloud · metrics-server<br/>envoy-gateway, gateway, tool-routes · argo-rollouts<br/>monitoring, node-exporter, blackbox-exporter, logs, log-collector · kyverno · backups"]

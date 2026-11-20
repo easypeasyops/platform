@@ -2,7 +2,11 @@
 # Local Kubernetes for shortly: one kind cluster, two namespaces (staging, prod), each with
 # its own database — the shape of real environments, on a laptop.
 #
-#   scripts/cluster.sh up              # idempotent
+#   scripts/cluster.sh up              # idempotent: create, then install
+#   scripts/cluster.sh create          # the kind cluster and its front door, nothing on it
+#   scripts/cluster.sh install         # the platform and the apps, on the current kube
+#                                       # context: any cluster, not only kind
+#   CONTEXT=<name> scripts/cluster.sh install # on that context (it becomes the current one)
 #   MONITORING=0 scripts/cluster.sh up # skip kube-prometheus-stack, node-exporter, VictoriaLogs and the log collector (saves ~1 GB of RAM)
 #   POLICIES=0 scripts/cluster.sh up   # skip Kyverno and the admission policies
 #   BACKUPS=0 scripts/cluster.sh up    # skip the backup bucket (the databases can't archive)
@@ -14,6 +18,7 @@
 #                                       # deploys with deploy.sh instead)
 #   PLATFORM_REVISION=<sha> scripts/cluster.sh up # the platform from that commit, not main
 #   FRONT_DOOR=0 scripts/cluster.sh up  # no forwarders on the laptop's ports 8080 and 8090
+#                                       # (create's knob)
 #   scripts/cluster.sh wake            # after the laptop slept: restart the CronJob
 #                                       # scheduler, so the cleanup CronJob runs on time
 #   scripts/cluster.sh down
@@ -64,15 +69,29 @@ bool() { if on "$1"; then echo true; else echo false; fi; }
 SLACK_MISSING=0 # set by platform(): Slack on, but no bot token anywhere
 
 up() {
+  create
+  CONTEXT="kind-$CLUSTER" install
+}
+
+# What only kind needs: the cluster itself, and the forwarders that stand in for a cloud's
+# load balancer. Nothing on the cluster is installed here.
+create() {
   if ! kind get clusters 2>/dev/null | grep -qx "$CLUSTER"; then
     kind create cluster --config "$ROOT/deploy/kind/cluster.yaml" --wait 120s
   fi
   kubectl config use-context "kind-$CLUSTER" >/dev/null
+  if on FRONT_DOOR; then front_door; fi
+}
+
+# The platform and the apps, on any cluster: the kube context CONTEXT, or the current one.
+# Nothing here names kind.
+install() {
+  CONTEXT=${CONTEXT:-$(kubectl config current-context)}
+  kubectl config use-context "$CONTEXT" >/dev/null
   trap startup_report EXIT # on success and on failure
   install_argocd
   platform
   take_over_from_helm
-  if on FRONT_DOOR; then front_door; fi
 
   echo "cluster ready"
 
@@ -229,8 +248,8 @@ platform() {
   # the rest comes up without Slack and `up` fails at the end (SLACK_MISSING): a new cluster
   # needs to be up before the token can be loaded. A failed lookup stops here (set -e).
   if on MONITORING && on SLACK; then
-    slack_token_to_store "kind-$CLUSTER"
-    found=$(slack_token_in_store "kind-$CLUSTER")
+    slack_token_to_store "$CONTEXT"
+    found=$(slack_token_in_store "$CONTEXT")
     if [[ -n "$found" ]]; then slack=true; else SLACK_MISSING=1; fi
   fi
   params=$(printf '[{"name":"arch","value":"%s"},{"name":"revision","value":"%s"},{"name":"components.monitoring","value":"%s"},{"name":"components.slack","value":"%s"},{"name":"components.policies","value":"%s"},{"name":"components.backups","value":"%s"}]' \
@@ -431,7 +450,9 @@ down() {
 
 case "${1:-}" in
   up) up ;;
+  create) create ;;
+  install) install ;;
   wake) wake ;;
   down) down ;;
-  *) echo "usage: $0 up|wake|down" >&2; exit 2 ;;
+  *) echo "usage: $0 up|create|install|wake|down" >&2; exit 2 ;;
 esac

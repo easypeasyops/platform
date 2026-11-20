@@ -15,6 +15,7 @@ newer; `scripts/install-prereqs.sh` installs them).
 | --- | --- |
 | Create or repair (idempotent) | `scripts/cluster.sh up` |
 | Tear down everything | `scripts/cluster.sh down` |
+| Only the kind cluster and its front door, or only the platform and the apps on a cluster that's already there | `scripts/cluster.sh create`; `scripts/cluster.sh install` (the current kube context, or `CONTEXT=<name>`). `up` is the two in a row |
 | After the laptop slept (CronJobs late, gaps in Grafana) | `scripts/cluster.sh wake`. To stop it happening while plugged in: `caffeinate -s` in a spare terminal |
 | Try a platform change before merging it | Push the branch, then `PLATFORM_REVISION=$(git rev-parse HEAD) scripts/cluster.sh up`; `scripts/cluster.sh up` (back to `main`) when done |
 | Without the monitoring stack and the logs (saves about 1 GB of RAM) | `MONITORING=0 scripts/cluster.sh up`, on a fresh cluster: switching it off later removes the Applications but leaves their resources running, by design |
@@ -31,12 +32,14 @@ newer; `scripts/install-prereqs.sh` installs them).
 | Alertmanager UI (routing, silences) | http://alertmanager.localhost:8090 |
 | Admission policies and their state | `kubectl get imagevalidatingpolicy,validatingpolicy`; reports: `kubectl get policyreport -A` |
 
-**What `cluster.sh up` does.** It installs Argo CD with Helm (pinned by version and digest,
+**What `cluster.sh up` does.** Two steps, which also run on their own. `create` is what only
+kind needs: the kind cluster and the front door's forwarders. `install` is the same on any
+cluster, and works on the current kube context (or `CONTEXT`). It installs Argo CD with Helm (pinned by version and digest,
 values in `deploy/kind/argocd-values.yaml`), the one component not deployed from git. It
 applies the platform's AppProject and its root Application (`deploy/argocd/platform-root.yaml`,
 with the node's architecture and `PLATFORM_REVISION`, default `main`) and waits until every
 platform Application is Synced and Healthy, the Gateway is programmed and the policies are
-ready. Then it starts the front door and applies the apps root, whose ApplicationSet makes
+ready. Then it applies the apps root, whose ApplicationSet makes
 one Application per `apps/<app>/envs/<env>.yaml`. It makes no secret and no app namespace:
 the secrets come from the store (Platform secrets, below), and each app's Application
 creates its namespace. From then on git decides what runs: a merged change reaches the
