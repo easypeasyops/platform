@@ -1,16 +1,18 @@
-# The chaos drill: once a week, hold the External Secrets controller down until its alert
-# fires, then check it comes back and the alert resolves (drill.py says how and why that
-# component). It runs in `monitoring`, beside the provenance canary, and reports the same
-# way: a failed run is a failed Job, which the stack's KubeJobFailed sends to
-# #platform-alerts. tests/test_chaos_drill.py checks what it is allowed.
+# The chaos drill: once a week, kill the External Secrets controller's pod with its scrape
+# cut until its alert fires, then check the controller is back and the alert resolves
+# (drill.py says how and why that component). It runs in `monitoring`, beside the
+# provenance canary, and reports the same way: a failed run is a failed Job, which the
+# stack's KubeJobFailed sends to #platform-alerts. tests/test_chaos_drill.py checks what it
+# is allowed.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: chaos-drill
   namespace: monitoring
 ---
-# Read the controller's Deployment, watch and delete pods in its namespace. RBAC can't
-# name pods by label: the policy below keeps the deletes to the controller's.
+# Read the controller's Deployment, delete pods, and make and remove the NetworkPolicy that
+# cuts the scrape. RBAC can't name pods by label, nor what a create may contain: the policy
+# below keeps both to the controller's.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -23,7 +25,14 @@ rules:
     verbs: [get]
   - apiGroups: [""]
     resources: [pods]
-    verbs: [list, watch, delete]
+    verbs: [list, delete]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [create]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    resourceNames: [chaos-drill]
+    verbs: [get, delete]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -37,12 +46,13 @@ roleRef:
 subjects:
   - { kind: ServiceAccount, name: chaos-drill, namespace: monitoring }
 ---
-# The drill deletes the controller's pods and no others: not the webhook's (a refused
-# ExternalSecret), not the cert controller's.
+# The drill touches the controller and no other pod: not the webhook (a refused
+# ExternalSecret), not the cert controller. It deletes the controller's pods, and the one
+# NetworkPolicy it makes selects them and lets nothing in.
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
-  name: chaos-drill-controller-pods-only
+  name: chaos-drill-controller-only
 spec:
   failurePolicy: Fail
   matchConstraints:
@@ -51,22 +61,36 @@ spec:
         apiVersions: [v1]
         operations: [DELETE]
         resources: [pods]
+      - apiGroups: [networking.k8s.io]
+        apiVersions: [v1]
+        operations: [CREATE]
+        resources: [networkpolicies]
   matchConditions:
     - name: the-drill
       expression: request.userInfo.username == "system:serviceaccount:monitoring:chaos-drill"
   validations:
     - expression: >-
+        request.resource.resource != "pods" || (
         has(oldObject.metadata.labels) &&
         "app.kubernetes.io/name" in oldObject.metadata.labels &&
-        oldObject.metadata.labels["app.kubernetes.io/name"] == "external-secrets"
+        oldObject.metadata.labels["app.kubernetes.io/name"] == "external-secrets")
       message: the chaos drill deletes the External Secrets controller's pods only
+    - expression: >-
+        request.resource.resource != "networkpolicies" || (
+        object.metadata.name == "chaos-drill" &&
+        has(object.spec.podSelector.matchLabels) &&
+        object.spec.podSelector.matchLabels == {"app.kubernetes.io/name": "external-secrets"} &&
+        !has(object.spec.podSelector.matchExpressions) &&
+        !has(object.spec.ingress) &&
+        has(object.spec.policyTypes) && object.spec.policyTypes == ["Ingress"])
+      message: the chaos drill's NetworkPolicy is chaos-drill, on the controller's pods, letting nothing in (and leaving its egress alone)
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
 metadata:
-  name: chaos-drill-controller-pods-only
+  name: chaos-drill-controller-only
 spec:
-  policyName: chaos-drill-controller-pods-only
+  policyName: chaos-drill-controller-only
   validationActions: [Deny]
 ---
 apiVersion: batch/v1
@@ -91,7 +115,7 @@ spec:
       labels: { app.kubernetes.io/name: chaos-drill }
     spec:
       backoffLimit: 0 # one try a week: a second outage straight after the first proves nothing new
-      activeDeadlineSeconds: 1800 # the three deadlines (25 minutes), and room
+      activeDeadlineSeconds: 1800 # the three deadlines (25 minutes), and room; SIGTERM removes the policy
       # Kept for six days: KubeJobFailed speaks for a failed run until it is gone, or
       # until it is deleted by hand once understood (RUNBOOK).
       ttlSecondsAfterFinished: 518400

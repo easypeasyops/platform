@@ -758,16 +758,24 @@ morning, `ExternalSecretsDown` firing and then resolving is the chaos drill (bel
 ## The chaos drill
 
 Every Monday at 10:00 (America/Los_Angeles) the CronJob `monitoring/chaos-drill` (PT-110;
-`deploy/platform/chaos-drill/`) sets off `ExternalSecretsDown` on purpose: it deletes the
-External Secrets controller's pod, and each new one as it appears, until the alert is in
-Alertmanager (the rule's 10 minutes, about 11 in all). Then it stops and checks that the
-Deployment is Ready again within 5 minutes and the alert resolved within 5 more. While it
-holds, no ExternalSecret is refreshed; every Secret keeps its value. A Monday the laptop
-slept through runs on wake.
+`deploy/platform/chaos-drill/`) sets off `ExternalSecretsDown` on purpose. It creates the
+NetworkPolicy `external-secrets/chaos-drill`, which lets nothing in to the External Secrets
+controller's pods (the controller serves only its metrics), and deletes the controller's
+pod. It checks the new pod is Ready within 5 minutes, waits for the alert in Alertmanager
+(the rule's 10 minutes, about 11 in all), removes the policy and checks the alert resolves
+within 5 more. The controller runs throughout, unscraped; one pod restart in all. A Monday
+the laptop slept through runs on wake.
 
-A run that passes shows in #platform-alerts as `ExternalSecretsDown` firing, then resolved.
+A run that passes shows in #platform-alerts as `ExternalSecretsDown` firing, then resolved,
+and the stack's `TargetDown` on `external-secrets-metrics` with it (the scrape times out).
 A run that fails is a failed Job: the stack's `KubeJobFailed` (warning) in #platform-alerts
 15 minutes later, for as long as the Job is kept (6 days).
+
+**A policy left behind.** The drill removes the policy whenever it stops, a deleted Job or
+its deadline included. Only a drill killed outright (the node, an OOM kill) leaves it:
+`ExternalSecretsDown` then fires and stays, the next drill refuses to start, and
+`kubectl -n external-secrets get networkpolicy chaos-drill` shows it. Delete it
+(`kubectl -n external-secrets delete networkpolicy chaos-drill`); nothing else holds it.
 
 Run it by hand: one at a time, not while another change loads the cluster, and with over
 2 GiB available on the node (Node metrics, below).
@@ -777,16 +785,18 @@ kubectl -n monitoring create job chaos-drill-$(date +%s) --from=cronjob/chaos-dr
 kubectl -n monitoring logs -f job/<that name>      # about 12 minutes
 ```
 
-The log's last lines are the result, in seconds from the first delete, for example:
+To stop it early, delete the Job: the drill removes its policy on the way out. The log's
+last lines are the result, in seconds from the pod's delete, for example:
 
 ```text
-ExternalSecretsDown: fired at 655s, drill stopped at 655s (37 pods deleted), external-secrets Ready at 662s, alert resolved at 710s (seconds from the first delete)
+external-secrets Ready at 10s, ExternalSecretsDown fired at 660s, scrape restored at 660s, alert resolved at 705s (seconds from the pod's delete)
 PASS
 ```
 
 | The log says | Means | First look |
 | --- | --- | --- |
 | `not starting: ... isn't Ready` or `... is already active` | The component was already down: the drill left it alone | External Secrets alerts, above |
+| `not starting: NetworkPolicy ... is left from a drill that died` | A policy left behind (above) | Delete it, then run again |
 | `FAIL: ExternalSecretsDown didn't reach Alertmanager within 900s` | The rule, the metric it reads or the way to Alertmanager is broken: a real outage would go unseen | The rule on http://prometheus.localhost:8090/alerts; `up{job="external-secrets-metrics"}` |
 | `FAIL: ... wasn't Ready within 300s` | The controller doesn't come back on its own | `kubectl -n external-secrets get pods`; their events (Logs, Kubernetes events) |
 | `FAIL: ... didn't resolve within 300s` | Back, but not scraped again, or the alert stuck | Prometheus's Targets page, `external-secrets-metrics` |
