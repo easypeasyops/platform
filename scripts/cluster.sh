@@ -47,12 +47,14 @@ source "$ROOT/scripts/lib/namespaces.sh"
 # Slack's bot token, copied from Keychain into the store by platform()
 # shellcheck source=scripts/lib/slack.sh
 source "$ROOT/scripts/lib/slack.sh"
-# Argo CD: deploys the platform and the app from git. Pinned by version and digest: the
-# tag says what it is, the digest that it can't change. (The platform's chart pins are in
-# deploy/argocd/platform/values.yaml.)
-ARGOCD_CHART=oci://ghcr.io/argoproj/argo-helm/argo-cd
-ARGOCD_VERSION=10.11.1 # Argo CD v3.5.6
-ARGOCD_DIGEST=sha256:2ac5224a5c201789f96aa9e085673d80732591d1b3e815a8a825a4db6d1d7c88
+# Argo CD: deploys the platform and the app from git. Pinned by version and digest beside
+# the platform's other chart pins (deploy/argocd/platform/values.yaml, charts.argocd, which
+# Renovate bumps): the tag says what it is, the digest that it can't change.
+read -r ARGOCD_CHART ARGOCD_VERSION ARGOCD_DIGEST < <(awk '
+  /^  argocd:/ { pin = 1; next }
+  pin && $1 == "repo:" { repo = $2 }
+  pin && $1 == "version:" { version = $2 }
+  pin && $1 == "digest:" { print repo, version, $2; exit }' "$ROOT/deploy/argocd/platform/values.yaml")
 # The front door: one tiny socat container per port, beside the kind node, forwarding the
 # laptop's 127.0.0.1:<host> to the Gateway's fixed node port (deploy/kind/gateway.yaml).
 # A port-forward dies with its terminal, the laptop's sleep or the pod it pinned; these

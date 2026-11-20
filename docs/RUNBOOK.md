@@ -34,8 +34,8 @@ newer; `scripts/install-prereqs.sh` installs them).
 
 **What `cluster.sh up` does.** Two steps, which also run on their own. `create` is what only
 kind needs: the kind cluster and the front door's forwarders. `install` is the same on any
-cluster, and works on the current kube context (or `CONTEXT`). It installs Argo CD with Helm (pinned by version and digest,
-values in `deploy/kind/argocd-values.yaml`), the one component not deployed from git. It
+cluster, and works on the current kube context (or `CONTEXT`). It installs Argo CD with Helm (pinned by version and digest
+with the platform's other charts, `charts.argocd` in `deploy/argocd/platform/values.yaml`; values in `deploy/kind/argocd-values.yaml`), the one component not deployed from git. It
 applies the platform's AppProject and its root Application (`deploy/argocd/platform-root.yaml`,
 with the node's architecture and `PLATFORM_REVISION`, default `main`) and waits until every
 platform Application is Synced and Healthy, the Gateway is programmed and the policies are

@@ -30,7 +30,6 @@ request to the component's measured peak with a margin (RUNBOOK: Prometheus, a 5
 over a day), or lower another request to make room, and say which in the PR.
 """
 
-import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -90,10 +89,9 @@ def _run(*args: str) -> list[dict[str, Any]]:
 
 def _argocd() -> list[dict[str, Any]]:
     """Argo CD, as scripts/cluster.sh installs it (Helm, before the platform)."""
-    script = (ROOT / "scripts/cluster.sh").read_text()
-    pin = dict(re.findall(r"^(ARGOCD_CHART|ARGOCD_DIGEST)=(\S+)", script, re.M))
+    pin = yaml.safe_load((ROOT / "deploy/argocd/platform/values.yaml").read_text())["charts"]
     return _run(
-        *("helm", "template", "argocd", f"{pin['ARGOCD_CHART']}@{pin['ARGOCD_DIGEST']}"),
+        *("helm", "template", "argocd", f"{pin['argocd']['repo']}@{pin['argocd']['digest']}"),
         *("--namespace", "argocd", "--values", str(ROOT / "deploy/kind/argocd-values.yaml")),
     )
 

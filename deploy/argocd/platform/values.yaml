@@ -84,6 +84,12 @@ charts:
     repo: oci://ghcr.io/cloudnative-pg/charts/plugin-barman-cloud
     version: 0.9.0
     digest: sha256:d34ada2eedffaee9153c6ae31e0e5b93fd28765cc8fba7c5fb45d4ed6b60df1a
+  # Argo CD v3.5.6 itself: scripts/cluster.sh installs it with Helm before the platform,
+  # from this pin and deploy/kind/argocd-values.yaml.
+  argocd:
+    repo: oci://ghcr.io/argoproj/argo-helm/argo-cd
+    version: 10.11.1
+    digest: sha256:2ac5224a5c201789f96aa9e085673d80732591d1b3e815a8a825a4db6d1d7c88
   kyverno: # Kyverno v1.19.1, the engine tests/test_admission_policies.py runs
     repo: oci://ghcr.io/kyverno/charts/kyverno
     version: 3.10.0
