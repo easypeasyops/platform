@@ -1069,8 +1069,9 @@ kubectl -n backups exec seaweedfs-0 -- sh -c \
   'echo "fs.mv /buckets/cnpg-backups/<ns>/<release>-db /buckets/cnpg-backups/<ns>-lost-<yyyymmdd>/" | weed shell'
 ```
 
-The moved backups are no longer the source `scripts/restore-db.sh` reads, and nothing
-expires them: delete the folder when they aren't needed (below).
+The moved backups are no longer the live source: restore from them with
+`scripts/restore-db.sh <app> <env> --from s3://cnpg-backups/<ns>-lost-<yyyymmdd>` (Restore an
+app database). Nothing expires them: delete the folder when they aren't needed (below).
 
 **Remove an app's backups.** Removing an app (Confluence, Remove an app) deletes its
 backups by hand, after its namespaces are gone and after an export if one is wanted
@@ -1106,8 +1107,14 @@ docker exec shortly-control-plane free -m        # "available" over 2048
 scripts/restore-db.sh <app> <env> --keep                                   # the latest
 scripts/restore-db.sh <app> <env> --keep --target-time "2026-11-18 21:30:00-08"   # as it was then
 scripts/restore-db.sh <app> <env> --check-sql "SELECT count(*) FROM <table>"      # print a check
+scripts/restore-db.sh <app> <env> --keep --from s3://cnpg-backups/<app>-<env>-lost-<yyyymmdd>   # a lost database's
 kubectl -n restore-drill exec -it <app>-db-restore-1 -c postgres -- psql -d <app>
 ```
+
+`--from` restores from a folder moved aside after the database was lost (The backup
+bucket, A lost database) instead of the live ObjectStore's: the folder that holds
+`<app>-db/`. The tables aren't compared with the source's, which is the recreated, empty
+Cluster.
 
 Without `--keep` the copy is deleted when the script ends (a drill). To put the restored
 data back into the app's database, replacing its content (a logical copy: the Cluster, its

@@ -5,6 +5,7 @@
 #   scripts/restore-db.sh <app> <env> --target-time "2026-11-18 21:30:00-08"   # as it was then
 #   scripts/restore-db.sh <app> <env> --keep                 # leave the copy to look at
 #   scripts/restore-db.sh <app> <env> --check-sql "SELECT count(*) FROM links"   # print it
+#   scripts/restore-db.sh <app> <env> --from s3://cnpg-backups/<ns>-lost-<yyyymmdd>   # moved aside
 #
 # The source is the service chart's database (`database.cluster`): the Cluster `<app>-db` in
 # namespace `<app>-<env>` (SOURCE_NAMESPACE overrides it), and its ObjectStore. In namespace
@@ -14,22 +15,28 @@
 # archives nowhere and the source is only read. Then it checks the copy: healthy, and
 # without --target-time the same tables as the source. It prints how long it took.
 #
+# --from reads the backups from another folder of the bucket instead of the ObjectStore's
+# own: a lost database's, moved aside so its recreated Cluster can archive (docs/RUNBOOK.md,
+# The backup bucket, A lost database). The folder holds `<app>-db/`, as the source's does;
+# the tables aren't compared, since the live source no longer holds that data.
+#
 # Copying the restored data into the live database is a separate, deliberate step:
 # docs/RUNBOOK.md, Restore an app database.
 set -euo pipefail
 
 die() { echo "restore-db: $*" >&2; exit 1; }
-usage() { sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+usage() { sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 
 [[ $# -ge 2 ]] || usage
 APP=$1 ENV=$2
 shift 2
-TARGET_TIME="" KEEP=0 CHECK_SQL=""
+TARGET_TIME="" KEEP=0 CHECK_SQL="" FROM=""
 while [[ $# -gt 0 ]]; do
   case $1 in
     --target-time) TARGET_TIME=${2:?--target-time needs a time}; shift 2 ;;
     --keep) KEEP=1; shift ;;
     --check-sql) CHECK_SQL=${2:?--check-sql needs a query}; shift 2 ;;
+    --from) FROM=${2:?--from needs an s3:// folder}; shift 2 ;;
     *) usage ;;
   esac
 done
@@ -86,13 +93,16 @@ s = json.load(sys.stdin)
 print(json.dumps({"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
                   "metadata": {"name": sys.argv[1]}, "data": s["data"]}))' "$COPY-backup" \
   | kubectl -n "$NS" apply -f - >/dev/null
-# The ObjectStore points at the copied Secret; the folder and server name stay the source's.
+# The ObjectStore points at the copied Secret; the folder (unless --from) and the server name
+# stay the source's.
 store=$(python3 -c '
 import json, sys
 c = json.loads(sys.argv[1])
 for k in ("accessKeyId", "secretAccessKey"):
     c["s3Credentials"][k]["name"] = sys.argv[2]
-print(json.dumps(c))' "$store" "$COPY-backup")
+if sys.argv[3]:
+    c["destinationPath"] = sys.argv[3].rstrip("/")
+print(json.dumps(c))' "$store" "$COPY-backup" "$FROM")
 
 start=$SECONDS
 kubectl -n "$NS" apply -f - >/dev/null <<YAML
@@ -142,7 +152,7 @@ fi
 took=$((SECONDS - start))
 
 got=$(sql "$NS" "$COPY" "$tables")
-if [[ -z $TARGET_TIME ]]; then
+if [[ -z $TARGET_TIME && -z $FROM ]]; then
   want=$(sql "$SOURCE" "$CLUSTER" "$tables")
   [[ $got == "$want" ]] || die "the copy's tables differ from the source's:
 $(diff <(echo "$want") <(echo "$got") || true)"
@@ -150,4 +160,4 @@ fi
 if [[ -n $CHECK_SQL ]]; then
   echo "check: $(sql "$NS" "$COPY" "$CHECK_SQL" | paste -sd ' ' -)"
 fi
-echo "ok:    $SOURCE/$CLUSTER restored${TARGET_TIME:+ to $TARGET_TIME} into $NS/$COPY in ${took}s, $(grep -c . <<<"$got") tables"
+echo "ok:    $SOURCE/$CLUSTER restored${FROM:+ from $FROM}${TARGET_TIME:+ to $TARGET_TIME} into $NS/$COPY in ${took}s, $(grep -c . <<<"$got") tables"
