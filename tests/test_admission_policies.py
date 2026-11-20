@@ -233,6 +233,15 @@ def test_policies_cover_the_app_namespaces_only() -> None:
         assert selector == {"matchExpressions": [{"key": APP_LABEL, "operator": "Exists"}]}, name
 
 
+def test_local_builds_are_a_named_exception() -> None:
+    """Local builds pass the allowlist by one named variable: the namespace's own app, :dev
+    or :e2e, nothing in front (PT-111). The Kyverno CLI cases below prove the verdicts."""
+    spec = _load("allowed-images.yaml")["spec"]
+    variables = {v["name"]: v["expression"] for v in spec["variables"]}
+    assert variables["localBuild"] == "'^' + variables.app + ':(dev|e2e)$'"
+    assert "!i.matches(variables.localBuild)" in variables["refused"]
+
+
 # ------------------------------------------------------------------ Kyverno CLI cases
 
 
@@ -276,17 +285,32 @@ def test_allowlist_verdicts(tmp_path: Path) -> None:
         _pod("redis", "docker.io/library/redis:8.10.3-alpine@sha256:" + "d" * 64),
         _pod("old-redis", "redis:7.4-alpine"),
         _pod("elsewhere", "busybox:1.36", ns="default"),
+        _pod("unknown-registry", "registry.example.com/shortly@sha256:" + "a" * 64),
+        # The named exception for local builds (PT-111): the namespace's own app, :dev or :e2e.
+        _pod("local-e2e", "shortly:e2e"),
+        _pod("local-dev", "shortly:dev"),
+        _pod("second-app-local", "aipostit:e2e", ns="aipostit-staging"),
+        _pod("local-other-app", "aipostit:e2e"),
+        _pod("local-other-tag", "shortly:latest"),
+        _pod("local-registry", "docker.io/library/shortly:e2e"),
+        _pod("local-lookalike", "shortly-evil:e2e"),
+        _pod("local-and-foreign", "shortly:e2e", "busybox:1.36"),
     ]  # fmt: skip
     verdicts = _apply(tmp_path, (POLICIES / "allowed-images.yaml").read_text(), pods)
     allowed = ("release", "db", "db-qualified", "k6", "cnpg-instance", "app-image", "second-app",
-               "redis")  # fmt: skip
+               "redis", "local-e2e", "local-dev", "second-app-local")  # fmt: skip
     for name in allowed:
         assert verdicts[name][0] == "pass", (name, verdicts[name])
     refused = ("tag", "other-image", "bad-init", "old-postgres", "lookalike", "rclone",
-               "app-tag", "other-app", "old-repo", "cross-app", "old-redis")  # fmt: skip
+               "app-tag", "other-app", "old-repo", "cross-app", "old-redis", "unknown-registry",
+               "local-other-app", "local-other-tag", "local-registry", "local-lookalike",
+               "local-and-foreign")  # fmt: skip
     for name in (*refused, "cnpg-postgres-18", "cnpg-lookalike"):
         assert verdicts[name][0] == "fail", (name, verdicts.get(name))
     assert "docker.io/attacker/miner:latest" in verdicts["other-image"][1]
+    # Per image: the local build beside it in the Pod isn't let through with it, nor named.
+    mixed = verdicts["local-and-foreign"]
+    assert mixed[1].endswith(": busybox:1.36"), mixed
     assert "elsewhere" not in verdicts  # not an app namespace: not evaluated
 
 

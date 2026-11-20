@@ -3,9 +3,10 @@
 # namespaces at all, and of our images only the namespace's own app's (its
 # easypeasyops.github.io/app label), so one app's namespace can't run another app.
 #
-# Audit in kind: local builds (an app's :dev and :e2e images) are how this cluster is developed and
-# tested, so violations are only reported (kubectl get policyreport -A). On a real cluster use
-# validationActions: [Deny]. Tested offline by tests/test_admission_policies.py.
+# Local builds (an app's :dev and :e2e images) are how this cluster is developed and tested:
+# they pass through a named exception (localBuild, below), not a weaker rule. Still Audit,
+# so violations are only reported (kubectl get policyreport -A), until the switch to Deny
+# (PT-111). Tested offline by tests/test_admission_policies.py.
 apiVersion: policies.kyverno.io/v1
 kind: ValidatingPolicy
 metadata:
@@ -16,7 +17,8 @@ metadata:
       Pods in an app's namespaces may only run that app's released image (by digest),
       Postgres (the e2e's in-cluster client), the k6 load-test image, Redis 8 (the service
       chart's `redis`), or the images of a CloudNativePG database: its Postgres 17 image,
-      the operator's (its instance manager) and the Barman Cloud plugin's sidecar.
+      the operator's (its instance manager) and the Barman Cloud plugin's sidecar. In kind,
+      also the app's own local build, <app>:dev or <app>:e2e.
 spec:
   validationActions: [Audit]
   matchConstraints:
@@ -50,8 +52,19 @@ spec:
           '^ghcr\\.io/cloudnative-pg/cloudnative-pg:[0-9.]+(@sha256:[0-9a-f]{64})?$',
           '^ghcr\\.io/cloudnative-pg/plugin-barman-cloud-sidecar:v[0-9.]+(@sha256:[0-9a-f]{64})?$'
         ]
+    # The named exception for local builds (PT-111): the namespace's own app, built on the
+    # laptop or by an app's kind e2e and put on the node with `kind load` (<app>:dev,
+    # <app>:e2e; links' shortly:e2e). Exactly that name and tag: no registry in front, no
+    # other app's name, no other tag. Per image, so a local build doesn't let anything else
+    # in the same Pod through. Kind only: a real cluster drops this variable.
+    - name: localBuild
+      expression: "'^' + variables.app + ':(dev|e2e)$'"
+    - name: refused
+      expression: >-
+        variables.images.filter(i,
+          !i.matches(variables.localBuild) && !variables.allowed.exists(r, i.matches(r)))
   validations:
-    - expression: variables.images.all(i, variables.allowed.exists(r, i.matches(r)))
+    - expression: variables.refused.size() == 0
       messageExpression: >-
         'image not allowed in the namespaces of app ' + variables.app + ': ' +
-        variables.images.filter(i, !variables.allowed.exists(r, i.matches(r))).join(', ')
+        variables.refused.join(', ')

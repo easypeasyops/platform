@@ -267,7 +267,8 @@ Afterwards, check that everything running is a release: `scripts/verify-image.sh
 image from `kubectl -n <ns> get pods -o jsonpath='{..image}'`.
 
 **Allowlist reports.** `app-allowed-images` is Audit in kind, so nothing is refused: an
-image outside the allowlist, or another app's image, runs and is reported.
+image outside the allowlist, or another app's image, runs and is reported. The namespace's
+own app's local build (`<app>:dev`, `<app>:e2e`) passes.
 
 ```sh
 kubectl get policyreport -A -o wide                  # FAIL > 0: an image outside the allowlist ran
