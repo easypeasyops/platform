@@ -1184,9 +1184,9 @@ and CloudNativePG alerts. A failed writer run is the database or its network pol
 
 ## CloudNativePG alerts
 
-Warnings, to the platform's channel whichever app the database belongs to. Neither breaks
+Warnings, to the platform's channel whichever app the database belongs to. None breaks
 what runs: the databases serve queries without the operator, and a missing backup is missed
-on the day of a restore. In `DatabaseBackupTooOld`, label `exported_namespace` is the
+on the day of a restore. In the `Database...` alerts, label `exported_namespace` is the
 database's namespace and `cluster` its Cluster (`<release>-db`). Rules:
 `deploy/argocd/platform/files/cloudnative-pg-rules.yaml`.
 
@@ -1194,6 +1194,8 @@ database's namespace and `cluster` its Cluster (`<release>-db`). Rules:
 | --- | --- | --- |
 | `CloudNativePGOperatorDown` | The operator hasn't been scraped for 10 minutes: no failover, no scheduled backup, no change to a Cluster | `kubectl -n cnpg-system get pods`; `kubectl -n cnpg-system logs deploy/cloudnative-pg --tail=50` (add `--previous` after a crash) |
 | `DatabaseBackupTooOld` | A database's last successful base backup is more than 24 hours old, or it never had one | `kubectl -n <ns> get backups.postgresql.cnpg.io --sort-by=.metadata.creationTimestamp \| tail -5` (the last ones' phase); `kubectl -n <ns> describe backups.postgresql.cnpg.io <name>` (why it failed); `kubectl -n <ns> get scheduledbackup,objectstore` |
+| `DatabaseBackupNotWatched` | A database has backups on (a ScheduledBackup) and Prometheus has had no backup metric from it for 30 minutes, so `DatabaseBackupTooOld` can't see it | Prometheus's Targets page (http://prometheus.localhost:8090/targets), `<ns>/<release>-db`: missing means the app's `monitoring.enabled` is off (turn it on in the app's values); down means the scrape fails (`kubectl -n <ns> get pods -l cnpg.io/cluster=<release>-db`, the NetworkPolicy on port 9187) |
+| `BarmanCloudPluginDown` | The plugin's Deployment has had no available replica for 10 minutes: no database archives WAL or takes a base backup | `kubectl -n cnpg-system get deploy,pods`; `kubectl -n cnpg-system logs deploy/plugin-barman-cloud --tail=50` (add `--previous` after a crash); `kubectl -n cnpg-system describe pod -l app.kubernetes.io/name=plugin-barman-cloud` (OOMKilled, image pull, certificate volume) |
 
 | What you find | Cause | Fix |
 | --- | --- | --- |
@@ -1224,7 +1226,8 @@ EOF
 the scrape: Prometheus's Targets page (http://prometheus.localhost:8090/targets),
 `cloudnative-pg`. A database is watched only while Prometheus scrapes its instances
 (`<ns>/<release>-db` on the same page): that needs `monitoring.enabled` in the app's values,
-and an app whose database isn't scraped gets no backup alert.
+and a database with backups on that isn't scraped raises `DatabaseBackupNotWatched`
+instead of `DatabaseBackupTooOld`.
 
 ## Argo Rollouts alerts
 

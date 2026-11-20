@@ -89,3 +89,48 @@ tests:
               summary: Database shortly-prod/shortly-db has no base backup from the last 24 hours
               description: "Database shortly-prod/shortly-db has no successful base backup from the last 24 hours (or none at all). A restore would have to replay every WAL file since the last one, and can't reach any moment once that backup passes its retention."
               runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#cloudnativepg-alerts
+
+  # Prod's database has backups on and isn't scraped (monitoring off): no backup series ever.
+  # Staging's is scraped from minute 10, as a new database's first scrape comes in.
+  - name: a database with backups on and no backup series warns after 30 minutes, a late scrape doesn't
+    interval: 1m
+    input_series:
+      - series: 'cnpg_scheduledbackup_info{job="kube-state-metrics",namespace="monitoring",exported_namespace="shortly-prod",cluster="shortly-db"}'
+        values: '1x60'
+      - series: 'cnpg_scheduledbackup_info{job="kube-state-metrics",namespace="monitoring",exported_namespace="shortly-staging",cluster="shortly-db"}'
+        values: '1x60'
+      - series: 'barman_cloud_cloudnative_pg_io_last_available_backup_timestamp{namespace="shortly-staging",pod="shortly-db-1",job="shortly-staging/shortly-db"}'
+        values: '_x10 60x50'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: DatabaseBackupNotWatched
+        exp_alerts: []
+      - eval_time: 35m
+        alertname: DatabaseBackupNotWatched
+        exp_alerts:
+          - exp_labels: {namespace: cnpg-system, exported_namespace: shortly-prod, cluster: shortly-db, severity: warning}
+            exp_annotations:
+              summary: Database shortly-prod/shortly-db has backups on and no backup metrics
+              description: "Database shortly-prod/shortly-db has scheduled backups, but Prometheus has no backup metrics from it for 30 minutes: DatabaseBackupTooOld can't see it, so a backup that stops goes unnoticed. Its instances aren't scraped (the app's monitoring.enabled off, or the scrape failing)."
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#cloudnativepg-alerts
+
+  - name: the plugin with no available replica for 10 minutes warns, a restart doesn't
+    interval: 1m
+    input_series:
+      - series: 'kube_deployment_status_replicas_available{job="kube-state-metrics",namespace="cnpg-system",deployment="plugin-barman-cloud"}'
+        values: '1 1 0 0 1 1 1 1 1 1 0x15'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: BarmanCloudPluginDown
+        exp_alerts: []
+      - eval_time: 18m
+        alertname: BarmanCloudPluginDown
+        exp_alerts: []
+      - eval_time: 21m
+        alertname: BarmanCloudPluginDown
+        exp_alerts:
+          - exp_labels: {namespace: cnpg-system, severity: warning}
+            exp_annotations:
+              summary: The Barman Cloud plugin isn't running
+              description: The Barman Cloud plugin (cnpg-system/plugin-barman-cloud) has had no available replica for 10 minutes. No database archives WAL or takes a base backup while it is down, so a restore can't reach anything after it stopped.
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#cloudnativepg-alerts
