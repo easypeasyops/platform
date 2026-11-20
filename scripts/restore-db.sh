@@ -6,6 +6,7 @@
 #   scripts/restore-db.sh <app> <env> --keep                 # leave the copy to look at
 #   scripts/restore-db.sh <app> <env> --check-sql "SELECT count(*) FROM links"   # print it
 #   scripts/restore-db.sh <app> <env> --from s3://cnpg-backups/<ns>-lost-<yyyymmdd>   # moved aside
+#   scripts/restore-db.sh --drill <namespace>/<cluster>      # the daily drill, in the cluster
 #
 # The source is the service chart's database (`database.cluster`): the Cluster `<app>-db` in
 # namespace `<app>-<env>` (SOURCE_NAMESPACE overrides it), and its ObjectStore. In namespace
@@ -20,16 +21,31 @@
 # The backup bucket, A lost database). The folder holds `<app>-db/`, as the source's does;
 # the tables aren't compared, since the live source no longer holds that data.
 #
+# --drill is what the daily restore drill runs, inside the cluster as the ServiceAccount
+# restore-drill/restore-drill (deploy/restore-drill/, PT-44): the source is named by its
+# namespace and Cluster, the copy is `drill-<namespace>`, and the bucket's keys are the
+# Secret `drill-backup` already there. It only reads the source's Cluster and ObjectStore:
+# no Secret is copied, the tables aren't compared, and it doesn't create the namespace.
+#
 # Copying the restored data into the live database is a separate, deliberate step:
 # docs/RUNBOOK.md, Restore an app database.
 set -euo pipefail
 
 die() { echo "restore-db: $*" >&2; exit 1; }
-usage() { sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+usage() { sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 
-[[ $# -ge 2 ]] || usage
-APP=$1 ENV=$2
-shift 2
+DRILL=0
+if [[ ${1:-} == --drill ]]; then
+  [[ ${2:-} == */* ]] || usage
+  DRILL=1 SOURCE=${2%/*} CLUSTER=${2#*/}
+  APP=${CLUSTER%-db}
+  shift 2
+else
+  [[ $# -ge 2 ]] || usage
+  APP=$1 ENV=$2
+  SOURCE=${SOURCE_NAMESPACE:-$APP-$ENV} CLUSTER=$APP-db
+  shift 2
+fi
 TARGET_TIME="" KEEP=0 CHECK_SQL="" FROM=""
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -41,10 +57,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-SOURCE=${SOURCE_NAMESPACE:-$APP-$ENV}
-CLUSTER=$APP-db
 NS=restore-drill
-COPY=$CLUSTER-restore
+COPY=$CLUSTER-restore KEYS=$CLUSTER-restore-backup
+[[ $DRILL == 1 ]] && COPY=drill-$SOURCE KEYS=drill-backup
 PLUGIN=barman-cloud.cloudnative-pg.io
 
 kubectl -n "$SOURCE" get cluster "$CLUSTER" >/dev/null 2>&1 \
@@ -57,7 +72,8 @@ db=$(jp cluster "$CLUSTER" '{.spec.bootstrap.initdb.database}')
 owner=$(jp cluster "$CLUSTER" '{.spec.bootstrap.initdb.owner}')
 db=${db:-$APP} owner=${owner:-$APP}
 image=$(jp cluster "$CLUSTER" '{.spec.imageName}')
-store=$(jp objectstore "$CLUSTER" '{.spec.configuration}')
+dest=$(jp objectstore "$CLUSTER" '{.spec.configuration.destinationPath}')
+endpoint=$(jp objectstore "$CLUSTER" '{.spec.configuration.endpointURL}')
 
 primary() { kubectl -n "$1" get cluster "$2" -o jsonpath='{.status.currentPrimary}'; }
 sql() { kubectl -n "$1" exec "$(primary "$1" "$2")" -c postgres -- psql -d "$db" -tAc "$3"; }
@@ -67,42 +83,42 @@ tables="SELECT schemaname || '.' || tablename FROM pg_tables
 remove_copy() {
   kubectl -n "$NS" delete cluster "$COPY" --ignore-not-found --wait=true --timeout=120s >/dev/null
   kubectl -n "$NS" delete objectstore "$COPY-source" --ignore-not-found >/dev/null
-  kubectl -n "$NS" delete secret "$COPY-backup" --ignore-not-found >/dev/null
+  [[ $DRILL == 1 ]] || kubectl -n "$NS" delete secret "$KEYS" --ignore-not-found >/dev/null
 }
 cleanup() {
   if [[ $KEEP == 1 ]]; then
     echo "kept:  kubectl -n $NS exec -it $COPY-1 -c postgres -- psql -d $db"
-    echo "then:  kubectl -n $NS delete cluster/$COPY objectstore/$COPY-source secret/$COPY-backup"
+    echo "then:  kubectl -n $NS delete cluster/$COPY objectstore/$COPY-source secret/$KEYS"
   else
     remove_copy
   fi
 }
 
-# A clean slate: an earlier copy of the same database goes first.
-kubectl get namespace "$NS" >/dev/null 2>&1 || kubectl create namespace "$NS" >/dev/null
-kubectl label namespace "$NS" pod-security.kubernetes.io/enforce=restricted --overwrite >/dev/null
+# A clean slate: an earlier copy of the same database goes first. The drill's namespace is
+# Argo CD's (deploy/restore-drill/); by hand, it may not be there yet.
+if [[ $DRILL == 0 ]]; then
+  kubectl get namespace "$NS" >/dev/null 2>&1 || kubectl create namespace "$NS" >/dev/null
+  kubectl label namespace "$NS" pod-security.kubernetes.io/enforce=restricted --overwrite >/dev/null
+fi
 remove_copy
 trap cleanup EXIT
 
-# The bucket's keys, from the source's copy (the chart's ExternalSecret): the backup-bucket
-# store doesn't serve restore-drill. Piped, never printed or put in an argument.
-kubectl -n "$SOURCE" get secret "$CLUSTER-backup" -o json \
-  | python3 -c '
+# The bucket's keys. The drill's are there already (Secret drill-backup, from the
+# backup-bucket store); by hand they're copied from the source's (the chart's
+# ExternalSecret), piped, never printed or put in an argument.
+if [[ $DRILL == 0 ]]; then
+  kubectl -n "$SOURCE" get secret "$CLUSTER-backup" -o json \
+    | python3 -c '
 import json, sys
 s = json.load(sys.stdin)
 print(json.dumps({"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
-                  "metadata": {"name": sys.argv[1]}, "data": s["data"]}))' "$COPY-backup" \
-  | kubectl -n "$NS" apply -f - >/dev/null
-# The ObjectStore points at the copied Secret; the folder (unless --from) and the server name
-# stay the source's.
-store=$(python3 -c '
-import json, sys
-c = json.loads(sys.argv[1])
-for k in ("accessKeyId", "secretAccessKey"):
-    c["s3Credentials"][k]["name"] = sys.argv[2]
-if sys.argv[3]:
-    c["destinationPath"] = sys.argv[3].rstrip("/")
-print(json.dumps(c))' "$store" "$COPY-backup" "$FROM")
+                  "metadata": {"name": sys.argv[1]}, "data": s["data"]}))' "$KEYS" \
+    | kubectl -n "$NS" apply -f - >/dev/null
+fi
+# The source's bucket and folder (unless --from), read with those keys; the server name
+# stays the source's Cluster.
+dest=${FROM:-$dest}
+dest=${dest%/}
 
 start=$SECONDS
 kubectl -n "$NS" apply -f - >/dev/null <<YAML
@@ -110,7 +126,12 @@ apiVersion: barmancloud.cnpg.io/v1
 kind: ObjectStore
 metadata: { name: $COPY-source }
 spec:
-  configuration: $store
+  configuration:
+    destinationPath: $dest
+    endpointURL: $endpoint
+    s3Credentials:
+      accessKeyId: { name: $KEYS, key: ACCESS_KEY_ID }
+      secretAccessKey: { name: $KEYS, key: ACCESS_SECRET_KEY }
 ---
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
@@ -152,7 +173,7 @@ fi
 took=$((SECONDS - start))
 
 got=$(sql "$NS" "$COPY" "$tables")
-if [[ -z $TARGET_TIME && -z $FROM ]]; then
+if [[ -z $TARGET_TIME && -z $FROM && $DRILL == 0 ]]; then
   want=$(sql "$SOURCE" "$CLUSTER" "$tables")
   [[ $got == "$want" ]] || die "the copy's tables differ from the source's:
 $(diff <(echo "$want") <(echo "$got") || true)"
