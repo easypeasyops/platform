@@ -346,6 +346,7 @@ and digests are in `deploy/argocd/platform/values.yaml`; values in `deploy/kind/
 | Kyverno | `kyverno` · `kyverno` | Admission control: the webhook that runs the admission policies |
 | Admission policies | `kyverno-policies` · `kyverno` | Release provenance and the image allowlist for app namespaces (below, Admission policies) |
 | Provenance canary | `provenance-canary` · `provenance-canary` | Every 15 minutes, a dry-run Pod with a released image, so a policy that refuses releases is noticed before a deploy |
+| Chaos drill | `chaos-drill` · `monitoring` | Every Monday, holds the External Secrets controller down until its alert reaches Alertmanager, then checks both come back (RUNBOOK, The chaos drill) |
 | Platform AppProject | `platform-project` · `argocd` | What the platform's Applications may deploy, and where (wave -2) |
 | The platform's alerts | the root (`templates/monitoring.yaml`) · component namespaces | Scrapes, probes and PrometheusRules that watch the components above (wave 1) |
 
@@ -387,6 +388,17 @@ What the children are for:
   an app goes around the Gateway, and a quiet app's broken route burns no SLO budget. The
   hostnames are a list in git (Prometheus can't discover an HTTPRoute), which CI checks
   against the apps' rendered routes. Details: RUNBOOK.
+- **The chaos drill** shows an alert works by setting it off: a promtool test proves a rule's
+  expression, not that the metric it reads still exists, that it reaches Alertmanager or
+  that the component comes back. One component to start with, whose absence breaks
+  nothing that runs (External Secrets' controller: Secrets keep their values); not
+  Kyverno's admission webhook or the front door. Its alert waits 10 minutes and a deleted
+  pod is back in seconds, so the drill deletes every new pod of the Deployment until the
+  alert fires, rather than scaling it to zero, which Argo CD's self-heal would undo: the
+  Deployment is never changed, and if the drill dies the pod simply comes back. A
+  CronJob, so it runs where the cluster runs, with the standard library's Python (no image
+  of our own) and RBAC narrowed by an admission policy to that Deployment's pods. A failed
+  drill is a failed Job, which the stack's `KubeJobFailed` reports like any other.
 - **Databases and backups.** CloudNativePG runs each app's Postgres from the `Cluster` its
   chart renders: failover, base backups and point-in-time recovery from an operator
   instead of a hand-rolled StatefulSet and dumps. Backups go through the Barman Cloud

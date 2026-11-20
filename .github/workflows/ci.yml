@@ -59,6 +59,8 @@ jobs:
           done
           # The vendored metrics-server manifest with its kind patch (Argo CD runs kustomize).
           kubectl kustomize deploy/platform/metrics-server | kc -
+          # The chaos drill, with the ConfigMap kustomize makes from its script.
+          kubectl kustomize deploy/platform/chaos-drill | kc -
           # The dev tools' routes on the kind Gateway.
           kc deploy/kind/tools
           # The event exporter and the provenance canary, plain manifests Argo CD syncs as they are.

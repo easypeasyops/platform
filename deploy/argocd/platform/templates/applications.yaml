@@ -289,3 +289,18 @@ spec:
   {{- include "platform.syncPolicy" (dict "labels" (dict "pod-security.kubernetes.io/enforce" "restricted" "easypeasyops.github.io/app" "shortly")) | nindent 2 }}
 {{- end }}
 {{- end }}
+{{- if $v.components.monitoring }}
+---
+# The chaos drill (deploy/platform/chaos-drill/): once a week it holds the External Secrets
+# controller down until its alert reaches Alertmanager, then checks both come back. Its
+# CronJob runs in `monitoring`, with the stack whose alert it checks.
+{{ include "platform.meta" (dict "name" "chaos-drill" "wave" 1) }}
+spec:
+  project: platform
+  source:
+    repoURL: {{ $v.repoURL }}
+    targetRevision: {{ $v.revision }}
+    path: deploy/platform/chaos-drill
+  destination: { server: {{ $dest }}, namespace: monitoring }
+  {{- include "platform.syncPolicy" (dict) | nindent 2 }}
+{{- end }}

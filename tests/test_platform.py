@@ -30,8 +30,9 @@ VALUES = yaml.safe_load((CHART / "values.yaml").read_text())
 NODE_EXPORTER = yaml.safe_load((ROOT / "deploy/kind/node-exporter-values.yaml").read_text())
 PROJECT = yaml.safe_load((ROOT / "deploy/argocd/platform-project.yaml").read_text())["spec"]
 REPO = "https://github.com/easypeasyops/platform.git"
-# Need Kyverno's webhook serving, not just its CRDs: the policies, and the canary that asks it.
-WAVE_1 = {"kyverno-policies", "provenance-canary"}
+# Need a slow chart running, not just its CRDs: the policies and the canary (Kyverno's webhook),
+# the chaos drill (Alertmanager).
+WAVE_1 = {"kyverno-policies", "provenance-canary", "chaos-drill"}
 WAVE_FIRST = {"platform-project"}  # wave -2: the AppProject the children are checked against
 WAVE_BEFORE = {"external-secrets", "cert-manager"}  # wave -1: wave 0 needs their Secrets
 

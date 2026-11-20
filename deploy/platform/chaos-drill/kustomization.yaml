@@ -1,0 +1,12 @@
+# The chaos drill (PT-110; docs/RUNBOOK.md, The chaos drill), deployed by Argo CD
+# (deploy/argocd/platform/, the `chaos-drill` Application). drill.py is the drill; the
+# ConfigMap generated from it gets a name with its hash, so a change to it reaches the
+# next run, and tests/test_chaos_drill.py imports the same file.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - chaos-drill.yaml
+configMapGenerator:
+  - name: chaos-drill
+    namespace: monitoring
+    files: [drill.py]
