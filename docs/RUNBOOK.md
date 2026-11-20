@@ -1180,7 +1180,7 @@ backups and the app's credentials stay as they are), propose:
 kubectl -n restore-drill exec <app>-db-restore-1 -c postgres -- pg_dump -d <app> --format=custom --no-owner --no-privileges >/tmp/restore.dump
 kubectl -n <app>-<env> exec -i "$(kubectl -n <app>-<env> get cluster <app>-db -o jsonpath='{.status.currentPrimary}')" -c postgres -- \
   pg_restore -d <app> --clean --if-exists --no-owner --role=<app> --exit-on-error </tmp/restore.dump
-kubectl delete namespace restore-drill
+kubectl -n restore-drill delete cluster/<app>-db-restore objectstore/<app>-db-restore-source secret/<app>-db-restore-backup
 rm /tmp/restore.dump
 ```
 
