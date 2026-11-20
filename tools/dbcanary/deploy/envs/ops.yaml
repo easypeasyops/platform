@@ -1,0 +1,6 @@
+# dbcanary's one environment, namespace dbcanary-ops on the laptop cluster: part of the
+# platform, not a stage of a product, so no staging.
+environment: ops
+image:
+  # The database's own image (the chart's database.cluster.imageName): move it with that.
+  digest: sha256:87f97b9a922e469b91faaaa36ced7c2092cf890efd3622f29095d252b70b9718 # 17.11-minimal-trixie

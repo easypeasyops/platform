@@ -1,0 +1,63 @@
+# dbcanary's values for the platform's service chart (charts/service): a database the
+# platform owns, so the chart's `database.cluster` and its backups are proven whether or not
+# an app uses them (PT-106; README.md). Layered as
+#   deploy/service/values.yaml   this file
+#   deploy/envs/ops.yaml         the one environment's settings and the image digest
+# CI renders it with the released chart and validates the result (ci.yml, tools-deploy).
+
+app:
+  name: dbcanary
+
+image:
+  # No image of its own: the writer below runs psql from the database's own Postgres image,
+  # the one image the node already holds and the app policy admits by this name
+  # (deploy/policies/allowed-images.yaml wants the tag in the reference, and the chart
+  # writes `repository@digest`, so the tag goes here). The digest is in deploy/envs/.
+  repository: ghcr.io/cloudnative-pg/postgresql:17.11-minimal-trixie
+
+# Nothing to serve: the chart's Deployment is kept at no pods.
+autoscaling:
+  enabled: false
+replicaCount: 0
+podDisruptionBudget:
+  enabled: false
+
+# The database: one instance, sized for the laptop (its working set is a few tens of MiB).
+# Backups on, as the chart's default: WAL archived continuously and a base backup every hour
+# to s3://cnpg-backups/dbcanary-ops/dbcanary-db.
+database:
+  cluster:
+    enabled: true
+    instances: 1
+    storage: 1Gi
+    resources:
+      requests: { cpu: 10m, memory: 128Mi }
+      limits: { memory: 256Mi }
+
+# The writer: a row every 15 minutes, so there is always fresh WAL to archive and a row to
+# look for after a restore (the newest `beats.at` says how recent a restore is).
+cronJobs:
+  write:
+    schedule: "*/15 * * * *"
+    activeDeadlineSeconds: 60
+    command:
+      - psql
+      - $(DATABASE_URL)
+      - --no-psqlrc
+      - -v
+      - ON_ERROR_STOP=1
+      - -c
+      - CREATE TABLE IF NOT EXISTS beats (at timestamptz PRIMARY KEY DEFAULT now())
+      - -c
+      - INSERT INTO beats DEFAULT VALUES
+    env:
+      - name: DATABASE_URL
+        secret: { name: '{{ include "service.fullname" . }}-db-app', key: uri }
+    resources:
+      requests: { cpu: 10m, memory: 16Mi }
+      limits: { memory: 64Mi }
+
+# Prometheus scrapes the database (the chart's PodMonitor): WAL archiving and the last
+# backup's time, which the platform's backup alert reads.
+monitoring:
+  enabled: true
