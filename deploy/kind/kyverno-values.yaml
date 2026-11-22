@@ -49,6 +49,14 @@ cleanupController:
   enabled: false
 reportsController:
   enabled: true
+  # Read the databases' ScheduledBackups, which the restore drills' GeneratingPolicy matches:
+  # without it the policy reports Ready false ("missing permissions ... scheduledbackups"),
+  # though it generates all the same (PT-44).
+  rbac:
+    clusterRole:
+      extraResources:
+        - apiGroups: [postgresql.cnpg.io]
+          resources: [scheduledbackups]
   # Background work, so a CPU limit is right here (unlike the app, which has none: a
   # limit throttles a latency-sensitive process even on an idle node). Without one, its
   # scans took up to 9 of the node's cores and slowed every request (DESIGN, issues).
