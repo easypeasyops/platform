@@ -7,9 +7,12 @@ resource "google_billing_budget" "monthly" {
   billing_account = var.billing_account
   display_name    = "${var.project_id} monthly"
 
+  # Spend before credits: while free-trial credit is left, spend after credits stays near
+  # $0 and no alert would fire, even for a cluster a run failed to tear down.
   budget_filter {
-    projects        = ["projects/${data.google_project.this.number}"]
-    calendar_period = "MONTH"
+    projects               = ["projects/${data.google_project.this.number}"]
+    calendar_period        = "MONTH"
+    credit_types_treatment = "EXCLUDE_ALL_CREDITS"
   }
 
   amount {
