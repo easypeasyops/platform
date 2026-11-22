@@ -23,6 +23,10 @@
 #   PROFILE=<name> scripts/cluster.sh install # the cluster's values over kind's, from
 #                                       # deploy/profiles/<name>/ (gke: a create step's
 #                                       # cluster; DESIGN, Profiles). Unset: kind's alone
+#   CLUSTER_OUTPUTS=<file> scripts/cluster.sh install # what the cluster's create step
+#                                       # handed over (`terraform output -json`), as the
+#                                       # root's `cluster` values (DESIGN, Cluster contract).
+#                                       # Unset on kind
 #   ARGOCD_HELM=1 scripts/cluster.sh install # re-install Argo CD with Helm though it
 #                                       # manages itself: when a change broke it (RUNBOOK,
 #                                       # Argo CD broke itself)
@@ -283,15 +287,21 @@ platform() {
   # earlier version of this function filled with server fields, so every re-run asked to
   # delete metadata.resourceVersion and was refused.
   kubectl create -f "$ROOT/deploy/argocd/platform-root.yaml" --dry-run=client -o json \
-    | REVISION="$revision" PARAMS="$params" PROFILE="${PROFILE:-}" python3 -c '
+    | REVISION="$revision" PARAMS="$params" PROFILE="${PROFILE:-}" \
+      CLUSTER_OUTPUTS="${CLUSTER_OUTPUTS:-}" python3 -c '
 import json, os, sys
 app = json.load(sys.stdin)
+helm = app["spec"]["source"]["helm"]
 app["spec"]["source"]["targetRevision"] = os.environ["REVISION"]
-app["spec"]["source"]["helm"]["parameters"] = json.loads(os.environ["PARAMS"])
+helm["parameters"] = json.loads(os.environ["PARAMS"])
 if os.environ["PROFILE"]:
-    helm = app["spec"]["source"]["helm"]
     helm["parameters"].append({"name": "profile", "value": os.environ["PROFILE"]})
     helm["valueFiles"].append("../../profiles/%s/platform.yaml" % os.environ["PROFILE"])
+# The create step outputs (terraform output -json: name -> {value, ...}) as the root values "cluster".
+if os.environ["CLUSTER_OUTPUTS"]:
+    with open(os.environ["CLUSTER_OUTPUTS"]) as f:
+        outputs = json.load(f)
+    helm["valuesObject"] = {"cluster": {k: o["value"] for k, o in outputs.items()}}
 json.dump(app, sys.stdout)' \
     | kubectl apply --server-side --field-manager=cluster-sh --force-conflicts -f - >/dev/null
   echo "platform: syncing deploy/argocd/platform at $revision ($arch) through Argo CD"

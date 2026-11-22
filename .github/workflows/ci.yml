@@ -46,7 +46,8 @@ jobs:
             -schema-location "$CRDS/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" "$@"; }
           # The Kyverno admission policies, the secret store External Secrets reads, and the
           # restore drills' namespace.
-          kc deploy/policies deploy/secrets deploy/restore-drill
+          # (deploy/secrets/kustomization.yaml is kustomize's, not the API server's.)
+          kc -ignore-filename-pattern 'kustomization\.yaml$' deploy/policies deploy/secrets deploy/restore-drill
           # The platform's root Application and its AppProject, as one document stream.
           awk 'FNR == 1 { print "---" } 1' deploy/argocd/*.yaml | kc -
           # The child Applications the platform chart renders, for both CPU architectures and

@@ -124,6 +124,76 @@ def test_a_profile_layers_its_file_of_the_same_name_over_each_chart_s_values() -
         assert helm["ignoreMissingValueFiles"] is True
 
 
+GCPSM = {"provider": "gcpsm", "project_id": "p", "cluster_name": "c", "cluster_location": "z"}
+
+
+def _secret_store(*sets: str) -> dict[str, Any]:
+    (app,) = [a for a in _render(*sets) if a["metadata"]["name"] == "secret-store"]
+    source: dict[str, Any] = app["spec"]["source"]
+    return source
+
+
+def test_kind_s_stores_and_the_kustomization_are_the_same_files() -> None:
+    include = _secret_store()["directory"]["include"]
+    kustomization = yaml.safe_load((ROOT / "deploy/secrets/kustomization.yaml").read_text())
+    assert include == "{" + ",".join(kustomization["resources"]) + "}"
+    assert "kustomize" not in _secret_store()
+
+
+def test_on_secret_manager_every_store_keeps_its_reader(tmp_path: Path) -> None:
+    """cluster.secret_store (DESIGN, Cluster contract): Argo CD builds deploy/secrets with
+    the Application's patch; each ClusterSecretStore reads Secret Manager as the service
+    account it used on kind, and keeps its conditions."""
+    if shutil.which("kubectl") is None:
+        pytest.skip("kubectl not installed")
+    source = _secret_store(*(f"cluster.secret_store.{k}={v}" for k, v in GCPSM.items()))
+    assert "directory" not in source
+    (patch,) = source["kustomize"]["patches"]
+    (tmp_path / "patch.yaml").write_text(patch["patch"])
+    (tmp_path / "kustomization.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "resources": [os.path.relpath(ROOT / "deploy/secrets", tmp_path)],
+                "patches": [{"target": patch["target"], "path": "patch.yaml"}],
+            }
+        )
+    )
+    built = subprocess.run(
+        ["kubectl", "kustomize", "--load-restrictor", "LoadRestrictionsNone", str(tmp_path)],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    kind = {
+        d["metadata"]["name"]: d
+        for f in ("store.yaml", "bucket-store.yaml", "app-stores.yaml")
+        for d in yaml.safe_load_all((ROOT / "deploy/secrets" / f).read_text())
+        if d and d["kind"] == "ClusterSecretStore"
+    }
+    stores = {
+        d["metadata"]["name"]: d
+        for d in yaml.safe_load_all(built)
+        if d["kind"] == "ClusterSecretStore"
+    }
+    assert stores.keys() == kind.keys()
+    for name, store in stores.items():
+        reader = kind[name]["spec"]["provider"]["kubernetes"]["auth"]["serviceAccount"]
+        assert store["spec"]["provider"] == {
+            "gcpsm": {
+                "projectID": "p",
+                "auth": {
+                    "workloadIdentity": {
+                        "clusterLocation": "z",
+                        "clusterName": "c",
+                        "clusterProjectID": "p",
+                        "serviceAccountRef": reader,
+                    }
+                },
+            }
+        }, name
+        assert store["spec"]["conditions"] == kind[name]["spec"]["conditions"], name
+
+
 def test_components_can_be_switched_off() -> None:
     names = {a["metadata"]["name"] for a in _render(*ALL_OFF)}
     assert names == {

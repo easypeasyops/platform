@@ -13,6 +13,13 @@ arch: amd64
 # from deploy/profiles/<profile>/, of the same name, layered over deploy/kind's where it
 # exists. Empty: kind's alone.
 profile: ""
+# What the cluster's create step handed to install, by the names of its outputs (DESIGN,
+# Cluster contract, "What create hands to install"; cluster.sh's CLUSTER_OUTPUTS, e.g.
+# modules/gke's `terraform output -json`). Empty on kind, whose are fixed: then nothing
+# below reads them and kind's renders are unchanged.
+#   secret_store  {provider, project_id, cluster_name, cluster_location}: the stores read
+#                 Secret Manager through workload identity (provider gcpsm only)
+cluster: {}
 # What to install (cluster.sh's MONITORING, POLICIES, BACKUPS knobs; CI's delivery job
 # skips the last two).
 components:

@@ -553,12 +553,20 @@ nodes, and the other is the cluster's default.
 (`deploy/profiles/gke/`, [Profiles](#profiles)) turns the platform's metrics-server off
 and names no StorageClass for Prometheus, Grafana's plugins and VictoriaLogs. kind keeps
 naming `standard`: dropping it there would change a StatefulSet's volume template, which
-can't change in place. These outputs have no way in yet, so a GKE install doesn't meet the
-contract until they do (PT-119):
+can't change in place.
 
-- `secret_store`: the stores (`deploy/secrets/`) are plain manifests on the Kubernetes
-  provider, and a profile overlays only Helm values. Secret Manager also needs the values
-  written once, as the generators do on kind.
+What isn't a value for every cluster of a kind comes from the cluster's own create step:
+`install` takes its outputs as a file (`CLUSTER_OUTPUTS`, `terraform output -json`) and
+hands them to the root as `cluster.<output>`, by the names above, without reading them.
+kind passes none, and nothing then reads them.
+
+- `secret_store`: the secret-store child builds the same four files with kustomize and a
+  patch that turns each ClusterSecretStore's provider into Secret Manager (`gcpsm`), acting
+  as the same reader through workload identity, with the same conditions. The secrets'
+  values are written at create (Terraform).
+
+These have no way in yet, so a GKE install doesn't meet the contract until they do:
+
 - `bucket` and `api_server`: the service chart has the values (`database.cluster.backup.credentials`,
   `destinationPath`, `networkPolicy.apiServerTo` and `apiServerPort`), but the ApplicationSet
   renders each app from its own repo's files, with nothing per cluster.

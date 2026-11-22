@@ -52,7 +52,33 @@ spec:
     repoURL: {{ $v.repoURL }}
     targetRevision: {{ $v.revision }}
     path: deploy/secrets
+    {{- with $v.cluster.secret_store }}
+    {{- if ne .provider "gcpsm" }}{{ fail (printf "cluster.secret_store.provider %q: only gcpsm" .provider) }}{{ end }}
+    # The same stores, on Secret Manager (cluster contract, secret backend): each store's
+    # provider becomes gcpsm, acting as the same reader service account through workload
+    # identity, so a store still reaches only what its account is granted. The files are
+    # deploy/secrets/kustomization.yaml's: the four kind's `directory.include` names.
+    kustomize:
+      patches:
+        - target: { group: external-secrets.io, kind: ClusterSecretStore }
+          patch: |-
+            - op: add
+              path: /spec/provider/gcpsm
+              value:
+                projectID: {{ .project_id | quote }}
+                auth:
+                  workloadIdentity:
+                    clusterLocation: {{ .cluster_location | quote }}
+                    clusterName: {{ .cluster_name | quote }}
+                    clusterProjectID: {{ .project_id | quote }}
+            - op: copy
+              from: /spec/provider/kubernetes/auth/serviceAccount
+              path: /spec/provider/gcpsm/auth/workloadIdentity/serviceAccountRef
+            - op: remove
+              path: /spec/provider/kubernetes
+    {{- else }}
     directory: { include: "{store.yaml,bucket-store.yaml,app-stores.yaml,generated.yaml}" }
+    {{- end }}
   destination: { server: {{ $dest }}, namespace: secret-store }
   {{- include "platform.syncPolicy" (dict "labels" (dict "pod-security.kubernetes.io/enforce" "restricted")) | nindent 2 }}
 ---
