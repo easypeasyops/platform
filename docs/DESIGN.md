@@ -615,6 +615,17 @@ under `gke/<run_id>`. Written before any account existed: nothing here has run y
 | GKE's Gateway API and Ingress off, its logging and monitoring of the system only | Envoy Gateway ships and owns the Gateway API CRDs; the platform has its own Prometheus and logs |
 | Everything named `platform-<run_id>` and labelled `run-id` | The reaper (PT-120) finds a failed run's leftovers by either; the VPC, subnet, router and firewall take no labels |
 
+**The weekly run** (`gke-e2e.yml`, PT-120) is create, install, check, teardown, as CI:
+
+| Choice | Why |
+| --- | --- |
+| kind e2e's checks, from one library | `scripts/lib/e2e-checks.sh` is what kind's e2e runs on its one app; the GKE run runs it on every namespace Argo CD deployed, through the Gateway's load balancer. A check changed once changes on both |
+| The teardown runs whatever happened (`if: always()`), Kubernetes' resources first | Terraform doesn't know what controllers made in GCP: the front door's load balancer and the PVCs' disks. `gke-run.sh drain` stops Argo CD (nothing re-creates what goes), deletes the Gateways, the LoadBalancer Services and the namespaces with PVCs, and waits until no LoadBalancer Service and no PersistentVolume is left: their finalizers go only once GCP has deleted the load balancer or the disk. Then `terraform destroy` |
+| A run ends by proving it left nothing | `gke-run.sh leftovers` lists what carries the run's label, and what Kubernetes made since the run began, which carries none (a description naming a Kubernetes object). One run at a time, so "since" is this run's |
+| A rerun is a new run | Its ID is `gh-<run id>-<attempt>`: a rerun gets its own names, labels and state, never a half-destroyed one's |
+| Dormant until the foundation exists, admitted only by name | Like `terraform-plan.yml`, it skips without the repository variables, and the provider admits it only from main and as listed in `ci_workflows` |
+| Failures by GitHub's email, not Slack | CI has no Slack credential (the bot token is in the laptop's Keychain and the cluster's store), as the nightly e2e |
+
 **What a run costs**, at us-west1 list prices (November 2026, to be measured on the first
 run): the Spot node about $0.04 an hour, its disk and the PVCs under $0.01, the front
 door's load balancer $0.025, NAT $0.0014 plus $0.045 per GB it carries (a fresh cluster

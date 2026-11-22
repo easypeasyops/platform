@@ -1526,9 +1526,10 @@ keeps its state on the laptop and moves it into the bucket afterwards.
 
 From then on, `terraform init` here takes `-backend-config=bucket=<project_id>-tfstate`.
 
-Only the workflows in `ci_workflows`, from main, may act as CI (`wif.tf`). A new workflow
-that needs GCP (the weekly GKE run) is added there, and the change applied from the
-laptop before the workflow first runs. A refused token fails `google-github-actions/auth`
+Only the workflows in `ci_workflows`, from main, may act as CI (`wif.tf`): today
+`terraform-plan.yml` and the weekly GKE run's `gke-e2e.yml`. A new workflow that needs GCP
+is added there, and the change applied from the laptop before the workflow first runs
+(`tests/test_gke_run.py` fails on a workflow that authenticates and isn't listed). A refused token fails `google-github-actions/auth`
 with "The given credential is rejected by the attribute condition".
 
 ### Tear it all down
@@ -1560,7 +1561,7 @@ meanwhile: applying again in a project that wasn't deleted, within that time, ne
 `infra/gcp/gke/` (PT-119) makes one run's cluster in the foundation's project: a zonal GKE
 Standard cluster on one Spot node, its own VPC and Cloud NAT, a backup bucket, and the
 Secret Manager secrets the `platform` store reads (DESIGN.md, The GKE run). The weekly
-workflow (PT-120) will do this as CI; by hand it is, with the foundation bootstrapped:
+workflow does this as CI (below); by hand it is, with the foundation bootstrapped:
 
 ```sh
 cd infra/gcp/gke
@@ -1583,5 +1584,51 @@ gcloud compute forwarding-rules list && gcloud compute disks list   # empty: not
 ```
 
 A LoadBalancer Service or a PersistentVolume left in the cluster leaves a load balancer or
-a disk behind, which blocks deleting the VPC: delete the platform's Services and PVCs
-(or the namespaces) before `destroy`.
+a disk behind, which blocks deleting the VPC: `scripts/gke-run.sh drain` deletes them, and
+waits until GCP has, before `destroy`.
+
+## The weekly GKE run
+
+`gke-e2e.yml` (PT-120) does the run above as CI, Mondays at 05:41 in Los Angeles (06:41 in
+summer: the cron is 13:41 UTC): create (`terraform apply`, run ID `gh-<run id>-<attempt>`),
+install the platform at the run's commit with `PROFILE=gke`, the checks kind's e2e runs on
+every app namespace (`scripts/gke-run.sh check`, the same `scripts/lib/e2e-checks.sh`),
+then the teardown, which runs whatever happened before it: `drain`, `terraform destroy`,
+then `leftovers`, which fails the run if anything labelled `run-id=<run>` (or made by
+Kubernetes since the run began) is still in GCP. Target: under 45 minutes. Not part of the
+`ci` gate.
+
+It is dormant until the foundation is bootstrapped: it skips without
+`GCP_WORKLOAD_IDENTITY_PROVIDER`, and the provider admits it only once `ci_workflows` with
+`gke-e2e.yml` is applied from the laptop (The GCP foundation, above).
+
+- **Run it on demand:** `gh workflow run gke-e2e.yml` (main only: the provider refuses any
+  other ref). `-f apps=false` installs and checks the platform without the apps.
+- **A failure reaches you** by GitHub's email, as the nightly's does (The nightly app e2e).
+  CI has no Slack credential: the bot token lives in the laptop's Keychain and the cluster's
+  store, and a run installs with `SLACK=0`.
+- **Read a failure:** the first red step says where.
+  - *Create the cluster*: Terraform's error; quota or the free trial's CPU cap shows here.
+    A run that loses its Spot node is run again.
+  - *Install the platform*: install's start-up report and the *Argo CD state* step: which
+    Application isn't Synced/Healthy and why, as for kind (Argo CD alerts).
+  - *The apps, as kind's e2e checks them*: the `FAIL:` line names the namespace and check,
+    followed by the namespace's state, as kind's e2e prints it.
+  - *Drain*, *Destroy* or *Nothing left in GCP*: something may be left and costing money.
+    Clean up by hand (below), now.
+- **Clean up by hand**, with the run's ID from its log (`RUN_ID`) and the project's:
+
+  ```sh
+  gcloud container clusters list --filter=resourceLabels.run-id=$RUN
+  gcloud container clusters get-credentials platform-$RUN --zone <zone> && scripts/gke-run.sh drain
+  cd infra/gcp/gke
+  terraform init -reconfigure -backend-config=bucket=<project_id>-tfstate -backend-config=prefix=gke/$RUN
+  terraform destroy -var state_bucket=<project_id>-tfstate -var run_id=$RUN
+  cd ../../.. && scripts/gke-run.sh leftovers $RUN <the run's start, e.g. 2026-11-23T13:41:00Z>
+  ```
+
+  What `leftovers` still names, delete with `gcloud compute forwarding-rules delete`,
+  `gcloud compute disks delete`, `gcloud compute addresses delete` or
+  `gcloud storage rm -r gs://<bucket>`, then `destroy` again: a leftover load balancer's
+  firewall rule (`k8s-…`) blocks deleting the VPC, `gcloud compute firewall-rules list
+  --filter=network~platform-$RUN`.
