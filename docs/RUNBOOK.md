@@ -1441,9 +1441,12 @@ kubectl -n <ns> patch rollout <rollout> --subresource=status --type merge \
 
 ## The GCP foundation
 
-`infra/gcp/foundation/` (PT-118) is the GCP project's Terraform: its APIs and the bucket
-that holds Terraform's state. Nothing in it touches the laptop cluster. It is applied from
-Emrah's laptop with his own credentials; CI checks the code offline (ci.yml, `terraform`).
+`infra/gcp/foundation/` (PT-118) is the GCP project's Terraform: its APIs, the bucket that
+holds Terraform's state, the identity GitHub Actions acts as (Workload Identity Federation,
+no key) and the GKE nodes' service account. Nothing in it touches the laptop cluster. It is
+applied from Emrah's laptop with his own credentials: CI checks the code offline (ci.yml,
+`terraform`) and, once bootstrapped, plans it on every merge to main
+(`terraform-plan.yml`, which fails on any change).
 
 It needs, once, from outside Terraform: a Google account with billing, and a project with
 billing linked. Its ID is `<project_id>` below; nothing in git names it.
@@ -1484,7 +1487,25 @@ keeps its state on the laptop and moves it into the bucket afterwards.
    gcloud storage ls gs://<project_id>-tfstate/foundation/   # default.tfstate
    ```
 
+5. Wake up CI's plan: three repository variables (names and IDs, not secrets: there is no
+   key anywhere), then run it once.
+
+   ```sh
+   gh variable set GCP_PROJECT_ID --body <project_id>
+   gh variable set GCP_WORKLOAD_IDENTITY_PROVIDER --body "$(terraform output -raw workload_identity_provider)"
+   gh variable set GCP_CI_SERVICE_ACCOUNT --body "$(terraform output -raw ci_service_account)"
+   gh workflow run terraform-plan.yml && gh run watch
+   ```
+
+   Its "Who CI is" step prints `platform-ci@<project_id>.iam.gserviceaccount.com`, and the
+   plan ends with "No changes."
+
 From then on, `terraform init` here takes `-backend-config=bucket=<project_id>-tfstate`.
+
+Only the workflows in `ci_workflows`, from main, may act as CI (`wif.tf`). A new workflow
+that needs GCP (the weekly GKE run) is added there, and the change applied from the
+laptop before the workflow first runs. A refused token fails `google-github-actions/auth`
+with "The given credential is rejected by the attribute condition".
 
 ### Tear it all down
 
@@ -1499,4 +1520,10 @@ gcloud storage rm --all-versions --recursive "gs://<project_id>-tfstate/**"
 terraform destroy
 rm backend_override.tf terraform.tfstate*
 gcloud projects delete <project_id>          # what is left in it; undo within 30 days
+gh variable delete GCP_WORKLOAD_IDENTITY_PROVIDER  # terraform-plan.yml goes dormant again
+gh variable delete GCP_CI_SERVICE_ACCOUNT
+gh variable delete GCP_PROJECT_ID
 ```
+
+A destroyed identity pool is kept, deleted, for 30 days, and its ID can't be reused
+meanwhile: applying again in a project that wasn't deleted, within that time, needs `gcloud iam workload-identity-pools undelete github --location=global` first.

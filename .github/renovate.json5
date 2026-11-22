@@ -45,9 +45,9 @@
       datasourceTemplate: "docker",
     },
     {
-      // The Terraform and tflint that ci.yml's terraform job installs.
+      // The Terraform and tflint that ci.yml's terraform job (and terraform-plan.yml) install.
       customType: "regex",
-      managerFilePatterns: ["/^\\.github/workflows/ci\\.yml$/"],
+      managerFilePatterns: ["/^\\.github/workflows/(ci|terraform-plan)\\.yml$/"],
       matchStrings: ["TERRAFORM_VERSION: (?<currentValue>\\S+)"],
       depNameTemplate: "hashicorp/terraform",
       datasourceTemplate: "github-releases",
@@ -108,7 +108,7 @@
     {
       // The upstream charts, the tool images, and Terraform's providers and tools: minor and
       // patch updates in one PR.
-      matchFileNames: ["deploy/argocd/platform/values.yaml", ".github/workflows/ci.yml", "infra/**"],
+      matchFileNames: ["deploy/argocd/platform/values.yaml", ".github/workflows/ci.yml", ".github/workflows/terraform-plan.yml", "infra/**"],
       matchUpdateTypes: ["minor", "patch"],
       groupName: "upstream minor and patch",
     },

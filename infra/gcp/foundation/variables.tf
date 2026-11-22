@@ -13,3 +13,21 @@ variable "region" {
   type        = string
   default     = "us-west1"
 }
+
+variable "github_repository" {
+  description = "The repository whose workflows may act as the CI service account (owner/name)."
+  type        = string
+  default     = "easypeasyops/platform"
+}
+
+variable "github_repository_id" {
+  description = "That repository's numeric ID (gh api repos/<owner>/<name> --jq .id): a re-created repository of the same name gets a new one."
+  type        = string
+  default     = "1436120298"
+}
+
+variable "ci_workflows" {
+  description = "The workflow files under .github/workflows/ that may act as the CI service account, from main."
+  type        = list(string)
+  default     = ["terraform-plan.yml"]
+}
