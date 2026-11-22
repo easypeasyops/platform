@@ -3,6 +3,11 @@ output "project_id" {
   value       = var.project_id
 }
 
+output "project_number" {
+  description = "The project's number, which workload identity principals name (principal://iam.googleapis.com/projects/<number>/locations/global/workloadIdentityPools/<project_id>.svc.id.goog/subject/ns/<ns>/sa/<ksa>)."
+  value       = data.google_project.this.number
+}
+
 output "region" {
   description = "The region the GKE module builds in."
   value       = var.region

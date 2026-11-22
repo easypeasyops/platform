@@ -22,6 +22,10 @@ provider "google" {
   project = var.project_id
   region  = var.region
 
+  # The budget API refuses user credentials without a project to bill the call to.
+  billing_project       = var.project_id
+  user_project_override = true
+
   default_labels = {
     managed-by = "terraform"
     stack      = "foundation"

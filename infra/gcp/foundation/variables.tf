@@ -8,6 +8,22 @@ variable "project_id" {
   }
 }
 
+variable "billing_account" {
+  description = "The billing account the project is linked to (XXXXXX-XXXXXX-XXXXXX): the budget lives on it."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[0-9A-F]{6}-[0-9A-F]{6}-[0-9A-F]{6}$", var.billing_account))
+    error_message = "A billing account ID looks like 0X0X0X-0X0X0X-0X0X0X."
+  }
+}
+
+variable "budget_usd" {
+  description = "The project's monthly budget in US dollars: alerts at 50%, 90% and 100%, and on a forecast above it."
+  type        = number
+  default     = 10
+}
+
 variable "region" {
   description = "Where the state bucket lives, and the region the GKE module builds in."
   type        = string

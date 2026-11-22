@@ -546,6 +546,7 @@ not here; Terraform stops at the cluster API, and Argo CD owns what is inside it
 | One CI service account, which can't change IAM | It holds what the GKE run needs (cluster, network, disks, secrets, buckets) and read access to plan the foundation, but no role that edits project or service-account IAM, so it can't grant itself more. Applying the foundation stays on the laptop; plan on main catches drift |
 | Pods get access through their Kubernetes service account | GKE's workload identity lets a bucket or a secret grant its role to a Kubernetes service account directly, so CI makes no Google service accounts. The nodes run as their own account with GKE's minimal node role, which CI may only attach |
 | The state bucket is out of CI's storage admin | CI administers every bucket but that one by an IAM condition, and only reads and writes objects in it: it can't delete the bucket or turn its versioning off |
+| A budget, not a spending cap | Billing budgets alert (email at 50%, 90%, 100%, and on a forecast above the $10 a month); they don't stop anything. What keeps the cost down is that each run destroys what it made, and the reaper (PT-120) whatever a failed run left |
 
 ## Checks
 

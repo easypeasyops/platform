@@ -1443,7 +1443,7 @@ kubectl -n <ns> patch rollout <rollout> --subresource=status --type merge \
 
 `infra/gcp/foundation/` (PT-118) is the GCP project's Terraform: its APIs, the bucket that
 holds Terraform's state, the identity GitHub Actions acts as (Workload Identity Federation,
-no key) and the GKE nodes' service account. Nothing in it touches the laptop cluster. It is
+no key), the GKE nodes' service account and a monthly budget. Nothing in it touches the laptop cluster. It is
 applied from Emrah's laptop with his own credentials: CI checks the code offline (ci.yml,
 `terraform`) and, once bootstrapped, plans it on every merge to main
 (`terraform-plan.yml`, which fails on any change).
@@ -1465,8 +1465,15 @@ keeps its state on the laptop and moves it into the bucket afterwards.
    gcloud auth application-default login     # the credentials Terraform uses
    gcloud config set project <project_id>
    cd infra/gcp/foundation
-   echo 'project_id = "<project_id>"' > terraform.tfvars   # git-ignored
+   gcloud billing accounts list                # its ACCOUNT_ID, and that it is OPEN
+   cat > terraform.tfvars <<'EOF'              # git-ignored
+   project_id      = "<project_id>"
+   billing_account = "<billing_account>"
+   EOF
    ```
+
+   The budget is `budget_usd`, 10 by default; the billing account must be in US dollars.
+   Applying it needs Billing Account Administrator on the account (its creator has it).
 
 3. The first apply, with a local backend: `backend_override.tf` replaces the `gcs` backend
    for as long as it exists (git-ignored).
@@ -1485,13 +1492,15 @@ keeps its state on the laptop and moves it into the bucket afterwards.
    rm terraform.tfstate terraform.tfstate.backup
    terraform plan                            # No changes.
    gcloud storage ls gs://<project_id>-tfstate/foundation/   # default.tfstate
+   gcloud billing budgets list --billing-account=<billing_account>   # "<project_id> monthly", 10 USD, thresholds 0.5, 0.9, 1.0
    ```
 
-5. Wake up CI's plan: three repository variables (names and IDs, not secrets: there is no
+5. Wake up CI's plan: four repository variables (names and IDs, not secrets: there is no
    key anywhere), then run it once.
 
    ```sh
    gh variable set GCP_PROJECT_ID --body <project_id>
+   gh variable set GCP_BILLING_ACCOUNT --body <billing_account>
    gh variable set GCP_WORKLOAD_IDENTITY_PROVIDER --body "$(terraform output -raw workload_identity_provider)"
    gh variable set GCP_CI_SERVICE_ACCOUNT --body "$(terraform output -raw ci_service_account)"
    gh workflow run terraform-plan.yml && gh run watch
@@ -1517,13 +1526,16 @@ cd infra/gcp/foundation
 printf 'terraform {\n  backend "local" {}\n}\n' > backend_override.tf
 terraform init -migrate-state                # the bucket's state into ./terraform.tfstate
 gcloud storage rm --all-versions --recursive "gs://<project_id>-tfstate/**"
-terraform destroy
+terraform destroy                            # the budget too: it is the billing account's, not the project's
 rm backend_override.tf terraform.tfstate*
 gcloud projects delete <project_id>          # what is left in it; undo within 30 days
 gh variable delete GCP_WORKLOAD_IDENTITY_PROVIDER  # terraform-plan.yml goes dormant again
 gh variable delete GCP_CI_SERVICE_ACCOUNT
+gh variable delete GCP_BILLING_ACCOUNT
 gh variable delete GCP_PROJECT_ID
+gcloud billing budgets list --billing-account=<billing_account>   # no "<project_id> monthly"
 ```
 
 A destroyed identity pool is kept, deleted, for 30 days, and its ID can't be reused
-meanwhile: applying again in a project that wasn't deleted, within that time, needs `gcloud iam workload-identity-pools undelete github --location=global` first.
+meanwhile: applying again in a project that wasn't deleted, within that time, needs
+`gcloud iam workload-identity-pools undelete github --location=global` first.

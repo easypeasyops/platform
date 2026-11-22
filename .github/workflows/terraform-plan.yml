@@ -30,6 +30,7 @@ jobs:
     env:
       TERRAFORM_VERSION: 1.17.2 # ci.yml's; Renovate moves both
       TF_VAR_project_id: ${{ vars.GCP_PROJECT_ID }}
+      TF_VAR_billing_account: ${{ vars.GCP_BILLING_ACCOUNT }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
