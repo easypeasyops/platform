@@ -1464,6 +1464,7 @@ keeps its state on the laptop and moves it into the bucket afterwards.
    gcloud auth login
    gcloud auth application-default login     # the credentials Terraform uses
    gcloud config set project <project_id>
+   gcloud services enable cloudresourcemanager.googleapis.com   # see below
    cd infra/gcp/foundation
    gcloud billing accounts list                # its ACCOUNT_ID, and that it is OPEN
    cat > terraform.tfvars <<'EOF'              # git-ignored
@@ -1471,6 +1472,11 @@ keeps its state on the laptop and moves it into the bucket afterwards.
    billing_account = "<billing_account>"
    EOF
    ```
+
+   Terraform reads the project through the Cloud Resource Manager API before it can turn
+   any API on, and a new project doesn't have that one on: without it the first plan fails
+   with "Cloud Resource Manager API has not been used in project". `apis.tf` manages it
+   from then on.
 
    The budget is `budget_usd`, 10 by default; the billing account must be in US dollars.
    Applying it needs Billing Account Administrator on the account (its creator has it).
