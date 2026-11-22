@@ -542,6 +542,23 @@ hands `install` these; they become `modules/gke`'s outputs (PT-119). kind's are 
 The architecture and the StorageClass are not outputs: `install` reads the one from the
 nodes, and the other is the cluster's default.
 
+**GKE's values, and what isn't expressible yet.** The `gke` profile
+(`deploy/profiles/gke/`, [Profiles](#profiles)) turns the platform's metrics-server off
+and names no StorageClass for Prometheus, Grafana's plugins and VictoriaLogs. kind keeps
+naming `standard`: dropping it there would change a StatefulSet's volume template, which
+can't change in place. These outputs have no way in yet, so a GKE install doesn't meet the
+contract until they do (PT-119):
+
+- `secret_store`: the stores (`deploy/secrets/`) are plain manifests on the Kubernetes
+  provider, and a profile overlays only Helm values. Secret Manager also needs the values
+  written once, as the generators do on kind.
+- `bucket` and `api_server`: the service chart has the values (`database.cluster.backup.credentials`,
+  `destinationPath`, `networkPolicy.apiServerTo` and `apiServerPort`), but the ApplicationSet
+  renders each app from its own repo's files, with nothing per cluster.
+- The restore drills and SeaweedFS (`components.backups`) are S3 with keys.
+- `gateway_service`: the tools' listener on an internal load balancer needs a Service of
+  its own (the front door, PT-117).
+
 ## The GCP foundation
 
 `infra/gcp/foundation/` (PT-118, epic PT-114) is the Terraform for the GCP project the

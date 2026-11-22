@@ -1,0 +1,6 @@
+# The gke profile (PROFILE=gke; DESIGN, Profiles): what differs from kind on a cluster
+# infra/gcp/modules/gke made. This file is the root's: which components the cluster
+# already has. Each other file here is layered over deploy/kind/'s of the same name.
+components:
+  # GKE serves the resource metrics API itself (modules/gke's cluster_components).
+  metricsServer: false

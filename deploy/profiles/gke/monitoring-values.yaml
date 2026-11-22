@@ -1,0 +1,20 @@
+# Over deploy/kind/monitoring-values.yaml: no StorageClass named, so the cluster's default
+# (GKE: standard-rwo; cluster contract, default StorageClass).
+prometheus:
+  prometheusSpec:
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: null
+
+# A list is replaced whole, not merged: kind's extraManifests, without the class
+# (tests/test_profiles.py checks they stay the same otherwise).
+extraManifests:
+  - apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: grafana-plugins
+    spec:
+      accessModes: [ReadWriteOnce]
+      resources:
+        requests: { storage: 1Gi }

@@ -50,11 +50,13 @@ jobs:
           # The platform's root Application and its AppProject, as one document stream.
           awk 'FNR == 1 { print "---" } 1' deploy/argocd/*.yaml | kc -
           # The child Applications the platform chart renders, for both CPU architectures and
-          # with every optional component switched off once, with the values file the root
-          # adds (deploy/argocd/platform-root.yaml).
+          # with every optional component switched off once, and with the gke profile as
+          # cluster.sh's PROFILE=gke sets it, with the values file the root adds
+          # (deploy/argocd/platform-root.yaml).
           helm lint deploy/argocd/platform --set arch=amd64
           for args in "--set arch=amd64 --set components.argocd=true" "--set arch=arm64" \
-            "--set arch=amd64 --set components.monitoring=false --set components.policies=false --set components.backups=false --set components.metricsServer=false"; do
+            "--set arch=amd64 --set components.monitoring=false --set components.policies=false --set components.backups=false --set components.metricsServer=false" \
+            "--set arch=amd64 --set components.argocd=true --set profile=gke -f deploy/profiles/gke/platform.yaml"; do
             # shellcheck disable=SC2086 # word splitting intended
             helm template platform deploy/argocd/platform -f apps/front-door-probes.yaml $args | kc -
           done
