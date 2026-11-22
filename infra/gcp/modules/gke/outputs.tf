@@ -24,6 +24,24 @@ output "pod_range" {
   value       = var.pod_range
 }
 
+output "bucket" {
+  description = "The backup bucket: its URL, endpoint (none for GCS) and credential mode (the service chart's database.cluster.backup)."
+  value = {
+    url         = "gs://${google_storage_bucket.backups.name}"
+    endpoint    = null
+    credentials = "workloadIdentity"
+  }
+}
+
+output "identities" {
+  description = "The workload identity pool, and the principal each ClusterSecretStore's service account and the backups act as: already bound here, nothing to annotate."
+  value = {
+    pool          = local.pool
+    secret_stores = local.store_members
+    backups       = local.backup_members
+  }
+}
+
 output "secret_store" {
   description = "The secret backend External Secrets' stores use: Secret Manager in this project, through workload identity on this cluster."
   value = {

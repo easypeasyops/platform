@@ -1543,7 +1543,8 @@ meanwhile: applying again in a project that wasn't deleted, within that time, ne
 ## A GKE run, by hand
 
 `infra/gcp/gke/` (PT-119) makes one run's cluster in the foundation's project: a zonal GKE
-Standard cluster on one Spot node, its own VPC and Cloud NAT (DESIGN.md, The GKE run). The weekly
+Standard cluster on one Spot node, its own VPC and Cloud NAT, a backup bucket, and the
+Secret Manager secrets the `platform` store reads (DESIGN.md, The GKE run). The weekly
 workflow (PT-120) will do this as CI; by hand it is, with the foundation bootstrapped:
 
 ```sh

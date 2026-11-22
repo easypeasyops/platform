@@ -552,9 +552,8 @@ not here; Terraform stops at the cluster API, and Argo CD owns what is inside it
 
 `infra/gcp/modules/gke` (PT-119) is GKE's create step: a cluster that meets the
 [Cluster contract](#cluster-contract), and outputs exactly the list of what create hands
-to install, one output per item (`kube_context`, `api_server`, `pod_range`,
-`secret_store`, `gateway_service`, `cluster_components`; the bucket and the identities
-follow with the run's access). `infra/gcp/gke/` is
+to install, one output per item (`kube_context`, `api_server`, `pod_range`, `bucket`,
+`identities`, `secret_store`, `gateway_service`, `cluster_components`). `infra/gcp/gke/` is
 the root a run applies: it reads the foundation's outputs from its state and keeps its own
 under `gke/<run_id>`. Written before any account existed: nothing here has run yet.
 
@@ -564,6 +563,8 @@ under `gke/<run_id>`. Written before any account existed: nothing here has run y
 | Dataplane V2 | GKE's Cilium dataplane enforces NetworkPolicy itself; without it, NetworkPolicy needs Calico's pods on the node. What it sees of the API server is the one contract item left to confirm ([network policy](#c-netpol)) |
 | Private nodes, Cloud NAT, a VPC per run | No node has a public address; the registries, GitHub and Rekor are reached through NAT ([egress](#c-egress)). A VPC of the run's own is deleted with it, so a leftover can't hide in a shared one. The control plane may reach the nodes' webhook ports (8443, 9443), which GKE's own rules don't open |
 | The pod range is kind's, 10.244.0.0/16 | An app's prod values trust the pod range as their proxy; the same range on both keeps them unchanged |
+| Workload identity principals, no Google service accounts | The bucket grants `storage.objectUser`, and each secret `secretAccessor`, to Kubernetes service accounts directly (`principal://…/subject/ns/<ns>/sa/<ksa>`): nothing to annotate, no key, and CI needs no IAM role beyond the bucket's and the secrets' own ([bucket](#c-bucket), [secrets](#c-secrets)). A database's is its Cluster's service account; the restore drills', their whole namespace, as each scratch Cluster has its own name. Any granted database reaches the whole bucket, as on kind, where they share one key |
+| The run's secrets are made empty, named by their remote keys | `grafana-admin`, `alertmanager-slack`: the ExternalSecrets' `remoteRef.key`s stay as they are, and each secret is readable by its own store's service account only. Their values are install's to write (on kind, External Secrets' generators fill the Kubernetes store) |
 | GKE's Gateway API and Ingress off, its logging and monitoring of the system only | Envoy Gateway ships and owns the Gateway API CRDs; the platform has its own Prometheus and logs |
 | Everything named `platform-<run_id>` and labelled `run-id` | The reaper (PT-120) finds a failed run's leftovers by either; the VPC, subnet, router and firewall take no labels |
 
