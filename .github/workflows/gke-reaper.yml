@@ -1,0 +1,68 @@
+name: GKE reaper
+
+# What a GKE run left (PT-120): a run that died before its teardown (killed, its runner
+# lost) leaves a cluster, a load balancer or disks running up the bill. Every 3 hours this
+# deletes anything a run made that is older than 3 hours (scripts/gke-run.sh reap); a run's
+# job times out after 2, so a live run is never touched. It deletes by gcloud alone, in
+# dependency order, and fails when it deleted anything: a red run, by GitHub's email, says
+# which run's teardown didn't happen (RUNBOOK.md, The weekly GKE run).
+#
+# Dormant until the foundation is bootstrapped, like gke-e2e.yml: skipped without the
+# repository variable GCP_WORKLOAD_IDENTITY_PROVIDER, and admitted by the provider only as
+# listed in ci_workflows (infra/gcp/foundation), from main.
+on:
+  schedule:
+    - cron: "23 */3 * * *" # off the hour
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: "List what it would delete, delete nothing"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write # the OIDC token Workload Identity Federation exchanges
+
+concurrency:
+  group: gke-reaper
+  cancel-in-progress: false
+
+jobs:
+  reap:
+    name: GKE reaper
+    if: vars.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_CI_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+        with:
+          version: 594.0.0
+
+      - name: Reap what runs left
+        run: |
+          set -o pipefail
+          if [[ "$DRY_RUN" == true ]]; then set -- --dry-run; fi
+          scripts/gke-run.sh reap "$@" 2>&1 | tee "$RUNNER_TEMP/reaped.txt"
+        env:
+          STATE_BUCKET: ${{ vars.GCP_PROJECT_ID }}-tfstate
+          DRY_RUN: ${{ inputs.dry-run }} # empty on a schedule: a real reap
+
+      - name: Report
+        if: always()
+        run: |
+          {
+            echo "## GKE reaper"
+            echo '```'
+            cat "$RUNNER_TEMP/reaped.txt" 2>/dev/null || echo "(no output)"
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
