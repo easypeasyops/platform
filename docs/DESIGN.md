@@ -526,7 +526,7 @@ this table lists. The GKE column is the plan, not yet run.
 | The node's image is kind's default, and `GOMEMLIMIT` patched onto the API server | `deploy/kind/cluster.yaml` | [Kubernetes](#c-kubernetes), [nodes](#c-nodes): a managed control plane is the provider's |
 | `storageClassName: standard` named in three values (Prometheus, Grafana's plugins, VictoriaLogs) | `deploy/kind/monitoring-values.yaml`, `victoria-logs-values.yaml` | [Default StorageClass](#c-storage): naming none would use each cluster's default |
 | `--kubelet-insecure-tls` | `deploy/platform/metrics-server/kustomization.yaml` | [Resource metrics](#c-metrics) |
-| cloud-provider-kind as the load balancer, and the front door's socat forwarders to it (the node ports 30080 and 30081, still pinned, until every laptop's forwarders have moved) | `cluster.sh create`, `deploy/kind/gateway.yaml` | [LoadBalancer](#c-loadbalancer): the Service is a cloud's; the forwarders are the laptop's DNS |
+| cloud-provider-kind as the load balancer, and the front door's socat forwarders to it | `cluster.sh create`, `deploy/kind/gateway.yaml` | [LoadBalancer](#c-loadbalancer): the Service is a cloud's; the forwarders are the laptop's DNS |
 | SeaweedFS, its generated keys, and the chart's default bucket endpoint | `deploy/kind/backups.yaml`, `deploy/secrets/generated.yaml`, `charts/service/values.yaml` | [Bucket](#c-bucket) |
 | The Kubernetes provider on one namespace; Slack's token from Keychain | `deploy/secrets/store.yaml`, `scripts/lib/slack.sh` | [Secret backend](#c-secrets) |
 | `localBuild` (`<app>:dev`, `<app>:e2e`) in the allowlist | `deploy/policies/allowed-images.yaml` | [Egress](#c-egress): images that never left the laptop. Both policies are Deny on kind too (PT-111) |
@@ -543,7 +543,7 @@ hands `install` these; they become `modules/gke`'s outputs (PT-119). kind's are 
 - **Bucket**: its URL, its endpoint (none for GCS) and its credential mode, static keys or workload identity (kind: `s3://cnpg-backups`, the SeaweedFS Service, keys).
 - **Identities to bind**: the workload identity pool and, for each ClusterSecretStore and for the databases' ServiceAccounts, the cloud identity it acts as (kind: none).
 - **Secret store**: the provider and where it is (kind: Kubernetes, `secret-store`; GKE: Secret Manager and its project).
-- **Gateway Service**: its type and any annotations, such as an internal load balancer for the tools (kind: NodePort, 30080 and 30081).
+- **Gateway Service**: its type and any annotations, such as an internal load balancer for the tools (kind: LoadBalancer, served by cloud-provider-kind).
 - **Components the cluster already has**: those the platform must not install (kind: none; GKE: metrics-server).
 
 The architecture and the StorageClass are not outputs: `install` reads the one from the
