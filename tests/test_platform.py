@@ -819,8 +819,13 @@ def test_logs_are_kept_for_a_time_and_a_size_that_fit_the_volume() -> None:
     """The size cap is what keeps the volume from filling: it must stay under the claim."""
     server = yaml.safe_load((ROOT / "deploy/kind/victoria-logs-values.yaml").read_text())["server"]
     assert server["retentionPeriod"] == "30d"
-    assert server["persistentVolume"]["size"].endswith("Gi")
-    assert server["retentionDiskSpaceUsage"] < int(server["persistentVolume"]["size"][:-2])
+    units = {"MiB": 2**20, "GiB": 2**30, "Mi": 2**20, "Gi": 2**30}
+
+    def size(value: str) -> int:
+        (unit,) = [u for u in units if value.endswith(u) and value[: -len(u)].isdigit()]
+        return int(value[: -len(unit)]) * units[unit]
+
+    assert size(server["retentionDiskSpaceUsage"]) < size(server["persistentVolume"]["size"])
 
 
 def test_the_project_is_kept_from_git() -> None:

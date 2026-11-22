@@ -976,8 +976,8 @@ q 'request_id:="<id>"'
 The front door's proxy logs every request it answers, the ones that never reached an app
 included: [The access log](#the-access-log).
 
-**The store.** It keeps 30 days (`retentionPeriod: 30d`), or less if the logs outgrow 4 GiB
-first (`retentionDiskSpaceUsage`: the oldest day goes, whatever its age), on its own 5Gi
+**The store.** It keeps 30 days (`retentionPeriod: 30d`), or less if the logs outgrow 800 MiB
+first (`retentionDiskSpaceUsage`: the oldest day goes, whatever its age), on its own 1Gi
 volume, `server-volume-victoria-logs-0` in `monitoring` (kind's local-path storage, under
 the node's disk), so restarts and upgrades keep it. Settings:
 `deploy/kind/victoria-logs-values.yaml`. It listens on `victoria-logs.monitoring.svc:9428`
@@ -1048,7 +1048,7 @@ routes them to #platform-alerts (Slack alerts, above).
 | `LogCollectorNotSending` | A collector's sends have failed for 10 minutes (a restart of the store is a few minutes of this) | `kubectl -n log-collector logs <pod> --tail=50`: a refused connection is the store down or its NetworkPolicy |
 | `LogCollectorBufferNearlyFull` (critical) | Over 80% of the 1 GiB buffer (`maxDiskUsagePerURL`) is unsent lines: at the cap the oldest are dropped | Why it isn't sending (the two above); how full: `vlagent_remotewrite_pending_data_bytes`; dropped already: `vlagent_remotewrite_packets_dropped_total` |
 | `LogCollectorPodMissing` | A node has had no ready collector pod for 15 minutes: its pods' logs aren't read, and a pod deleted meanwhile takes its lines with it | `kubectl -n log-collector get pods -o wide`; `kubectl -n log-collector describe ds log-collector` ("permission denied" in the pod's logs is the security context) |
-| `LogStoreNearItsSizeCap` | The store holds over 80% of `retentionDiskSpaceUsage` (4 GiB) for 30 minutes. The volume won't fill: at the cap the oldest day goes, so the logs go back less than 30 days | Who writes the most: `_time:1d \| stats by (kubernetes.pod_namespace) sum_len(_msg) bytes \| sort by (bytes desc)`. Then quieten that app, or raise the cap and the volume together (`deploy/kind/victoria-logs-values.yaml`) |
+| `LogStoreNearItsSizeCap` | The store holds over 80% of `retentionDiskSpaceUsage` (800 MiB) for 30 minutes. The volume won't fill: at the cap the oldest day goes, so the logs go back less than 30 days | Who writes the most: `_time:1d \| stats by (kubernetes.pod_namespace) sum_len(_msg) bytes \| sort by (bytes desc)`. Then quieten that app, or raise the cap and the volume together (`deploy/kind/victoria-logs-values.yaml`) |
 
 ## Node metrics
 
