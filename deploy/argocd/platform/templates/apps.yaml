@@ -1,0 +1,30 @@
+{{- /*
+The apps' ApplicationSet (components.apps; DESIGN, The platform chart): files/applicationset.yaml
+as it is, so on a cluster without `cluster` values it is the object the apps root applied,
+byte for byte, and Argo CD adopts it without touching an app's Application. With the
+cluster's values (cluster.api_server, cluster.bucket), each app's chart gets them as its
+Application's valuesObject, over the app's own files: they are the cluster's facts, not the
+app's. Inserted into the template patch as JSON; `{{ .app }}-{{ .env }}` in the bucket's path
+is the ApplicationSet's to fill.
+*/}}
+{{- if .Values.components.apps }}
+{{- $appset := .Files.Get "files/applicationset.yaml" }}
+{{- $over := dict }}
+{{- with .Values.cluster.api_server }}
+{{- $to := list }}
+{{- range .cidrs }}{{ $to = append $to (dict "ipBlock" (dict "cidr" .)) }}{{ end }}
+{{- $_ := set $over "networkPolicy" (dict "apiServerTo" $to "apiServerPort" (int .port)) }}
+{{- end }}
+{{- with .Values.cluster.bucket }}
+{{- $backup := dict "credentials" .credentials "destinationPath" (printf "%s/{{ .app }}-{{ .env }}" (trimSuffix "/" .url)) }}
+{{- with .endpoint }}{{ $_ := set $backup "endpointURL" . }}{{ end }}
+{{- $_ := set $over "database" (dict "cluster" (dict "backup" $backup)) }}
+{{- end }}
+{{- if $over }}
+{{- $anchor := "            releaseName: {{ .app | quote }}\n" }}
+{{- if not (contains $anchor $appset) }}{{ fail "files/applicationset.yaml: no releaseName line to add the cluster's values after" }}{{ end }}
+{{- $appset = replace $anchor (printf "%s            valuesObject: %s\n" $anchor (toJson $over)) $appset }}
+{{- end }}
+---
+{{ $appset }}
+{{- end }}

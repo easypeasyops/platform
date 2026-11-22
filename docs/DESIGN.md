@@ -568,8 +568,11 @@ kind passes none, and nothing then reads them.
 These have no way in yet, so a GKE install doesn't meet the contract until they do:
 
 - `bucket` and `api_server`: the service chart has the values (`database.cluster.backup.credentials`,
-  `destinationPath`, `networkPolicy.apiServerTo` and `apiServerPort`), but the ApplicationSet
-  renders each app from its own repo's files, with nothing per cluster.
+  `destinationPath`, `networkPolicy.apiServerTo` and `apiServerPort`). The platform chart
+  can render the apps' ApplicationSet (`components.apps`, `files/applicationset.yaml`) and
+  add them to every app's Application as its `valuesObject`, over the app's own files; until
+  it owns the ApplicationSet (the apps root does), they don't reach the apps. An app on
+  such a cluster needs a chart that has the values (`credentials`: 1.8.0).
 - The restore drills and SeaweedFS (`components.backups`) are S3 with keys.
 - `gateway_service`: the tools' listener on an internal load balancer needs a Service of
   its own (the front door, PT-117).
