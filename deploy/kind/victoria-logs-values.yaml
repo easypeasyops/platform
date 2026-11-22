@@ -16,14 +16,19 @@ networkPolicy:
 
 server:
   fullnameOverride: victoria-logs # the Service the collector and Grafana name, port 9428
-  # 30 days, or less if the logs outgrow 4 GiB first: the oldest day goes, whatever its
-  # age, so the volume never fills. The cluster wrote about 15 MiB of logs a day when this
-  # was sized (2026-11-11), so the cap is far away.
+  # 30 days, or less if the logs outgrow 800 MiB first: the oldest day goes, whatever its
+  # age, so the volume never fills. The disk is what a cloud bills for, so it is sized to the
+  # logs: about 15 MB a day before the platform's components went to warn (2026-11-21),
+  # and 57 MB on disk then for 10 days. 30 days fit with room.
   retentionPeriod: 30d
-  retentionDiskSpaceUsage: 4 # GiB
+  retentionDiskSpaceUsage: 800MiB
+  # A StatefulSet's volume template can't be changed in place: after a change here,
+  # `kubectl -n monitoring delete statefulset victoria-logs --cascade=orphan`, and Argo CD
+  # recreates it (pod and volume stay). The volume itself keeps its old size until it is
+  # recreated; kind's local-path doesn't enforce sizes anyway.
   persistentVolume:
     storageClassName: standard # kind's local-path provisioner
-    size: 5Gi
+    size: 1Gi
   # Memory from 7 days of use (2026-11-16, PT-39): usually about 100 MiB (working set p95
   # 330), with short peaks to 816 MiB RSS during big queries or merges. The limit is about
   # 1.5x that peak.
