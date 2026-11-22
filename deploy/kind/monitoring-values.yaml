@@ -519,6 +519,10 @@ grafana:
   grafana.ini:
     server:
       root_url: http://grafana.localhost:8090
+    # Warnings and errors only: its info lines (start-up, plugin and migration notes) are
+    # most of what it logs.
+    log:
+      level: warn
   # The logs, beside the metrics: VictoriaLogs (deploy/kind/victoria-logs-values.yaml) as a
   # data source, read in Explore (docs/RUNBOOK.md, Logs). Its plugin isn't part of Grafana:
   # Grafana downloads it from grafana.com before it starts, unless its plugin directory

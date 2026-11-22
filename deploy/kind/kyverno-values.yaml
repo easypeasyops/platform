@@ -6,6 +6,11 @@
 upgrade:
   legacyPolicyCheck:
     enabled: false
+# Info lines and up, for every Kyverno controller: the chart's default verbosity 2 adds
+# debug and trace lines (a third of what Kyverno logged, 2026-11-21).
+features:
+  logging:
+    verbosity: 0
 admissionController:
   # Two, so a restart of one doesn't block app pods: the provenance policy fails closed, so
   # while no admission pod is ready, no Pod can start in staging or prod. The PDB keeps one
