@@ -19,6 +19,9 @@ components:
   slack: true
   policies: true
   backups: true
+  # The resource metrics API (cluster contract, resource metrics): off where the cluster
+  # serves its own, as GKE does (modules/gke's cluster_components).
+  metricsServer: true
   # Argo CD managing its own install (the `argocd` Application, PT-109). Off by default, so
   # a running cluster adopts it only when cluster.sh sets it (its next `up` or `install`),
   # where the Helm records are handed over in the same run, not on the merge.
