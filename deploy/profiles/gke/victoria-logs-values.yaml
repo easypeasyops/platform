@@ -1,0 +1,5 @@
+# Over deploy/kind/victoria-logs-values.yaml: no StorageClass named, so the cluster's
+# default (GKE: standard-rwo; cluster contract, default StorageClass).
+server:
+  persistentVolume:
+    storageClassName: null
