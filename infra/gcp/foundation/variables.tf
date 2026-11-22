@@ -45,5 +45,5 @@ variable "github_repository_id" {
 variable "ci_workflows" {
   description = "The workflow files under .github/workflows/ that may act as the CI service account, from main. A change is applied from the laptop before the workflow first runs (RUNBOOK.md, The GCP foundation)."
   type        = list(string)
-  default     = ["terraform-plan.yml", "gke-e2e.yml"]
+  default     = ["terraform-plan.yml", "gke-e2e.yml", "gke-reaper.yml"]
 }

@@ -1527,7 +1527,7 @@ keeps its state on the laptop and moves it into the bucket afterwards.
 From then on, `terraform init` here takes `-backend-config=bucket=<project_id>-tfstate`.
 
 Only the workflows in `ci_workflows`, from main, may act as CI (`wif.tf`): today
-`terraform-plan.yml` and the weekly GKE run's `gke-e2e.yml`. A new workflow that needs GCP
+`terraform-plan.yml`, and the weekly GKE run's `gke-e2e.yml` and `gke-reaper.yml`. A new workflow that needs GCP
 is added there, and the change applied from the laptop before the workflow first runs
 (`tests/test_gke_run.py` fails on a workflow that authenticates and isn't listed). A refused token fails `google-github-actions/auth`
 with "The given credential is rejected by the attribute condition".
@@ -1595,12 +1595,13 @@ install the platform at the run's commit with `PROFILE=gke`, the checks kind's e
 every app namespace (`scripts/gke-run.sh check`, the same `scripts/lib/e2e-checks.sh`),
 then the teardown, which runs whatever happened before it: `drain`, `terraform destroy`,
 then `leftovers`, which fails the run if anything labelled `run-id=<run>` (or made by
-Kubernetes since the run began) is still in GCP. Target: under 45 minutes. Not part of the
+Kubernetes since the run began) is still in GCP. A run that never reaches its teardown is
+the reaper's (below). Target: under 45 minutes. Not part of the
 `ci` gate.
 
 It is dormant until the foundation is bootstrapped: it skips without
-`GCP_WORKLOAD_IDENTITY_PROVIDER`, and the provider admits it only once `ci_workflows` with
-`gke-e2e.yml` is applied from the laptop (The GCP foundation, above).
+`GCP_WORKLOAD_IDENTITY_PROVIDER`, and the provider admits it and the reaper only once
+`ci_workflows` with `gke-e2e.yml` and `gke-reaper.yml` is applied from the laptop (The GCP foundation, above).
 
 - **Run it on demand:** `gh workflow run gke-e2e.yml` (main only: the provider refuses any
   other ref). `-f apps=false` installs and checks the platform without the apps.
@@ -1632,3 +1633,16 @@ It is dormant until the foundation is bootstrapped: it skips without
   `gcloud storage rm -r gs://<bucket>`, then `destroy` again: a leftover load balancer's
   firewall rule (`k8s-…`) blocks deleting the VPC, `gcloud compute firewall-rules list
   --filter=network~platform-$RUN`.
+- **The reaper** (`gke-reaper.yml`, every 3 hours at :23) deletes what a run left that is
+  older than 3 hours, by gcloud alone (`scripts/gke-run.sh reap`): clusters, load
+  balancers, addresses, disks, secrets and buckets with a `run-id` label or made by
+  Kubernetes, the `platform-<run>` VPC, and the runs' state under `gke/` in the state
+  bucket. Each deletion is a `reap <kind> <id>` line in the log and the run's summary.
+  **A red reaper means it deleted something**: a run's teardown didn't happen. The run ID
+  is in the names; find that run (`gh run list --workflow gke-e2e.yml`) and why it
+  stopped. `gh workflow run gke-reaper.yml -f dry-run=true` lists without deleting; by
+  hand, `STATE_BUCKET=<project_id>-tfstate scripts/gke-run.sh reap --dry-run`.
+- **If the reaper fails** (red with an error, not a list of deletions): a delete was
+  refused, often because something still refers to it (a firewall rule to its network, a
+  disk to a VM). Its log names the last `reap` line; clean that run up by hand as above,
+  then run the reaper again until it is green.
