@@ -292,8 +292,10 @@ else is put in the cluster by hand. From then on Argo CD manages its own install
 `argocd` child).
 
 `up` is two steps, split where a cluster stops being kind's (PT-116). `cluster.sh create`
-makes what only kind needs: the cluster and the front door's forwarders, which stand in for
-a cloud's load balancer. `cluster.sh install` is everything above, on whatever cluster the
+makes what only kind needs: the cluster, a LoadBalancer implementation (cloud-provider-kind,
+which gives a `LoadBalancer` Service an address on the kind network as a cloud's would; its
+own Gateway API and Ingress controllers off), and the front door's forwarders to the
+laptop's ports. `cluster.sh install` is everything above, on whatever cluster the
 kube context points at, and names nothing kind-specific. Another cluster gets its own
 `create` (a cloud's Terraform, PT-114) and the same `install`.
 

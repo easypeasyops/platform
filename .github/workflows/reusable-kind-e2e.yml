@@ -173,6 +173,43 @@ jobs:
           echo "::error::Argo CD didn't put its own argocd-cmd-params-cm back to git's value in 120 s"
           exit 1
 
+      # cloud-provider-kind (cluster.sh create) gives a LoadBalancer Service an address on
+      # the kind network, and its load balancer answers there. On the platform repo's own
+      # runs only, with a throwaway copy of the proxies' Service (PT-117).
+      - name: LoadBalancer Services get an address
+        if: inputs.run && github.repository == 'easypeasyops/platform'
+        run: |
+          # Its own label: with the front door's, Envoy Gateway would take it for the Gateway's.
+          kubectl -n envoy-gateway-system expose svc front-door --name lb-check --type LoadBalancer \
+            --labels app.kubernetes.io/name=lb-check
+          t0=$SECONDS ip="" code=""
+          for _ in $(seq 1 60); do
+            ip=$(kubectl -n envoy-gateway-system get svc lb-check -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+            [[ -n "$ip" ]] && break
+            sleep 2
+          done
+          if [[ -z "$ip" ]]; then
+            echo "::error::no address for a LoadBalancer Service in 120 s"
+            docker logs --tail 50 shortly-cloud-provider-kind
+            exit 1
+          fi
+          echo "lb-check got $ip in $((SECONDS - t0)) s"
+          for _ in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -m 5 -H 'Host: argocd.localhost' "http://$ip:8081/" || true)
+            [[ "$code" == 200 ]] && break
+            sleep 2
+          done
+          echo "http://argocd.localhost/ through $ip:8081 answered ${code:-nothing}"
+          docker ps --filter label=io.x-k8s.cloud-provider-kind.cluster --format '{{.Names}} {{.Image}}'
+          kubectl -n envoy-gateway-system delete svc lb-check
+          [[ "$code" == 200 ]]
+
+      # What runs beside the kind node, outside its memory: the load balancer and the
+      # forwarders (cluster.sh create).
+      - name: Containers beside the node
+        if: always() && inputs.run
+        run: docker stats --no-stream --format '{{.Name}} {{.MemUsage}} {{.CPUPerc}}' || true
+
       # When a sync never finishes, the job's timeout kills the wait before it can explain.
       - name: Argo CD state (on failure)
         if: (failure() || cancelled()) && inputs.run

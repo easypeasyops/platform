@@ -3,7 +3,8 @@
 # its own database — the shape of real environments, on a laptop.
 #
 #   scripts/cluster.sh up              # idempotent: create, then install
-#   scripts/cluster.sh create          # the kind cluster and its front door, nothing on it
+#   scripts/cluster.sh create          # the kind cluster, its load balancer and its front
+#                                       # door, nothing on it
 #   scripts/cluster.sh install         # the platform and the apps, on the current kube
 #                                       # context: any cluster, not only kind
 #   CONTEXT=<name> scripts/cluster.sh install # on that context (it becomes the current one)
@@ -67,6 +68,13 @@ read -r ARGOCD_CHART ARGOCD_VERSION ARGOCD_DIGEST < <(awk '
 # extraPortMappings, which only take effect when the cluster is created.
 FRONT_DOOR_IMAGE=docker.io/alpine/socat:1.8.1.3@sha256:22d77becaeeea8ef56b8c4bb2312323acafe85354be6a85714ff5050e3537842
 FRONT_DOOR_PORTS=("8080:30080" "8090:30081") # host:nodePort, users (http) and dev tools (tools)
+# The cluster's LoadBalancer implementation, as a cloud has one: kubernetes-sigs'
+# cloud-provider-kind, a container beside the node that gives each LoadBalancer Service an
+# address on the kind network, served by an Envoy container of its own (kindccm-*). It
+# drives Docker through the socket, as kind does. Its Gateway API and Ingress controllers
+# are off: Envoy Gateway is the platform's, and owns the Gateway API CRDs.
+LOAD_BALANCER=$CLUSTER-cloud-provider-kind
+LOAD_BALANCER_IMAGE=registry.k8s.io/cloud-provider-kind/cloud-controller-manager:v0.12.0@sha256:1b97632e5dfec8f83c7e970cf18cedb9e6b707e272011d712cabf6ab59d323c9
 # Releases scripts/cluster.sh installs (or used to) with Helm, now Argo CD's
 # (namespace/release): their Helm records are removed once Argo CD has adopted the
 # resources. Argo CD's own (argocd/argocd) is installed again on each fresh cluster.
@@ -81,13 +89,14 @@ up() {
   CONTEXT="kind-$CLUSTER" install
 }
 
-# What only kind needs: the cluster itself, and the forwarders that stand in for a cloud's
-# load balancer. Nothing on the cluster is installed here.
+# What only kind needs: the cluster itself, its LoadBalancer implementation, and the
+# forwarders to the laptop's ports. Nothing on the cluster is installed here.
 create() {
   if ! kind get clusters 2>/dev/null | grep -qx "$CLUSTER"; then
     kind create cluster --config "$ROOT/deploy/kind/cluster.yaml" --wait 120s
   fi
   kubectl config use-context "kind-$CLUSTER" >/dev/null
+  load_balancer
   if on FRONT_DOOR; then front_door; fi
 }
 
@@ -417,6 +426,22 @@ install_argocd() {
   echo "argocd ready: Argo CD (chart $ARGOCD_VERSION) in namespace argocd"
 }
 
+# Start cloud-provider-kind, or replace it when it runs another image; one that runs this
+# image is left alone. Replaced with rm -f (SIGKILL): on a clean stop it deletes its load
+# balancers' containers, which the new one would then have to make again.
+load_balancer() {
+  if [[ "$(docker inspect -f '{{.Config.Image}} {{.State.Running}}' "$LOAD_BALANCER" 2>/dev/null)" \
+    == "$LOAD_BALANCER_IMAGE true" ]]; then
+    return 0
+  fi
+  docker rm -f "$LOAD_BALANCER" >/dev/null 2>&1 || true
+  docker run -d --name "$LOAD_BALANCER" --restart unless-stopped --network kind \
+    --log-opt max-size=10m --log-opt max-file=2 \
+    -v /var/run/docker.sock:/var/run/docker.sock "$LOAD_BALANCER_IMAGE" \
+    --gateway-channel disabled >/dev/null
+  echo "load balancer: cloud-provider-kind ($LOAD_BALANCER) serves LoadBalancer Services"
+}
+
 # Start (or replace) the front-door forwarders. Not fatal: the cluster works without them,
 # through kubectl port-forward (RUNBOOK, Local cluster operations).
 front_door() {
@@ -464,6 +489,11 @@ down() {
   for mapping in "${FRONT_DOOR_PORTS[@]}"; do
     docker rm -f "$CLUSTER-front-door-${mapping%%:*}" >/dev/null 2>&1 || true
   done
+  # A clean stop, so cloud-provider-kind deletes its load balancers' containers as it exits;
+  # then any it left.
+  docker stop -t 30 "$LOAD_BALANCER" >/dev/null 2>&1 || true
+  docker rm -f "$LOAD_BALANCER" >/dev/null 2>&1 || true
+  docker ps -aq --filter "label=io.x-k8s.cloud-provider-kind.cluster=$CLUSTER" | xargs docker rm -f >/dev/null 2>&1 || true
   kind delete cluster --name "$CLUSTER"
 }
 
