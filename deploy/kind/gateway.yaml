@@ -56,15 +56,6 @@ spec:
         # Local only keeps the client's IP, which one node and an access log without it
         # don't need, and it adds a health-check node port for the load balancer to follow.
         externalTrafficPolicy: Cluster
-        # The node ports the forwarders used before they went to the load balancer (PT-117):
-        # kept until every laptop's forwarders have moved, then dropped. Merged by port number.
-        patch:
-          type: StrategicMerge
-          value:
-            spec:
-              ports:
-                - { port: 80, nodePort: 30080 }
-                - { port: 8081, nodePort: 30081 }
       envoyDeployment:
         replicas: 1
         container:
