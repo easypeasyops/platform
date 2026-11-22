@@ -31,8 +31,9 @@ change here that breaks links shows the next morning.
 
 CI (`ci.yml`): kubeconform on every manifest and on the platform chart rendered three ways,
 the metrics-server checksum, `uv run pytest` (tests/, through the platform's own
-`reusable-python-check.yml`, so ruff and mypy too), shellcheck (`-x`, entry points only) and
-actionlint. Run the Docker-free ones locally before pushing when a change touches them (see
+`reusable-python-check.yml`, so ruff and mypy too), shellcheck (`-x`, entry points only),
+actionlint, and terraform fmt, validate (no backend) and tflint on every root configuration
+under `infra/` (job `terraform`). Run the Docker-free ones locally before pushing when a change touches them (see
 "The laptop cluster has no spare memory" below). `ci` is the one
 required check: add every new job to the gate's `needs`. A test that needs Docker or the
 network is marked `integration`.
