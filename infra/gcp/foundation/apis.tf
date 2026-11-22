@@ -4,7 +4,13 @@ locals {
   services = [
     "cloudresourcemanager.googleapis.com", # project IAM
     "serviceusage.googleapis.com",         # this list
-    "storage.googleapis.com",              # the state bucket
+    "storage.googleapis.com",              # the state bucket, the run's backup bucket
+    "iam.googleapis.com",                  # service accounts, the identity pool
+    "iamcredentials.googleapis.com",       # CI's short-lived tokens for its service account
+    "sts.googleapis.com",                  # GitHub's OIDC token exchanged for a Google one
+    "compute.googleapis.com",              # the run's network, disks and load balancers
+    "container.googleapis.com",            # GKE
+    "secretmanager.googleapis.com",        # the run's secrets, read by External Secrets
   ]
 }
 

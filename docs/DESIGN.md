@@ -542,6 +542,10 @@ not here; Terraform stops at the cluster API, and Argo CD owns what is inside it
 | State in a versioned GCS bucket the foundation itself makes | The bootstrap applies once with local state, then migrates (RUNBOOK.md). Versioning keeps the last 10 generations, so a bad write rolls back |
 | Providers pinned exactly, with `.terraform.lock.hcl` for linux_amd64 and darwin_arm64 | CI and the laptop install the same provider, checked against the same hashes; `init -lockfile=readonly` in CI fails on anything else. Renovate moves the pin and the lock together |
 | Checked offline in CI | `fmt`, `validate` without a backend and `tflint` need no GCP access, so they run on every PR before any account exists |
+| CI authenticates through Workload Identity Federation | GitHub's OIDC token is exchanged for a short-lived one: no key in GitHub secrets to leak or rotate. The provider admits this repository by ID (a re-created repository of the same name doesn't inherit it), from main, and only the workflows in `ci_workflows`: a PR, a branch or a fork gets nothing |
+| One CI service account, which can't change IAM | It holds what the GKE run needs (cluster, network, disks, secrets, buckets) and read access to plan the foundation, but no role that edits project or service-account IAM, so it can't grant itself more. Applying the foundation stays on the laptop; plan on main catches drift |
+| Pods get access through their Kubernetes service account | GKE's workload identity lets a bucket or a secret grant its role to a Kubernetes service account directly, so CI makes no Google service accounts. The nodes run as their own account with GKE's minimal node role, which CI may only attach |
+| The state bucket is out of CI's storage admin | CI administers every bucket but that one by an IAM condition, and only reads and writes objects in it: it can't delete the bucket or turn its versioning off |
 
 ## Checks
 
