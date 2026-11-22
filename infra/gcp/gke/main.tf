@@ -10,6 +10,10 @@ terraform {
       source  = "hashicorp/google"
       version = "8.12.0"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "3.9.1"
+    }
   }
 
   backend "gcs" {}
@@ -50,4 +54,5 @@ module "gke" {
   node_service_account = local.foundation.gke_node_service_account
   backup_principals    = var.backup_principals
   secret_stores        = var.secret_stores
+  generated_secrets    = var.generated_secrets
 }

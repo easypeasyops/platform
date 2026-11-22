@@ -5,3 +5,5 @@
 # and the values that name the project and the billing account.
 *_override.tf
 *.tfvars
+# A run's outputs for install (RUNBOOK.md, A GKE run, by hand): they name the project.
+*.outputs.json

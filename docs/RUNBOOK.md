@@ -1568,7 +1568,11 @@ RUN=manual-$(date +%Y%m%d)                   # names and labels everything: labe
 terraform init -backend-config=bucket=<project_id>-tfstate -backend-config=prefix=gke/$RUN
 terraform apply -var state_bucket=<project_id>-tfstate -var run_id=$RUN
 eval "$(terraform output -json kube_context | jq -r .get_credentials)"
-terraform output                             # what install needs (DESIGN.md, Cluster contract)
+terraform output -json > "$RUN.outputs.json"  # what install needs (DESIGN.md, Cluster contract)
+cd ../../..
+# No Slack token on a run, and no SeaweedFS: the drills don't reach GCS yet (PT-119).
+CONTEXT="$(jq -r .kube_context.value.name "infra/gcp/gke/$RUN.outputs.json")" PROFILE=gke \
+  CLUSTER_OUTPUTS="infra/gcp/gke/$RUN.outputs.json" SLACK=0 BACKUPS=0 scripts/cluster.sh install
 ```
 
 Then destroy it the same day: a run is never meant to outlive its tests.
