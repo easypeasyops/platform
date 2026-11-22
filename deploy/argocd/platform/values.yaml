@@ -19,6 +19,9 @@ profile: ""
 # below reads them and kind's renders are unchanged.
 #   secret_store  {provider, project_id, cluster_name, cluster_location}: the stores read
 #                 Secret Manager through workload identity (provider gcpsm only)
+#   api_server    {cidrs, port}: every app's networkPolicy.apiServerTo and apiServerPort
+#   bucket        {url, endpoint, credentials}: every app's database.cluster.backup
+#                 (destinationPath <url>/<namespace>; endpointURL if any; credentials)
 cluster: {}
 # What to install (cluster.sh's MONITORING, POLICIES, BACKUPS knobs; CI's delivery job
 # skips the last two).
@@ -37,6 +40,10 @@ components:
   # a running cluster adopts it only when cluster.sh sets it (its next `up` or `install`),
   # where the Helm records are handed over in the same run, not on the merge.
   argocd: false
+  # The apps' ApplicationSet (files/applicationset.yaml), rendered here so it can pass the
+  # cluster's own values (`cluster`, below) to every app (PT-119). Off: the apps root
+  # (deploy/argocd/apps-root.yaml) still owns it, from apps/applicationset.yaml.
+  apps: false
 
 # What the blackbox exporter asks for through the front door, every minute, as a user would
 # (templates/monitoring.yaml: one Probe each; docs/RUNBOOK.md, The front door): the tools'

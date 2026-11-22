@@ -55,7 +55,7 @@ jobs:
           # cluster.sh's PROFILE=gke sets it, with the values file the root adds
           # (deploy/argocd/platform-root.yaml).
           helm lint deploy/argocd/platform --set arch=amd64
-          for args in "--set arch=amd64 --set components.argocd=true" "--set arch=arm64" \
+          for args in "--set arch=amd64 --set components.argocd=true --set components.apps=true" "--set arch=arm64" \
             "--set arch=amd64 --set components.monitoring=false --set components.policies=false --set components.backups=false --set components.metricsServer=false" \
             "--set arch=amd64 --set components.argocd=true --set profile=gke -f deploy/profiles/gke/platform.yaml"; do
             # shellcheck disable=SC2086 # word splitting intended
