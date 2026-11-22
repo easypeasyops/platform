@@ -530,6 +530,19 @@ hands `install` these; they become `modules/gke`'s outputs (PT-119). kind's are 
 The architecture and the StorageClass are not outputs: `install` reads the one from the
 nodes, and the other is the cluster's default.
 
+## The GCP foundation
+
+`infra/gcp/foundation/` (PT-118, epic PT-114) is the Terraform for the GCP project the
+weekly GKE run (PT-119, PT-120) builds in: what outlives each run. The cluster itself is
+not here; Terraform stops at the cluster API, and Argo CD owns what is inside it.
+
+| Choice | Why |
+| --- | --- |
+| The project is made by hand, once; Terraform takes its ID | A personal account has no organisation or folder to create projects in, and a project Terraform made would hold the bucket with Terraform's own state. One console step instead of a second bootstrap |
+| State in a versioned GCS bucket the foundation itself makes | The bootstrap applies once with local state, then migrates (RUNBOOK.md). Versioning keeps the last 10 generations, so a bad write rolls back |
+| Providers pinned exactly, with `.terraform.lock.hcl` for linux_amd64 and darwin_arm64 | CI and the laptop install the same provider, checked against the same hashes; `init -lockfile=readonly` in CI fails on anything else. Renovate moves the pin and the lock together |
+| Checked offline in CI | `fmt`, `validate` without a backend and `tflint` need no GCP access, so they run on every PR before any account exists |
+
 ## Checks
 
 What a schema can check, kubeconform checks on every manifest and on the platform chart
