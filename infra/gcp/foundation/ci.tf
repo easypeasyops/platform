@@ -20,15 +20,16 @@ locals {
   # its Kubernetes service account directly (GKE's workload identity principal), on the
   # bucket or the secret, so CI makes no service accounts.
   ci_roles = {
-    "roles/container.admin"                 = "create and delete the zonal cluster and its Spot node pool; cluster-admin inside it for cluster.sh install"
-    "roles/compute.networkAdmin"            = "the run's VPC, subnet, router and NAT; delete load balancers a Service left behind"
-    "roles/compute.securityAdmin"           = "delete the firewall rules GKE writes per LoadBalancer Service, which otherwise block deleting the VPC"
-    "roles/compute.storageAdmin"            = "delete disks a PersistentVolume left behind"
-    "roles/secretmanager.admin"             = "the run's secrets, and the IAM on each that lets External Secrets read it"
-    "roles/iam.securityReviewer"            = "plan: read the IAM policies this configuration sets"
-    "roles/iam.serviceAccountViewer"        = "plan: read the service accounts"
-    "roles/iam.workloadIdentityPoolViewer"  = "plan: read the pool and provider"
-    "roles/serviceusage.serviceUsageViewer" = "plan: read the enabled APIs"
+    "roles/container.admin"                   = "create and delete the zonal cluster and its Spot node pool; cluster-admin inside it for cluster.sh install"
+    "roles/compute.networkAdmin"              = "the run's VPC, subnet, router and NAT; delete load balancers a Service left behind"
+    "roles/compute.securityAdmin"             = "delete the firewall rules GKE writes per LoadBalancer Service, which otherwise block deleting the VPC"
+    "roles/compute.storageAdmin"              = "delete disks a PersistentVolume left behind"
+    "roles/secretmanager.admin"               = "the run's secrets, and the IAM on each that lets External Secrets read it"
+    "roles/iam.securityReviewer"              = "plan: read the IAM policies this configuration sets"
+    "roles/iam.serviceAccountViewer"          = "plan: read the service accounts"
+    "roles/iam.workloadIdentityPoolViewer"    = "plan: read the pool and provider"
+    "roles/serviceusage.serviceUsageViewer"   = "plan: read the enabled APIs"
+    "roles/serviceusage.serviceUsageConsumer" = "bill its API calls to this project (the provider's user_project_override)"
   }
 }
 

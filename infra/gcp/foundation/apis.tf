@@ -11,6 +11,8 @@ locals {
     "compute.googleapis.com",              # the run's network, disks and load balancers
     "container.googleapis.com",            # GKE
     "secretmanager.googleapis.com",        # the run's secrets, read by External Secrets
+    "billingbudgets.googleapis.com",       # the budget
+    "cloudbilling.googleapis.com",         # the billing account's IAM
   ]
 }
 
