@@ -1,7 +1,7 @@
 """The kind front door (deploy/kind/gateway.yaml, deploy/kind/tools/, scripts/cluster.sh).
 
 The users' listener and the dev tools' listener must stay apart, and the laptop ports in
-scripts/cluster.sh must forward to the node ports the Gateway's Service actually pins.
+scripts/cluster.sh must forward to the listeners' ports on the Gateway's load balancer.
 Its metrics (the platform chart's templates/monitoring.yaml): Prometheus must find the
 proxies and the controller where Envoy Gateway runs them.
 """
@@ -105,26 +105,27 @@ def test_service_chart_defaults_name_this_gateway() -> None:
     assert url == f"http://{service}.{proxy['metadata']['namespace']}.svc"
 
 
-def test_front_door_ports_match_the_pinned_node_ports() -> None:
+def test_front_door_ports_forward_to_the_load_balancer() -> None:
+    """The proxies' Service is a LoadBalancer, as on a cloud (PT-117), and the laptop's
+    forwarders go to its load balancer on the listeners' ports, by the Service's name."""
+    docs = _gateway_docs()
     listeners = {
-        listener["port"]: listener["name"]
-        for listener in _gateway_docs()["Gateway"]["spec"]["listeners"]
+        listener["port"]: listener["name"] for listener in docs["Gateway"]["spec"]["listeners"]
     }
-    service = _gateway_docs()["EnvoyProxy"]["spec"]["provider"]["kubernetes"]["envoyService"]
-    assert service["type"] == "NodePort"
-    pinned = {p["nodePort"]: p["port"] for p in service["patch"]["value"]["spec"]["ports"]}
-    assert set(pinned.values()) == set(listeners), "every listener needs a pinned node port"
-    # Local makes the Gateway's address depend on a ready proxy endpoint, which a laptop
-    # sleep takes away until the controller restarts (PT-68).
+    proxy = docs["EnvoyProxy"]
+    service = proxy["spec"]["provider"]["kubernetes"]["envoyService"]
+    assert service["type"] == "LoadBalancer"
     assert service["externalTrafficPolicy"] == "Cluster"
 
     script = (ROOT / "scripts/cluster.sh").read_text()
+    match = re.search(r"^FRONT_DOOR_SERVICE=(\S+)", script, re.M)
+    assert match, "scripts/cluster.sh has no FRONT_DOOR_SERVICE"
+    assert match[1] == f"{proxy['metadata']['namespace']}/{service['name']}"
     match = re.search(r"^FRONT_DOOR_PORTS=\(([^)]*)\)", script, re.M)
     assert match, "scripts/cluster.sh has no FRONT_DOOR_PORTS"
-    forwarded = {int(host): int(node) for host, node in re.findall(r'"(\d+):(\d+)"', match[1])}
-    assert set(forwarded.values()) == set(pinned), "a forwarder points at an unpinned port"
+    forwarded = {int(host): int(port) for host, port in re.findall(r'"(\d+):(\d+)"', match[1])}
     # The docs and the Argo CD / Grafana settings use 8080 for users, 8090 for the tools.
-    by_listener = {listeners[pinned[node]]: host for host, node in forwarded.items()}
+    by_listener = {listeners[port]: host for host, port in forwarded.items()}
     assert by_listener == {"http": 8080, "tools": 8090}
 
 

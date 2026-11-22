@@ -62,12 +62,17 @@ read -r ARGOCD_CHART ARGOCD_VERSION ARGOCD_DIGEST < <(awk '
   pin && $1 == "version:" { version = $2 }
   pin && $1 == "digest:" { print repo, version, $2; exit }' "$ROOT/deploy/argocd/platform/values.yaml")
 # The front door: one tiny socat container per port, beside the kind node, forwarding the
-# laptop's 127.0.0.1:<host> to the Gateway's fixed node port (deploy/kind/gateway.yaml).
+# laptop's 127.0.0.1:<host> to the Gateway's load balancer (below), as a cloud's DNS name
+# points at its load balancer's address. On macOS the kind network can't be reached from
+# the laptop, and cloud-provider-kind publishes a load balancer only on random host ports:
+# these give it fixed ones. They reach it by its container's name, which cloud-provider-kind
+# derives from the Service (kindccm- and a hash of cluster/namespace/name) and Docker's DNS
+# resolves on each connection, so they outlive a new load balancer with a new address.
 # A port-forward dies with its terminal, the laptop's sleep or the pod it pinned; these
-# restart with Docker and outlive every release. Containers rather than kind's
-# extraPortMappings, which only take effect when the cluster is created.
+# restart with Docker and outlive every release.
 FRONT_DOOR_IMAGE=docker.io/alpine/socat:1.8.1.3@sha256:22d77becaeeea8ef56b8c4bb2312323acafe85354be6a85714ff5050e3537842
-FRONT_DOOR_PORTS=("8080:30080" "8090:30081") # host:nodePort, users (http) and dev tools (tools)
+FRONT_DOOR_SERVICE=envoy-gateway-system/front-door # the proxies' Service (deploy/kind/gateway.yaml)
+FRONT_DOOR_PORTS=("8080:80" "8090:8081") # host:Service port, users (http) and dev tools (tools)
 # The cluster's LoadBalancer implementation, as a cloud has one: kubernetes-sigs'
 # cloud-provider-kind, a container beside the node that gives each LoadBalancer Service an
 # address on the kind network, served by an Envoy container of its own (kindccm-*). It
@@ -432,14 +437,16 @@ load_balancer() {
 # Start (or replace) the front-door forwarders. Not fatal: the cluster works without them,
 # through kubectl port-forward (RUNBOOK, Local cluster operations).
 front_door() {
-  local node="$CLUSTER-control-plane" mapping host node_port name
+  local lb mapping host port name
+  lb="kindccm-$(printf '%s' "$CLUSTER/$FRONT_DOOR_SERVICE" \
+    | python3 -c 'import hashlib, sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest()[:12])')"
   for mapping in "${FRONT_DOOR_PORTS[@]}"; do
-    host=${mapping%%:*} node_port=${mapping##*:} name="$CLUSTER-front-door-$host"
+    host=${mapping%%:*} port=${mapping##*:} name="$CLUSTER-front-door-$host"
     docker rm -f "$name" >/dev/null 2>&1 || true
     # 127.0.0.1 only: the tools listener has no login of its own (Prometheus, Alertmanager).
     if ! docker run -d --name "$name" --restart unless-stopped --network kind \
       -p "127.0.0.1:$host:$host" "$FRONT_DOOR_IMAGE" \
-      "tcp-listen:$host,fork,reuseaddr" "tcp-connect:$node:$node_port" >/dev/null; then
+      "tcp-listen:$host,fork,reuseaddr" "tcp-connect:$lb:$port" >/dev/null; then
       docker rm -f "$name" >/dev/null 2>&1 || true
       echo "WARNING: front door: port $host is taken on this machine (an old kubectl port-forward?):" >&2
       lsof -nP -iTCP:"$host" -sTCP:LISTEN >&2 2>/dev/null || true

@@ -254,7 +254,7 @@ spec:
 # 10 s...) catches up. In wave 1 they would wait for the slowest chart instead, and the
 # Envoy proxy's start (about 2 minutes) would no longer overlap with it (seen in CI).
 ---
-# The Gateway itself: its two listeners, and the NodePort Service the front door reaches.
+# The Gateway itself: its two listeners, and the LoadBalancer Service the front door reaches.
 {{ include "platform.meta" (dict "name" "gateway" "wave" 0) }}
 spec:
   project: platform
