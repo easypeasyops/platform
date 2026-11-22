@@ -90,3 +90,19 @@ def test_with_monitoring_prometheus_scrapes_the_database() -> None:
     ]
     values = yaml.safe_load((ROOT / "charts/service/values.yaml").read_text())
     assert exporter["from"] == values["networkPolicy"]["metricsFrom"]
+
+
+def test_with_workload_identity_the_backups_carry_no_keys() -> None:
+    """credentials: workloadIdentity (the GKE run, PT-119): the ObjectStore uses GKE's
+    credentials for a gs:// path, and nothing copies keys in; keys stays the default."""
+    assert CLUSTER["backup"]["credentials"] == "keys"
+    docs = _golden("backup-workload-identity", "staging")
+    (store,) = [d for d in docs if d["kind"] == "ObjectStore"]
+    config = store["spec"]["configuration"]
+    assert config["destinationPath"].startswith("gs://")
+    assert config["googleCredentials"] == {"gkeEnvironment": True}
+    assert "s3Credentials" not in config
+    assert "endpointURL" not in config
+    assert not [d for d in docs if d["kind"] == "ExternalSecret"]
+    (keys,) = [d for d in _golden("notes", "staging") if d["kind"] == "ObjectStore"]
+    assert "s3Credentials" in keys["spec"]["configuration"]

@@ -1,0 +1,15 @@
+# notes' database on a cluster whose bucket is reached by workload identity (GKE; the
+# platform's cluster contract, bucket): the ObjectStore names a gs:// path and GKE's
+# credentials, and no ExternalSecret copies keys in. Compare with notes' golden.
+app:
+  name: notes
+image:
+  repository: ghcr.io/easypeasyops/example/notes
+database:
+  existingSecret: notes-db-app
+  secretKey: uri
+  cluster:
+    enabled: true
+    backup:
+      credentials: workloadIdentity
+      destinationPath: gs://example-backups-run1/notes-staging
