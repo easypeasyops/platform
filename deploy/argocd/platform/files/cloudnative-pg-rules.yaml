@@ -85,3 +85,65 @@ groups:
           summary: The Barman Cloud plugin isn't running
           description: The Barman Cloud plugin (cnpg-system/plugin-barman-cloud) has had no available replica for 10 minutes. No database archives WAL or takes a base backup while it is down, so a restore can't reach anything after it stopped.
           runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#cloudnativepg-alerts
+      # The restore drills (PT-44): a CronJob restore-drill/drill-<namespace> per database
+      # with backups (deploy/policies/restore-drill.yaml), each a daily restore of its latest
+      # backup into a scratch Cluster. These two read kube-state-metrics' CronJob and Job
+      # series. `exported_namespace` is the database's namespace, from the CronJob's name.
+      # The stack's KubeJobFailed on a drill's Job goes nowhere (restore-drill isn't a
+      # platform route's namespace): this says it, and clears when a later run succeeds.
+      - alert: DatabaseRestoreDrillFailed
+        # The drill's latest run failed: a failed Job of it that started after its last
+        # success (or, never successful, after it was created). As CronJobLastRunFailed
+        # does for the apps' CronJobs (app-workloads-rules.yaml). max(): two
+        # kube-state-metrics pods during its rollout are one Job.
+        expr: |-
+          label_replace(
+            (
+              max by (job_name) (kube_job_status_start_time{namespace="restore-drill"})
+              * on (job_name) group_left (cronjob)
+              max by (job_name, cronjob) (label_replace(kube_job_owner{namespace="restore-drill", owner_kind="CronJob", owner_name=~"drill-.+"}, "cronjob", "$1", "owner_name", "(.+)"))
+              and on (job_name)
+              max by (job_name) (kube_job_failed{namespace="restore-drill", condition="true"}) == 1
+            )
+            > on (cronjob) group_left ()
+            (
+              max by (cronjob) (kube_cronjob_status_last_successful_time{namespace="restore-drill"})
+              or
+              0 * max by (cronjob) (kube_cronjob_created{namespace="restore-drill"})
+            ),
+            "exported_namespace", "$1", "cronjob", "drill-(.+)"
+          )
+        for: 5m
+        labels:
+          severity: warning
+          namespace: cnpg-system
+        annotations:
+          summary: "The restore drill of {{ $labels.exported_namespace }}'s database failed"
+          description: "The latest restore drill of the database in {{ $labels.exported_namespace }} (Job restore-drill/{{ $labels.job_name }}) failed: its backups didn't restore into a healthy copy, or the drill itself broke. Until a drill passes, a restore of that database is unproven. The Job's log says which step failed."
+          runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#restore-drills
+      - alert: DatabaseRestoreDrillStale
+        # A database with backups (its ScheduledBackup, the list DatabaseBackupNotWatched
+        # uses) whose drill hasn't passed for 2 days: failing, not running (the laptop asleep
+        # at 04:30 past the 6-hour start deadline, admission refusing it), or never made (no
+        # CronJob: the GeneratingPolicy or Kyverno's background controller). A new drill
+        # counts from its CronJob's creation, so a new database gets a day to its first run.
+        # 1 hour: a new database's CronJob is generated within seconds of its ScheduledBackup.
+        expr: |-
+          max by (exported_namespace, cluster) (cnpg_scheduledbackup_info{job="kube-state-metrics"})
+          unless on (exported_namespace)
+          label_replace(
+            time() - max by (cronjob) (
+              kube_cronjob_status_last_successful_time{namespace="restore-drill", cronjob=~"drill-.+"}
+              or
+              kube_cronjob_created{namespace="restore-drill", cronjob=~"drill-.+"}
+            ) < 2 * 86400,
+            "exported_namespace", "$1", "cronjob", "drill-(.+)"
+          )
+        for: 1h
+        labels:
+          severity: warning
+          namespace: cnpg-system
+        annotations:
+          summary: "Database {{ $labels.exported_namespace }}/{{ $labels.cluster }} has had no passing restore drill for 2 days"
+          description: "No restore drill of database {{ $labels.exported_namespace }}/{{ $labels.cluster }} has passed in 2 days, or it has no drill at all (no CronJob restore-drill/drill-{{ $labels.exported_namespace }}). Its backups are taken but not proven to restore."
+          runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#restore-drills

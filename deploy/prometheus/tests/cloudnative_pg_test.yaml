@@ -134,3 +134,98 @@ tests:
               summary: The Barman Cloud plugin isn't running
               description: The Barman Cloud plugin (cnpg-system/plugin-barman-cloud) has had no available replica for 10 minutes. No database archives WAL or takes a base backup while it is down, so a restore can't reach anything after it stopped.
               runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#cloudnativepg-alerts
+
+  # The canary's drill: its run starting at minute 10 fails at minute 13 (an earlier one
+  # passed at minute 2), and warns 5 minutes later. Shortly's failed the same way, but a run
+  # passed at minute 21: that clears it. Series as kube-state-metrics gives them (namespace is the Job's).
+  - name: a drill whose latest run failed warns, one with a later success clears
+    interval: 1m
+    input_series:
+      - series: 'kube_cronjob_created{job="kube-state-metrics",namespace="restore-drill",cronjob="drill-dbcanary-ops"}'
+        values: '0x40'
+      - series: 'kube_cronjob_status_last_successful_time{job="kube-state-metrics",namespace="restore-drill",cronjob="drill-dbcanary-ops"}'
+        values: '120x40'
+      - series: 'kube_job_owner{job="kube-state-metrics",namespace="restore-drill",job_name="drill-dbcanary-ops-29920010",owner_kind="CronJob",owner_name="drill-dbcanary-ops",owner_is_controller="true"}'
+        values: '_x10 1x30'
+      - series: 'kube_job_status_start_time{job="kube-state-metrics",namespace="restore-drill",job_name="drill-dbcanary-ops-29920010"}'
+        values: '_x10 600x30'
+      - series: 'kube_job_failed{job="kube-state-metrics",namespace="restore-drill",job_name="drill-dbcanary-ops-29920010",condition="true"}'
+        values: '_x10 0 0 1x28'
+      - series: 'kube_cronjob_created{job="kube-state-metrics",namespace="restore-drill",cronjob="drill-shortly-prod"}'
+        values: '0x40'
+      - series: 'kube_cronjob_status_last_successful_time{job="kube-state-metrics",namespace="restore-drill",cronjob="drill-shortly-prod"}'
+        values: '_x20 1200x20'
+      - series: 'kube_job_owner{job="kube-state-metrics",namespace="restore-drill",job_name="drill-shortly-prod-29920010",owner_kind="CronJob",owner_name="drill-shortly-prod",owner_is_controller="true"}'
+        values: '_x10 1x30'
+      - series: 'kube_job_status_start_time{job="kube-state-metrics",namespace="restore-drill",job_name="drill-shortly-prod-29920010"}'
+        values: '_x10 600x30'
+      - series: 'kube_job_failed{job="kube-state-metrics",namespace="restore-drill",job_name="drill-shortly-prod-29920010",condition="true"}'
+        values: '_x10 0 0 1x28'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: DatabaseRestoreDrillFailed
+        exp_alerts: []
+      - eval_time: 19m
+        alertname: DatabaseRestoreDrillFailed
+        exp_alerts:
+          - exp_labels: {namespace: cnpg-system, severity: warning, exported_namespace: dbcanary-ops, cronjob: drill-dbcanary-ops, job_name: drill-dbcanary-ops-29920010}
+            exp_annotations: &drill_failed
+              summary: The restore drill of dbcanary-ops's database failed
+              description: "The latest restore drill of the database in dbcanary-ops (Job restore-drill/drill-dbcanary-ops-29920010) failed: its backups didn't restore into a healthy copy, or the drill itself broke. Until a drill passes, a restore of that database is unproven. The Job's log says which step failed."
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#restore-drills
+          - exp_labels: {namespace: cnpg-system, severity: warning, exported_namespace: shortly-prod, cronjob: drill-shortly-prod, job_name: drill-shortly-prod-29920010}
+            exp_annotations:
+              summary: The restore drill of shortly-prod's database failed
+              description: "The latest restore drill of the database in shortly-prod (Job restore-drill/drill-shortly-prod-29920010) failed: its backups didn't restore into a healthy copy, or the drill itself broke. Until a drill passes, a restore of that database is unproven. The Job's log says which step failed."
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#restore-drills
+      - eval_time: 30m
+        alertname: DatabaseRestoreDrillFailed
+        exp_alerts:
+          - exp_labels: {namespace: cnpg-system, severity: warning, exported_namespace: dbcanary-ops, cronjob: drill-dbcanary-ops, job_name: drill-dbcanary-ops-29920010}
+            exp_annotations: *drill_failed
+
+  # Three databases with backups. The canary's drill was created at 0 and never passes:
+  # quiet for 2 days, then a warning an hour later. Shortly's has no drill at all: a warning
+  # after an hour. Notes' passes every day. A 5-minute interval (within the query lookback): the test runs 3 days.
+  - name: a database with no passing drill for 2 days warns, one with no drill after an hour
+    interval: 5m
+    input_series:
+      - series: 'cnpg_scheduledbackup_info{job="kube-state-metrics",namespace="monitoring",exported_namespace="dbcanary-ops",cluster="dbcanary-db"}'
+        values: '1x864'
+      - series: 'cnpg_scheduledbackup_info{job="kube-state-metrics",namespace="monitoring",exported_namespace="shortly-prod",cluster="shortly-db"}'
+        values: '1x864'
+      - series: 'cnpg_scheduledbackup_info{job="kube-state-metrics",namespace="monitoring",exported_namespace="notes-prod",cluster="notes-db"}'
+        values: '1x864'
+      - series: 'kube_cronjob_created{job="kube-state-metrics",namespace="restore-drill",cronjob="drill-dbcanary-ops"}'
+        values: '0x864'
+      - series: 'kube_cronjob_created{job="kube-state-metrics",namespace="restore-drill",cronjob="drill-notes-prod"}'
+        values: '0x864'
+      - series: 'kube_cronjob_status_last_successful_time{job="kube-state-metrics",namespace="restore-drill",cronjob="drill-notes-prod"}'
+        values: '0x287 86400x287 172800x288'
+    alert_rule_test:
+      - eval_time: 50m
+        alertname: DatabaseRestoreDrillStale
+        exp_alerts: []
+      - eval_time: 1h10m
+        alertname: DatabaseRestoreDrillStale
+        exp_alerts:
+          - exp_labels: {namespace: cnpg-system, severity: warning, exported_namespace: shortly-prod, cluster: shortly-db}
+            exp_annotations: &stale_shortly
+              summary: Database shortly-prod/shortly-db has had no passing restore drill for 2 days
+              description: "No restore drill of database shortly-prod/shortly-db has passed in 2 days, or it has no drill at all (no CronJob restore-drill/drill-shortly-prod). Its backups are taken but not proven to restore."
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#restore-drills
+      - eval_time: 2d50m
+        alertname: DatabaseRestoreDrillStale
+        exp_alerts:
+          - exp_labels: {namespace: cnpg-system, severity: warning, exported_namespace: shortly-prod, cluster: shortly-db}
+            exp_annotations: *stale_shortly
+      - eval_time: 2d1h10m
+        alertname: DatabaseRestoreDrillStale
+        exp_alerts:
+          - exp_labels: {namespace: cnpg-system, severity: warning, exported_namespace: shortly-prod, cluster: shortly-db}
+            exp_annotations: *stale_shortly
+          - exp_labels: {namespace: cnpg-system, severity: warning, exported_namespace: dbcanary-ops, cluster: dbcanary-db}
+            exp_annotations:
+              summary: Database dbcanary-ops/dbcanary-db has had no passing restore drill for 2 days
+              description: "No restore drill of database dbcanary-ops/dbcanary-db has passed in 2 days, or it has no drill at all (no CronJob restore-drill/drill-dbcanary-ops). Its backups are taken but not proven to restore."
+              runbook_url: https://github.com/easypeasyops/platform/blob/main/docs/RUNBOOK.md#restore-drills
