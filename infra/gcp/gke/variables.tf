@@ -27,6 +27,14 @@ variable "secret_stores" {
   description = "Each ClusterSecretStore's service account and the secrets it reads (modules/gke): the `platform` store's, by its remote keys in deploy/secrets/."
   type        = map(list(string))
   default = {
-    store-reader = ["grafana-admin", "alertmanager-slack"]
+    store-reader = ["grafana-admin"]
+  }
+}
+
+variable "generated_secrets" {
+  description = "The secrets whose values the run makes (modules/gke), as deploy/secrets/generated.yaml does on kind: Grafana's admin password. Slack's bot token isn't one: a GKE run installs with SLACK=0."
+  type        = map(list(string))
+  default = {
+    grafana-admin = ["admin-password"]
   }
 }

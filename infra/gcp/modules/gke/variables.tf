@@ -66,3 +66,14 @@ variable "secret_stores" {
   type        = map(list(string))
   default     = {}
 }
+
+variable "generated_secrets" {
+  description = "Secrets of secret_stores whose values the run makes: secret ID to the properties of its JSON value, each 24 random characters (as kind's generators). A secret not here stays empty, and an ExternalSecret reading it waits."
+  type        = map(list(string))
+  default     = {}
+
+  validation {
+    condition     = alltrue([for id, props in var.generated_secrets : length(props) > 0])
+    error_message = "A generated secret names at least one property."
+  }
+}
