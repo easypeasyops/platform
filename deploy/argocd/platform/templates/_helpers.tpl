@@ -60,7 +60,8 @@ syncPolicy:
     backoff: { duration: 5s, factor: 2, maxDuration: 30s }
 {{- end }}
 
-{{/* A chart from an OCI registry, pinned by digest, with its values file from git;
+{{/* A chart from an OCI registry, pinned by digest, with its values file from git and,
+with a `profile`, the profile's file of the same name over it (most charts have none);
 `extra`: one more file from git synced with it (the ExternalSecret it reads), or a
 `{a.yaml,b.yaml}` set of them in one directory. */}}
 {{- define "platform.chartSources" -}}
@@ -72,6 +73,12 @@ sources:
       releaseName: {{ .release }} # the name scripts/cluster.sh's helm install used
       valueFiles:
         - $values/{{ .values }}
+        {{- with .root.Values.profile }}
+        - $values/deploy/profiles/{{ . }}/{{ base $.values }}
+        {{- end }}
+      {{- if .root.Values.profile }}
+      ignoreMissingValueFiles: true
+      {{- end }}
       {{- with .valuesObject }}
       valuesObject:
         {{- toYaml . | nindent 8 }}

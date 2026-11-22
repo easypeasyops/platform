@@ -9,6 +9,10 @@ revision: main
 # The node's CPU architecture: the Argo Rollouts plugin is a per-architecture binary
 # (amd64 in CI, arm64 on Apple silicon). cluster.sh reads it from the node.
 arch: amd64
+# The cluster's profile (cluster.sh's PROFILE; DESIGN, Profiles): each chart's values file
+# from deploy/profiles/<profile>/, of the same name, layered over deploy/kind's where it
+# exists. Empty: kind's alone.
+profile: ""
 # What to install (cluster.sh's MONITORING, POLICIES, BACKUPS knobs; CI's delivery job
 # skips the last two).
 components:

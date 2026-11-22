@@ -323,6 +323,18 @@ flowchart TB
 | Argo CD under itself, bootstrapped by Helm | The usual pattern: Helm installs it once, then its `argocd` Application owns the same pin and values, so a change to them lands on merge like any other (PT-109; until then one needed `cluster.sh up`). A bad change can stop the thing that would sync its fix, so: its CRDs are never pruned, `cluster.sh up` leaves it to the Application but `ARGOCD_HELM=1` re-installs it with Helm, and the RUNBOOK (Argo CD broke itself) says when. Helm's release records and field ownership are removed once the Application has adopted it, as for the charts before it (PT-104) |
 | metrics-server vendored | The release manifest, byte for byte, with its SHA-256; a kustomize patch adds the kind-only flag ([resource metrics](#c-metrics)) |
 
+### Profiles
+
+kind's values (`deploy/kind/*-values.yaml`) are every cluster's base. A cluster that differs
+gets a profile, `deploy/profiles/<name>/` (PT-119): `install` takes it as `PROFILE=<name>`
+and does two generic things with it, never a branch on its name. It adds the profile's
+`platform.yaml` to the root's values (which components the cluster skips), and sets the
+root's `profile` parameter, so each chart child layers the profile's file of the same
+name over kind's (`ignoreMissingValueFiles`: most charts need none). Without a profile,
+nothing is added and kind renders as before. A difference that a values file can't
+express is a [Cluster contract](#cluster-contract) leak: it is fixed in the contract or
+recorded there.
+
 ### Components
 
 Each platform component, the Application (or script) that installs it, and its role. Versions
