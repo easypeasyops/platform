@@ -1,0 +1,152 @@
+name: GKE e2e
+
+# The platform on a cloud, weekly (PT-120): a fresh GKE cluster (infra/gcp/gke, PT-119), the
+# platform from this commit installed with the gke profile, the checks kind's e2e runs on
+# every app namespace (scripts/lib/e2e-checks.sh), then everything deleted again, in order:
+# what Kubernetes made in GCP first (scripts/gke-run.sh drain), then `terraform destroy`,
+# then a check that nothing with the run's label is left. A run that dies before its
+# teardown is cleaned up by the reaper (gke-reaper.yml).
+#
+# Dormant until the foundation is bootstrapped (RUNBOOK.md, The GCP foundation), like
+# terraform-plan.yml: without the repository variable GCP_WORKLOAD_IDENTITY_PROVIDER the
+# job is skipped. The provider admits only this file, from main (infra/gcp/foundation,
+# ci_workflows): renaming it locks it out. Not part of ci.yml's gate: a red week is a signal
+# to look, as the nightly is.
+on:
+  schedule:
+    # Mondays 13:41 UTC: 05:41 in Los Angeles in winter, 06:41 in summer. Off the hour.
+    - cron: "41 13 * * 1"
+  workflow_dispatch:
+    inputs:
+      apps:
+        description: "Let Argo CD deploy the apps and check them (false: the platform alone)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  id-token: write # the OIDC token Workload Identity Federation exchanges
+
+# One run at a time: the leftovers check counts what Kubernetes made since the run began.
+concurrency:
+  group: gke-e2e
+  cancel-in-progress: false
+
+jobs:
+  gke:
+    name: GKE e2e
+    if: vars.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
+    runs-on: ubuntu-latest
+    # The target is 45 minutes end to end; the steps' own timeouts leave the teardown room.
+    timeout-minutes: 120
+    env:
+      TERRAFORM_VERSION: 1.17.2 # ci.yml's; Renovate moves both
+      # A rerun gets a run of its own: its own names, labels and state.
+      RUN_ID: gh-${{ github.run_id }}-${{ github.run_attempt }}
+      STATE_BUCKET: ${{ vars.GCP_PROJECT_ID }}-tfstate
+    defaults:
+      run:
+        working-directory: infra/gcp/gke
+    steps:
+      - name: When the run began
+        id: start
+        working-directory: .
+        run: echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" | tee -a "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_CI_SERVICE_ACCOUNT }}
+
+      # kubectl reaches GKE through gke-gcloud-auth-plugin.
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+        with:
+          version: 594.0.0
+          install_components: gke-gcloud-auth-plugin
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
+        with:
+          version: v4.3.1
+
+      - name: Init (state gke/${{ env.RUN_ID }})
+        id: init
+        run: |
+          terraform init -input=false -lockfile=readonly \
+            -backend-config="bucket=$STATE_BUCKET" -backend-config="prefix=gke/$RUN_ID"
+
+      - name: Create the cluster
+        timeout-minutes: 25
+        run: |
+          terraform apply -input=false -auto-approve -lock-timeout=60s \
+            -var "state_bucket=$STATE_BUCKET" -var "run_id=$RUN_ID"
+          terraform output -json >"$RUNNER_TEMP/outputs.json"
+
+      - name: Kube context
+        id: context
+        run: |
+          eval "$(jq -r .kube_context.value.get_credentials "$RUNNER_TEMP/outputs.json")"
+          echo "name=$(jq -r .kube_context.value.name "$RUNNER_TEMP/outputs.json")" | tee -a "$GITHUB_OUTPUT"
+
+      # As RUNBOOK's "A GKE run, by hand": no Slack token in CI (alerts stay in Alertmanager)
+      # and no backups (the drills don't reach GCS yet, PT-119).
+      # TODO(PT-119): the apps' Applications get the cluster's bucket and API server only
+      # once install switches to the platform chart's ApplicationSet (components.apps, off
+      # until that PR), and their secrets in Secret Manager only once a run writes them;
+      # until then they may not go Healthy here, and a run with `apps: false` checks the
+      # platform alone.
+      - name: Install the platform (profile gke)
+        timeout-minutes: 30
+        working-directory: .
+        run: scripts/cluster.sh install
+        env:
+          CONTEXT: ${{ steps.context.outputs.name }}
+          PROFILE: gke
+          CLUSTER_OUTPUTS: ${{ runner.temp }}/outputs.json
+          PLATFORM_REVISION: ${{ github.sha }}
+          # A schedule has no inputs (null, which equals false here): apps on.
+          ARGOCD_APPS: ${{ (github.event_name == 'workflow_dispatch' && !inputs.apps) && '0' || '1' }}
+          SLACK: "0"
+          BACKUPS: "0"
+
+      - name: The apps, as kind's e2e checks them
+        if: github.event_name != 'workflow_dispatch' || inputs.apps
+        timeout-minutes: 15
+        working-directory: .
+        run: scripts/gke-run.sh check
+
+      - name: Argo CD state (on failure)
+        if: (failure() || cancelled()) && steps.context.outcome == 'success'
+        working-directory: .
+        run: |
+          kubectl -n argocd get applications -o wide || true
+          kubectl get pods -A | grep -vE "Running|Completed" || true
+
+      # Teardown, whatever happened above: a failed or cancelled run deletes what it made.
+      - name: Drain what Kubernetes made in GCP
+        if: always() && steps.context.outcome == 'success'
+        timeout-minutes: 20
+        working-directory: .
+        run: scripts/gke-run.sh drain
+
+      - name: Destroy the cluster
+        if: always() && steps.init.outcome == 'success'
+        timeout-minutes: 25
+        run: |
+          terraform destroy -input=false -auto-approve -lock-timeout=60s \
+            -var "state_bucket=$STATE_BUCKET" -var "run_id=$RUN_ID"
+
+      - name: Nothing left in GCP
+        if: always() && steps.init.outcome == 'success'
+        working-directory: .
+        run: scripts/gke-run.sh leftovers "$RUN_ID" "$START"
+        env:
+          START: ${{ steps.start.outputs.at }}
