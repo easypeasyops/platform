@@ -4,8 +4,8 @@ app: dbcanary
 env: ops
 # The platform's service chart, pinned by digest (the version is for people).
 chart:
-  version: 1.7.1
-  digest: sha256:11a7ca25f34cd7a16bf2fbd4a5ad86e3bbc556f19f9ab236e1c2b05f50fb6a7f
+  version: 1.8.0
+  digest: sha256:3a91f5bd9b456db0e5ff92fe3dbae990e72aa0106272f66326243baa9dcf391f
 # dbcanary's values, from this repo at this revision, layered in this order.
 values:
   repoURL: https://github.com/easypeasyops/platform.git
