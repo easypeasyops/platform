@@ -53,7 +53,12 @@ def _render(*sets: str) -> list[dict[str, Any]]:
 
 
 ALL_ON = ("components.argocd=true",)
-ALL_OFF = ("components.monitoring=false", "components.policies=false", "components.backups=false")
+ALL_OFF = (
+    "components.monitoring=false",
+    "components.policies=false",
+    "components.backups=false",
+    "components.metricsServer=false",
+)
 
 
 def _sources(app: dict[str, Any]) -> list[dict[str, Any]]:
@@ -106,7 +111,6 @@ def test_components_can_be_switched_off() -> None:
         "cert-manager",
         "cloudnative-pg",
         "barman-cloud",
-        "metrics-server",
         "envoy-gateway",
         "argo-rollouts",
         "gateway",
