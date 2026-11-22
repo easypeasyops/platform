@@ -20,10 +20,15 @@ configs:
     # No TLS between the browser and the server: the front door listens on 127.0.0.1 only
     # (scripts/cluster.sh). Never on a cluster where the server is exposed.
     server.insecure: true
-    # The API server's request lines (one per UI or CLI call) at info only fill the logs;
-    # warnings and errors are what anyone reads. Also PT-109's first values-only change,
-    # synced by Argo CD's own Application, with no cluster.sh up.
+    # Warnings and errors only, from every component. At info, the controller's
+    # "Reconciliation completed" lines and the repo server's "started call"/"finished call"
+    # pair per request were 82% of all the cluster's logs (12 of 15 MB a day, 2026-11-21);
+    # the API server's are one line per UI or CLI call. The store's disk is what a cloud
+    # bills for. For a closer look, set one to info for a while.
     server.log.level: warn
+    controller.log.level: warn
+    reposerver.log.level: warn
+    applicationsetcontroller.log.level: warn
     # Keep each resource's health in the Application (.status.resources[].health): Argo CD
     # 3 stopped writing it there by default. scripts/cluster.sh's progress lines, its
     # failure output and CI's "Argo CD state" step read it to say what is Degraded and why.
@@ -43,7 +48,7 @@ configs:
     # child (argo-rollouts, barman-cloud, cloudnative-pg, envoy-gateway) self-heals 4 or 5
     # times while its CRDs settle, and the default backoff (2 s, times 3 each attempt, capped
     # at 300 s) left each one waiting 2m40s before its next sync, with every resource already
-    # applied and healthy (links run 44192123904, cluster.sh's self-heal report, PT-71). The
+    # applied and healthy (links run 44192123904, PT-71). The
     # backoff guards against fighting a controller that rewrites a field; 30 s still does,
     # at one sync per 30 s at most.
     controller.self.heal.backoff.cap.seconds: "30"
