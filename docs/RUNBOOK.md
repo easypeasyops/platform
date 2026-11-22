@@ -33,7 +33,9 @@ newer; `scripts/install-prereqs.sh` installs them).
 | Admission policies and their state | `kubectl get imagevalidatingpolicy,validatingpolicy`; reports: `kubectl get policyreport -A` |
 
 **What `cluster.sh up` does.** Two steps, which also run on their own. `create` is what only
-kind needs: the kind cluster and the front door's forwarders. `install` is the same on any
+kind needs: the kind cluster, its LoadBalancer implementation (cloud-provider-kind, a
+container beside the node: `docker logs shortly-cloud-provider-kind`) and the front door's
+forwarders. `install` is the same on any
 cluster, and works on the current kube context (or `CONTEXT`). On a fresh cluster it installs Argo CD with Helm (pinned by version and digest
 with the platform's other charts, `charts.argocd` in `deploy/argocd/platform/values.yaml`; values in `deploy/kind/argocd-values.yaml`).
 From then on Argo CD's own `argocd` Application owns it, from the same pin and values file,
