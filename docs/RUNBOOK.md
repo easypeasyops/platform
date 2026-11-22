@@ -1539,3 +1539,29 @@ gcloud billing budgets list --billing-account=<billing_account>   # no "<project
 A destroyed identity pool is kept, deleted, for 30 days, and its ID can't be reused
 meanwhile: applying again in a project that wasn't deleted, within that time, needs
 `gcloud iam workload-identity-pools undelete github --location=global` first.
+
+## A GKE run, by hand
+
+`infra/gcp/gke/` (PT-119) makes one run's cluster in the foundation's project: a zonal GKE
+Standard cluster on one Spot node, its own VPC and Cloud NAT (DESIGN.md, The GKE run). The weekly
+workflow (PT-120) will do this as CI; by hand it is, with the foundation bootstrapped:
+
+```sh
+cd infra/gcp/gke
+RUN=manual-$(date +%Y%m%d)                   # names and labels everything: label run-id
+terraform init -backend-config=bucket=<project_id>-tfstate -backend-config=prefix=gke/$RUN
+terraform apply -var state_bucket=<project_id>-tfstate -var run_id=$RUN
+eval "$(terraform output -json kube_context | jq -r .get_credentials)"
+terraform output                             # what install needs (DESIGN.md, Cluster contract)
+```
+
+Then destroy it the same day: a run is never meant to outlive its tests.
+
+```sh
+terraform destroy -var state_bucket=<project_id>-tfstate -var run_id=$RUN
+gcloud compute forwarding-rules list && gcloud compute disks list   # empty: nothing a Service or a PVC left
+```
+
+A LoadBalancer Service or a PersistentVolume left in the cluster leaves a load balancer or
+a disk behind, which blocks deleting the VPC: delete the platform's Services and PVCs
+(or the namespaces) before `destroy`.
