@@ -14,6 +14,14 @@ kind: ApplicationSet
 metadata:
   name: apps
   namespace: argocd
+  annotations:
+    # Never pruned or deleted by a sync: deleting this ApplicationSet deletes every app's
+    # Application with it (and break glass with them). The guard for handing it from the
+    # apps root to the platform chart (PT-119), where it stays.
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+    # In the platform chart, after every platform component: an app's first sync needs the
+    # policies, the operators and their CRDs (as cluster.sh applied the apps root last).
+    argocd.argoproj.io/sync-wave: "2"
 spec:
   goTemplate: true
   goTemplateOptions: ["missingkey=error"] # a typo in an env file fails, never renders ""
