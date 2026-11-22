@@ -97,6 +97,28 @@ def test_waves_put_crd_users_after_the_charts_that_install_the_crds() -> None:
     assert set(waves.values()) == {"-2", "-1", "0", "1"}
 
 
+def _chart_values(app: dict[str, Any]) -> dict[str, Any]:
+    helm: dict[str, Any] = _sources(app)[0].get("helm", {})
+    return helm
+
+
+def test_a_profile_layers_its_file_of_the_same_name_over_each_chart_s_values() -> None:
+    """With a profile (DESIGN, Profiles), each chart child adds
+    deploy/profiles/<profile>/<its values file's name> after kind's, and tolerates it
+    missing; without one, nothing is added (kind's render is unchanged)."""
+    charts = [a for a in _render(*ALL_ON) if _chart_values(a)]
+    assert charts
+    for app in charts:
+        assert len(_chart_values(app)["valueFiles"]) == 1, app["metadata"]["name"]
+        assert "ignoreMissingValueFiles" not in _chart_values(app), app["metadata"]["name"]
+    for app in [a for a in _render(*ALL_ON, "profile=cloud") if _chart_values(a)]:
+        helm = _chart_values(app)
+        kind, overlay = helm["valueFiles"]
+        assert kind.startswith("$values/deploy/kind/"), app["metadata"]["name"]
+        assert overlay == "$values/deploy/profiles/cloud/" + Path(kind).name
+        assert helm["ignoreMissingValueFiles"] is True
+
+
 def test_components_can_be_switched_off() -> None:
     names = {a["metadata"]["name"] for a in _render(*ALL_OFF)}
     assert names == {

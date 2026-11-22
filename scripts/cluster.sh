@@ -20,6 +20,9 @@
 #   PLATFORM_REVISION=<sha> scripts/cluster.sh up # the platform from that commit, not main
 #   FRONT_DOOR=0 scripts/cluster.sh up  # no forwarders on the laptop's ports 8080 and 8090
 #                                       # (create's knob)
+#   PROFILE=<name> scripts/cluster.sh install # the cluster's values over kind's, from
+#                                       # deploy/profiles/<name>/ (gke: a create step's
+#                                       # cluster; DESIGN, Profiles). Unset: kind's alone
 #   ARGOCD_HELM=1 scripts/cluster.sh install # re-install Argo CD with Helm though it
 #                                       # manages itself: when a change broke it (RUNBOOK,
 #                                       # Argo CD broke itself)
@@ -259,6 +262,12 @@ platform() {
   # components.argocd: Argo CD manages its own install from here on (PT-109).
   params=$(printf '[{"name":"arch","value":"%s"},{"name":"revision","value":"%s"},{"name":"components.monitoring","value":"%s"},{"name":"components.slack","value":"%s"},{"name":"components.policies","value":"%s"},{"name":"components.backups","value":"%s"},{"name":"components.argocd","value":"true"}]' \
     "$arch" "$revision" "$(bool MONITORING)" "$slack" "$(bool POLICIES)" "$(bool BACKUPS)")
+  # A profile: the root's parameter `profile` (each child adds its overlay) and the
+  # profile's own values for the root, which must exist.
+  if [[ -n "${PROFILE:-}" && ! -f "$ROOT/deploy/profiles/$PROFILE/platform.yaml" ]]; then
+    echo "PROFILE=$PROFILE: no deploy/profiles/$PROFILE/platform.yaml" >&2
+    exit 2
+  fi
   # The project, to bootstrap: the root's platform-project child keeps it in sync from git
   # after that (wave -2).
   kubectl apply -f "$ROOT/deploy/argocd/platform-project.yaml" >/dev/null
@@ -269,11 +278,15 @@ platform() {
   # earlier version of this function filled with server fields, so every re-run asked to
   # delete metadata.resourceVersion and was refused.
   kubectl create -f "$ROOT/deploy/argocd/platform-root.yaml" --dry-run=client -o json \
-    | REVISION="$revision" PARAMS="$params" python3 -c '
+    | REVISION="$revision" PARAMS="$params" PROFILE="${PROFILE:-}" python3 -c '
 import json, os, sys
 app = json.load(sys.stdin)
 app["spec"]["source"]["targetRevision"] = os.environ["REVISION"]
 app["spec"]["source"]["helm"]["parameters"] = json.loads(os.environ["PARAMS"])
+if os.environ["PROFILE"]:
+    helm = app["spec"]["source"]["helm"]
+    helm["parameters"].append({"name": "profile", "value": os.environ["PROFILE"]})
+    helm["valueFiles"].append("../../profiles/%s/platform.yaml" % os.environ["PROFILE"])
 json.dump(app, sys.stdout)' \
     | kubectl apply --server-side --field-manager=cluster-sh --force-conflicts -f - >/dev/null
   echo "platform: syncing deploy/argocd/platform at $revision ($arch) through Argo CD"
