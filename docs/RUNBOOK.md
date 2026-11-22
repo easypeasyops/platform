@@ -364,9 +364,14 @@ routes by hostname on two listeners: `http` for the apps (the laptop's port 8080
 http://aipostit.localhost:8080; each app's values name its hostnames) and `tools` for
 Argo CD, Grafana, Prometheus and Alertmanager (port 8090), and for an app that is a tool:
 its values set `gateway.sectionName: tools` and the listener names its namespace
-(`servicemonitor-ops` so far). Two small forwarder containers
-beside the kind node, `shortly-front-door-8080` and `-8090`, carry the laptop's ports to the
-Gateway's node ports; they restart with Docker, so there is no port-forward to keep alive.
+(`servicemonitor-ops` so far). The proxies' Service, `front-door` in
+`envoy-gateway-system`, is a LoadBalancer, as on a cloud: cloud-provider-kind
+(`shortly-cloud-provider-kind`, beside the kind node) gives it an address on the kind
+network, served by its own Envoy container (`kindccm-bc824800b87d`, named from the
+Service), and the Gateway takes that address. Two small forwarder containers,
+`shortly-front-door-8080` and `-8090`, carry the laptop's ports to that load balancer by its
+name; they restart with Docker, so there is no port-forward to keep alive. The path is
+browser → forwarder → load balancer → node → proxy → app.
 The `tools` listener has no login of its own: the forwarders listen on 127.0.0.1 only.
 
 The Gateway is the user path; probes and Prometheus go around it. So a broken front door
@@ -379,7 +384,9 @@ through the proxies every minute as a user would
 
 ```sh
 docker ps --filter name=shortly-front-door                     # two, Up
-kubectl -n gateway get gateway front-door                      # PROGRAMMED must be True
+docker ps --filter name=shortly-cloud-provider-kind --filter name=kindccm # the load balancer: both Up
+kubectl -n envoy-gateway-system get svc front-door             # LoadBalancer, with an EXTERNAL-IP
+kubectl -n gateway get gateway front-door                      # PROGRAMMED True, ADDRESS the EXTERNAL-IP
 kubectl get httproute -A
 kubectl -n <ns> get httproute <app> -o jsonpath='{.status.parents[0].conditions}'   # Accepted, ResolvedRefs
 kubectl -n envoy-gateway-system get pods                       # envoy-gateway (controller) and the proxy
@@ -388,9 +395,10 @@ kubectl -n envoy-gateway-system logs deploy/envoy-gateway --tail=50
 
 | What you see | Cause | Fix |
 | --- | --- | --- |
-| Nothing answers on 8080 or 8090 | A forwarder isn't running: usually its port was taken by an old `kubectl port-forward` | `scripts/cluster.sh up` recreates them, and says which process holds the port; stop that one |
+| Nothing answers on 8080 or 8090 | A forwarder isn't running: usually its port was taken by an old `kubectl port-forward` | `scripts/cluster.sh create` recreates them, and says which process holds the port; stop that one |
+| Nothing answers on 8080 or 8090, forwarders Up, `curl` gets a reset or `Connection refused` | No load balancer: `kindccm-bc824800b87d` isn't running, so the forwarders' name doesn't resolve. cloud-provider-kind is down, or still making it (it looks every 30 s) | `docker ps -a --filter name=shortly-cloud-provider-kind --filter name=kindccm`; `docker logs --tail 50 shortly-cloud-provider-kind`. `scripts/cluster.sh create` starts it again; it makes the load balancer within a minute |
+| Service `front-door` `EXTERNAL-IP` `<pending>`; Gateway not `Programmed`, `AddressNotAssigned` | The Gateway's address is its load balancer's, and there is none: cloud-provider-kind isn't running (on kind), or the cluster has no LoadBalancer implementation | As above. The proxies keep serving whatever reaches them meanwhile |
 | Gateway not `Programmed` | The controller is down, or the EnvoyProxy/GatewayClass is invalid | The controller's logs; `kubectl get gatewayclass envoy -o yaml` |
-| Gateway not `Programmed`, `AddressNotAssigned`, listeners `Programmed` and traffic flowing | The Service's `externalTrafficPolicy` is `Local` (the EnvoyProxy must say `Cluster`): the controller then gives the Gateway an address only while the proxy's endpoint is ready, and doesn't look again when it becomes ready (PT-68, after a laptop sleep) | Check the Service (`kubectl -n envoy-gateway-system get svc front-door -o jsonpath='{.spec.externalTrafficPolicy}'`). A stale status clears when the controller restarts: `kubectl -n envoy-gateway-system rollout restart deploy/envoy-gateway` (the proxies keep serving meanwhile) |
 | Route not `Accepted`, `NotAllowedByListeners` | Its namespace lacks the `easypeasyops.github.io/app` label the `http` listener selects (a namespace Argo CD hasn't synced since the label was added) | `kubectl get ns -l easypeasyops.github.io/app`. Missing: sync the Application, which labels its namespace (`kubectl -n argocd patch application <app>-<env> --type merge -p '{"operation":{"sync":{}}}'`). The same missing label also takes the namespace out of the admission policies and the `backup-bucket` store |
 | Route with `sectionName: tools` not `Accepted`, `NotAllowedByListeners` | The `tools` listener admits namespaces by name, and this one isn't listed | Add the namespace to the listener's `values` in `deploy/kind/gateway.yaml` (and `TOOL_APP_NAMESPACES` in `tests/test_front_door.py`), in a PR |
 | Route not `Accepted` otherwise | Its `hostnames` conflict with another route's | One hostname per app and environment |
@@ -554,8 +562,9 @@ file of the platform chart that the root Application adds (`deploy/argocd/platfo
 kept in `apps/` so that registering an app doesn't run the app e2e.
 
 What it can't see: the two forwarder containers on the laptop (`shortly-front-door-8080`
-and `-8090`, outside the cluster), which a user's request passes first. A probe that passes
-while the browser gets nothing on 8080 or 8090 is the first row of the table above.
+and `-8090`) and the load balancer (`kindccm-bc824800b87d`), all outside the cluster, which a
+user's request passes first. A probe that passes while the browser gets nothing on 8080 or
+8090 is one of the first two rows of the table above.
 
 ## Network policies
 
