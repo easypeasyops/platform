@@ -92,6 +92,7 @@
                 "retention": { "type": "string" },
                 "endpointURL": { "type": "string" },
                 "destinationPath": { "type": "string" },
+                "credentials": { "enum": ["keys", "workloadIdentity"] },
                 "secretStore": { "type": "string" },
                 "remoteSecret": { "type": "string" }
               }
