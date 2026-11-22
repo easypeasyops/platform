@@ -54,7 +54,7 @@ jobs:
           # adds (deploy/argocd/platform-root.yaml).
           helm lint deploy/argocd/platform --set arch=amd64
           for args in "--set arch=amd64 --set components.argocd=true" "--set arch=arm64" \
-            "--set arch=amd64 --set components.monitoring=false --set components.policies=false --set components.backups=false"; do
+            "--set arch=amd64 --set components.monitoring=false --set components.policies=false --set components.backups=false --set components.metricsServer=false"; do
             # shellcheck disable=SC2086 # word splitting intended
             helm template platform deploy/argocd/platform -f apps/front-door-probes.yaml $args | kc -
           done
@@ -362,6 +362,50 @@ jobs:
       - name: actionlint
         run: docker run --rm -v "$PWD:/repo:ro" -w /repo rhysd/actionlint:1.7.12 -color
 
+  # infra/ (PT-118): the Terraform for GCP, checked offline with no cloud credentials:
+  # format, validate (no backend) and tflint, for every root configuration (a directory
+  # with a .terraform.lock.hcl; its modules are validated through it). Renovate moves the
+  # two versions below.
+  terraform:
+    name: terraform
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      TERRAFORM_VERSION: 1.17.2
+      TFLINT_VERSION: v0.66.0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6.3.2
+        with:
+          tflint_version: ${{ env.TFLINT_VERSION }}
+
+      - name: fmt
+        run: terraform fmt -check -recursive -diff infra
+
+      - name: validate and tflint
+        env:
+          GITHUB_TOKEN: ${{ github.token }} # tflint --init downloads its plugins from GitHub
+        run: |
+          mapfile -t locks < <(find infra -name .terraform.lock.hcl | sort)
+          for lock in "${locks[@]}"; do
+            dir=$(dirname "$lock")
+            echo "::group::$dir"
+            # -lockfile=readonly: a provider not in the committed lock file fails here.
+            terraform -chdir="$dir" init -backend=false -input=false -lockfile=readonly
+            terraform -chdir="$dir" validate
+            tflint --chdir="$dir" --init
+            tflint --chdir="$dir" --format compact
+            echo "::endgroup::"
+          done
+
   # The one required status check (ruleset main-rules requires `ci` only). It passes when
   # every job above passed, so jobs can be split, renamed or added without a ruleset change.
   # Add a new job to `needs` or it isn't gating anything. One job may be skipped:
@@ -383,6 +427,7 @@ jobs:
       - app-e2e-scope
       - app-e2e
       - scripts
+      - terraform
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:

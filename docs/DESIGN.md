@@ -323,6 +323,18 @@ flowchart TB
 | Argo CD under itself, bootstrapped by Helm | The usual pattern: Helm installs it once, then its `argocd` Application owns the same pin and values, so a change to them lands on merge like any other (PT-109; until then one needed `cluster.sh up`). A bad change can stop the thing that would sync its fix, so: its CRDs are never pruned, `cluster.sh up` leaves it to the Application but `ARGOCD_HELM=1` re-installs it with Helm, and the RUNBOOK (Argo CD broke itself) says when. Helm's release records and field ownership are removed once the Application has adopted it, as for the charts before it (PT-104) |
 | metrics-server vendored | The release manifest, byte for byte, with its SHA-256; a kustomize patch adds the kind-only flag ([resource metrics](#c-metrics)) |
 
+### Profiles
+
+kind's values (`deploy/kind/*-values.yaml`) are every cluster's base. A cluster that differs
+gets a profile, `deploy/profiles/<name>/` (PT-119): `install` takes it as `PROFILE=<name>`
+and does two generic things with it, never a branch on its name. It adds the profile's
+`platform.yaml` to the root's values (which components the cluster skips), and sets the
+root's `profile` parameter, so each chart child layers the profile's file of the same
+name over kind's (`ignoreMissingValueFiles`: most charts need none). Without a profile,
+nothing is added and kind renders as before. A difference that a values file can't
+express is a [Cluster contract](#cluster-contract) leak: it is fixed in the contract or
+recorded there.
+
 ### Components
 
 Each platform component, the Application (or script) that installs it, and its role. Versions
@@ -502,7 +514,7 @@ this table lists. The GKE column is the plan, not yet run.
 | <a id="c-storage"></a>**A default StorageClass**, ReadWriteOnce | Each app's Postgres (the chart's `Cluster`), Prometheus, Grafana's plugins, VictoriaLogs and the bucket keep data on PVCs | `standard` (default), rancher.io/local-path, under the node's disk. The platform's values name it (below) | `standard-rwo` (default), Persistent Disk through its CSI driver |
 | <a id="c-metrics"></a>**The resource metrics API** (`metrics.k8s.io`) | The HPAs and `kubectl top` | The platform's `metrics-server` child, with `--kubelet-insecure-tls` (kind's kubelets serve self-signed certificates) | GKE runs its own metrics-server in `kube-system`: the platform's child must be off there |
 | <a id="c-loadbalancer"></a>**A LoadBalancer implementation** for the Gateway | Envoy Gateway serves the front door from a Service; on a cluster it is reached through a load balancer | cloud-provider-kind, a container beside the node (`cluster.sh create`): the proxy's `LoadBalancer` Service (`deploy/kind/gateway.yaml`) gets an address on the kind network, served by its Envoy container. The Gateway takes that address, and without one isn't `Programmed` (`install` waits for it). Forwarder containers publish 8080 and 8090 on 127.0.0.1 and carry them to it | A `LoadBalancer` Service (Envoy Gateway's default) on a Google Cloud load balancer; the tools' listener on an internal one |
-| <a id="c-bucket"></a>**An object-store bucket** and a way for backup pods to get its credentials | CloudNativePG's Barman Cloud plugin archives WAL and base backups to `<bucket>/<namespace>`; the restore drills read them back | SeaweedFS in the `backups` namespace, `s3://cnpg-backups` at `http://seaweedfs.backups.svc:8333` (the chart's `database.cluster.backup` defaults). Static keys: generated once into the store, copied into each app namespace by the `backup-bucket` store | A GCS bucket outside the cluster; the plugin's `googleCredentials` with Workload Identity on each database's ServiceAccount, no keys. The chart renders `s3Credentials` only today |
+| <a id="c-bucket"></a>**An object-store bucket** and a way for backup pods to get its credentials | CloudNativePG's Barman Cloud plugin archives WAL and base backups to `<bucket>/<namespace>`; the restore drills read them back | SeaweedFS in the `backups` namespace, `s3://cnpg-backups` at `http://seaweedfs.backups.svc:8333` (the chart's `database.cluster.backup` defaults). Static keys: generated once into the store, copied into each app namespace by the `backup-bucket` store | A GCS bucket outside the cluster; the plugin's `googleCredentials` with Workload Identity on each database's ServiceAccount, no keys: the service chart's `database.cluster.backup.credentials: workloadIdentity` (from 1.8.0) |
 | <a id="c-secrets"></a>**A secret backend External Secrets supports** | Every platform and app secret is read through the ClusterSecretStores (`platform`, `backup-bucket`, one per app); consumers name only the store | External Secrets' Kubernetes provider on the `secret-store` namespace. The Slack bot token comes from the laptop's Keychain (`scripts/lib/slack.sh`) | Google Secret Manager, each store with its own Workload Identity, so a store still reaches only its own secrets. The stores' names and conditions stay |
 | <a id="c-egress"></a>**Egress to the registries, GitHub and Sigstore** | Argo CD reads git from github.com and the platform's charts from ghcr.io, quay.io and registry-1.docker.io; nodes pull images from the same; Kyverno verifies every release against ghcr.io and Rekor (`rekor.sigstore.dev`) and fails closed without them; Alertmanager posts to Slack | The laptop's network, through Docker. Apps' local builds come from the node instead (`kind load`), which the allowlist's `localBuild` admits | Public nodes, or private nodes with Cloud NAT. Every image from a registry: no `localBuild` |
 | <a id="c-netpol"></a>**A network-policy engine, and how it sees the API server** | NetworkPolicies are the boundary for Redis, the databases, the bucket and the drills. An app with `rbac.clusterRead` reaches the API server only through an `ipBlock` rule (The service chart, above), and which address and port that rule must name is the engine's choice | kindnet (kube-network-policies) judges after kube-proxy's DNAT: the node's address on 6443, so the chart's defaults are the private ranges on 6443 | Dataplane V2 (Cilium). The `kubernetes` Service's endpoint is the control plane's address on 443, which the defaults don't match (a public endpoint isn't in the private ranges); the first GKE run confirms what the rule must name |
@@ -536,6 +548,50 @@ hands `install` these; they become `modules/gke`'s outputs (PT-119). kind's are 
 
 The architecture and the StorageClass are not outputs: `install` reads the one from the
 nodes, and the other is the cluster's default.
+
+## The GCP foundation
+
+`infra/gcp/foundation/` (PT-118, epic PT-114) is the Terraform for the GCP project the
+weekly GKE run (PT-119, PT-120) builds in: what outlives each run. The cluster itself is
+not here; Terraform stops at the cluster API, and Argo CD owns what is inside it.
+
+| Choice | Why |
+| --- | --- |
+| The project is made by hand, once; Terraform takes its ID | A personal account has no organisation or folder to create projects in, and a project Terraform made would hold the bucket with Terraform's own state. One console step instead of a second bootstrap |
+| State in a versioned GCS bucket the foundation itself makes | The bootstrap applies once with local state, then migrates (RUNBOOK.md). Versioning keeps the last 10 generations, so a bad write rolls back |
+| Providers pinned exactly, with `.terraform.lock.hcl` for linux_amd64 and darwin_arm64 | CI and the laptop install the same provider, checked against the same hashes; `init -lockfile=readonly` in CI fails on anything else. Renovate moves the pin and the lock together |
+| Checked offline in CI | `fmt`, `validate` without a backend and `tflint` need no GCP access, so they run on every PR before any account exists |
+| CI authenticates through Workload Identity Federation | GitHub's OIDC token is exchanged for a short-lived one: no key in GitHub secrets to leak or rotate. The provider admits this repository by ID (a re-created repository of the same name doesn't inherit it), from main, and only the workflows in `ci_workflows`: a PR, a branch or a fork gets nothing |
+| One CI service account, which can't change IAM | It holds what the GKE run needs (cluster, network, disks, secrets, buckets) and read access to plan the foundation, but no role that edits project or service-account IAM, so it can't grant itself more. Applying the foundation stays on the laptop; plan on main catches drift |
+| Pods get access through their Kubernetes service account | GKE's workload identity lets a bucket or a secret grant its role to a Kubernetes service account directly, so CI makes no Google service accounts. The nodes run as their own account with GKE's minimal node role, which CI may only attach |
+| The state bucket is out of CI's storage admin | CI administers every bucket but that one by an IAM condition, and only reads and writes objects in it: it can't delete the bucket or turn its versioning off |
+| A budget, not a spending cap | Billing budgets alert (email at 50%, 90%, 100%, and on a forecast above the $10 a month), on spend before credits, so free-trial credit doesn't hide a run that left its cluster up; they don't stop anything. What keeps the cost down is that each run destroys what it made, and the reaper (PT-120) whatever a failed run left |
+
+## The GKE run
+
+`infra/gcp/modules/gke` (PT-119) is GKE's create step: a cluster that meets the
+[Cluster contract](#cluster-contract), and outputs exactly the list of what create hands
+to install, one output per item (`kube_context`, `api_server`, `pod_range`, `bucket`,
+`identities`, `secret_store`, `gateway_service`, `cluster_components`). `infra/gcp/gke/` is
+the root a run applies: it reads the foundation's outputs from its state and keeps its own
+under `gke/<run_id>`. Written before any account existed: nothing here has run yet.
+
+| Choice | Why |
+| --- | --- |
+| GKE Standard, zonal, one node pool of one Spot `e2-standard-4` | Autopilot refuses privileged pods ([nodes](#c-nodes)). One zonal cluster's fee is within GKE's free tier. 16 GB, 4 vCPU: the platform's budgets (5421Mi, 905m), the apps (about 1.3 GiB) and GKE's own pods (about 1 GiB) fit with room; an `e2-standard-2` doesn't. Spot is about a third of the price, and a run that loses its node is run again |
+| Dataplane V2 | GKE's Cilium dataplane enforces NetworkPolicy itself; without it, NetworkPolicy needs Calico's pods on the node. What it sees of the API server is the one contract item left to confirm ([network policy](#c-netpol)) |
+| Private nodes, Cloud NAT, a VPC per run | No node has a public address; the registries, GitHub and Rekor are reached through NAT ([egress](#c-egress)). A VPC of the run's own is deleted with it, so a leftover can't hide in a shared one. The control plane may reach the nodes' webhook ports (8443, 9443), which GKE's own rules don't open |
+| The pod range is kind's, 10.244.0.0/16 | An app's prod values trust the pod range as their proxy; the same range on both keeps them unchanged |
+| Workload identity principals, no Google service accounts | The bucket grants `storage.objectUser`, and each secret `secretAccessor`, to Kubernetes service accounts directly (`principal://…/subject/ns/<ns>/sa/<ksa>`): nothing to annotate, no key, and CI needs no IAM role beyond the bucket's and the secrets' own ([bucket](#c-bucket), [secrets](#c-secrets)). A database's is its Cluster's service account; the restore drills', their whole namespace, as each scratch Cluster has its own name. Any granted database reaches the whole bucket, as on kind, where they share one key |
+| The run's secrets are made empty, named by their remote keys | `grafana-admin`, `alertmanager-slack`: the ExternalSecrets' `remoteRef.key`s stay as they are, and each secret is readable by its own store's service account only. Their values are install's to write (on kind, External Secrets' generators fill the Kubernetes store) |
+| GKE's Gateway API and Ingress off, its logging and monitoring of the system only | Envoy Gateway ships and owns the Gateway API CRDs; the platform has its own Prometheus and logs |
+| Everything named `platform-<run_id>` and labelled `run-id` | The reaper (PT-120) finds a failed run's leftovers by either; the VPC, subnet, router and firewall take no labels |
+
+**What a run costs**, at us-west1 list prices (November 2026, to be measured on the first
+run): the Spot node about $0.04 an hour, its disk and the PVCs under $0.01, the front
+door's load balancer $0.025, NAT $0.0014 plus $0.045 per GB it carries (a fresh cluster
+pulls a few GB of images: about $0.15 a run). About $0.25 for a one-hour run, $1 a month
+weekly, well inside the $10 budget.
 
 ## Checks
 

@@ -7,6 +7,23 @@ an app that doesn't set it) is a major version; a new optional value is a minor 
 that changes no render an app relies on is a patch. Each release's digest is in its GitHub
 Release.
 
+## 1.8.0
+
+The database's backups can reach the bucket by workload identity, without keys (PT-119,
+for the platform's GKE run). A new optional value, `database.cluster.backup.credentials`:
+
+- `keys`, the default: as before. The ObjectStore names `endpointURL` and the keys an
+  ExternalSecret copies in from `secretStore`. Every existing golden is byte for byte the
+  same.
+- `workloadIdentity`: the instance pods' own service account (the Cluster's name) reaches
+  the bucket, which grants it access. The ObjectStore has `googleCredentials.gkeEnvironment`
+  and no endpoint, and there is no ExternalSecret. GCS only for now: `destinationPath` must
+  be set, `gs://<bucket>/<namespace>`, and anything else fails the render.
+
+Nothing for an app to do: the value is for the platform's cluster to set on a cluster whose
+bucket works this way (cluster contract, bucket). A new golden, `backup-workload-identity`,
+shows the render.
+
 ## 1.7.1
 
 The SLO dashboard says how many requests each error budget is made of (PT-70). On low

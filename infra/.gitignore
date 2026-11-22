@@ -1,0 +1,7 @@
+.terraform/
+*.tfstate
+*.tfstate.*
+# What stays on the laptop (RUNBOOK.md, The GCP foundation): the bootstrap's local backend,
+# and the values that name the project and the billing account.
+*_override.tf
+*.tfvars

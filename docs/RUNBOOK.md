@@ -1447,3 +1447,131 @@ kubectl -n <ns> patch rollout <rollout> --type merge -p '{"spec":{"paused":false
 kubectl -n <ns> patch rollout <rollout> --subresource=status --type merge \
   -p '{"status":{"pauseConditions":null,"controllerPause":false,"currentStepIndex":<n>}}'
 ```
+
+## The GCP foundation
+
+`infra/gcp/foundation/` (PT-118) is the GCP project's Terraform: its APIs, the bucket that
+holds Terraform's state, the identity GitHub Actions acts as (Workload Identity Federation,
+no key), the GKE nodes' service account and a monthly budget. Nothing in it touches the laptop cluster. It is
+applied from Emrah's laptop with his own credentials: CI checks the code offline (ci.yml,
+`terraform`) and, once bootstrapped, plans it on every merge to main
+(`terraform-plan.yml`, which fails on any change).
+
+It needs, once, from outside Terraform: a Google account with billing, and a project with
+billing linked. Its ID is `<project_id>` below; nothing in git names it.
+
+### Bootstrap
+
+The state bucket is made by the configuration whose state it holds, so the first apply
+keeps its state on the laptop and moves it into the bucket afterwards.
+
+1. In the console: create the project (no organisation is fine) and link it to the
+   billing account (Billing, Account management, My projects).
+2. On the laptop, with `gcloud` and Terraform 1.17 (`brew install hashicorp/tap/terraform`):
+
+   ```sh
+   gcloud auth login
+   gcloud auth application-default login     # the credentials Terraform uses
+   gcloud config set project <project_id>
+   cd infra/gcp/foundation
+   gcloud billing accounts list                # its ACCOUNT_ID, and that it is OPEN
+   cat > terraform.tfvars <<'EOF'              # git-ignored
+   project_id      = "<project_id>"
+   billing_account = "<billing_account>"
+   EOF
+   ```
+
+   The budget is `budget_usd`, 10 by default; the billing account must be in US dollars.
+   Applying it needs Billing Account Administrator on the account (its creator has it).
+
+3. The first apply, with a local backend: `backend_override.tf` replaces the `gcs` backend
+   for as long as it exists (git-ignored).
+
+   ```sh
+   printf 'terraform {\n  backend "local" {}\n}\n' > backend_override.tf
+   terraform init
+   terraform apply                           # read the plan first
+   ```
+
+4. Move the state into the bucket, then check there is nothing left to do:
+
+   ```sh
+   rm backend_override.tf
+   terraform init -migrate-state -backend-config=bucket=<project_id>-tfstate
+   rm terraform.tfstate terraform.tfstate.backup
+   terraform plan                            # No changes.
+   gcloud storage ls gs://<project_id>-tfstate/foundation/   # default.tfstate
+   gcloud billing budgets list --billing-account=<billing_account>   # "<project_id> monthly", 10 USD, thresholds 0.5, 0.9, 1.0
+   ```
+
+5. Wake up CI's plan: four repository variables (names and IDs, not secrets: there is no
+   key anywhere), then run it once.
+
+   ```sh
+   gh variable set GCP_PROJECT_ID --body <project_id>
+   gh variable set GCP_BILLING_ACCOUNT --body <billing_account>
+   gh variable set GCP_WORKLOAD_IDENTITY_PROVIDER --body "$(terraform output -raw workload_identity_provider)"
+   gh variable set GCP_CI_SERVICE_ACCOUNT --body "$(terraform output -raw ci_service_account)"
+   gh workflow run terraform-plan.yml && gh run watch
+   ```
+
+   Its "Who CI is" step prints `platform-ci@<project_id>.iam.gserviceaccount.com`, and the
+   plan ends with "No changes."
+
+From then on, `terraform init` here takes `-backend-config=bucket=<project_id>-tfstate`.
+
+Only the workflows in `ci_workflows`, from main, may act as CI (`wif.tf`). A new workflow
+that needs GCP (the weekly GKE run) is added there, and the change applied from the
+laptop before the workflow first runs. A refused token fails `google-github-actions/auth`
+with "The given credential is rejected by the attribute condition".
+
+### Tear it all down
+
+The bucket can't be deleted while it holds the state, so the state comes back to the
+laptop first.
+
+```sh
+cd infra/gcp/foundation
+printf 'terraform {\n  backend "local" {}\n}\n' > backend_override.tf
+terraform init -migrate-state                # the bucket's state into ./terraform.tfstate
+gcloud storage rm --all-versions --recursive "gs://<project_id>-tfstate/**"
+terraform destroy                            # the budget too: it is the billing account's, not the project's
+rm backend_override.tf terraform.tfstate*
+gcloud projects delete <project_id>          # what is left in it; undo within 30 days
+gh variable delete GCP_WORKLOAD_IDENTITY_PROVIDER  # terraform-plan.yml goes dormant again
+gh variable delete GCP_CI_SERVICE_ACCOUNT
+gh variable delete GCP_BILLING_ACCOUNT
+gh variable delete GCP_PROJECT_ID
+gcloud billing budgets list --billing-account=<billing_account>   # no "<project_id> monthly"
+```
+
+A destroyed identity pool is kept, deleted, for 30 days, and its ID can't be reused
+meanwhile: applying again in a project that wasn't deleted, within that time, needs
+`gcloud iam workload-identity-pools undelete github --location=global` first.
+
+## A GKE run, by hand
+
+`infra/gcp/gke/` (PT-119) makes one run's cluster in the foundation's project: a zonal GKE
+Standard cluster on one Spot node, its own VPC and Cloud NAT, a backup bucket, and the
+Secret Manager secrets the `platform` store reads (DESIGN.md, The GKE run). The weekly
+workflow (PT-120) will do this as CI; by hand it is, with the foundation bootstrapped:
+
+```sh
+cd infra/gcp/gke
+RUN=manual-$(date +%Y%m%d)                   # names and labels everything: label run-id
+terraform init -backend-config=bucket=<project_id>-tfstate -backend-config=prefix=gke/$RUN
+terraform apply -var state_bucket=<project_id>-tfstate -var run_id=$RUN
+eval "$(terraform output -json kube_context | jq -r .get_credentials)"
+terraform output                             # what install needs (DESIGN.md, Cluster contract)
+```
+
+Then destroy it the same day: a run is never meant to outlive its tests.
+
+```sh
+terraform destroy -var state_bucket=<project_id>-tfstate -var run_id=$RUN
+gcloud compute forwarding-rules list && gcloud compute disks list   # empty: nothing a Service or a PVC left
+```
+
+A LoadBalancer Service or a PersistentVolume left in the cluster leaves a load balancer or
+a disk behind, which blocks deleting the VPC: delete the platform's Services and PVCs
+(or the namespaces) before `destroy`.

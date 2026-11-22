@@ -93,8 +93,13 @@ database:
       # folder per namespace; the operator adds the Cluster's name below it.
       endpointURL: http://seaweedfs.backups.svc:8333
       destinationPath: "" # default: s3://cnpg-backups/<namespace>
-      # Its keys, copied into the namespace by an ExternalSecret from this ClusterSecretStore
-      # (the platform's deploy/secrets/bucket-store.yaml).
+      # How the database's pods reach the bucket (the platform's cluster contract, bucket):
+      #   keys              its keys, copied into the namespace by an ExternalSecret from
+      #                     secretStore (the platform's deploy/secrets/bucket-store.yaml)
+      #   workloadIdentity  the pods' own Kubernetes service account (the Cluster's name),
+      #                     which the bucket grants access to: no keys, no endpointURL.
+      #                     GCS only for now (GKE): destinationPath gs://<bucket>/<namespace>
+      credentials: keys
       secretStore: backup-bucket
       remoteSecret: seaweedfs-s3
 

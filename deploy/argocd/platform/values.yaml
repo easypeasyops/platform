@@ -9,6 +9,10 @@ revision: main
 # The node's CPU architecture: the Argo Rollouts plugin is a per-architecture binary
 # (amd64 in CI, arm64 on Apple silicon). cluster.sh reads it from the node.
 arch: amd64
+# The cluster's profile (cluster.sh's PROFILE; DESIGN, Profiles): each chart's values file
+# from deploy/profiles/<profile>/, of the same name, layered over deploy/kind's where it
+# exists. Empty: kind's alone.
+profile: ""
 # What to install (cluster.sh's MONITORING, POLICIES, BACKUPS knobs; CI's delivery job
 # skips the last two).
 components:
@@ -19,6 +23,9 @@ components:
   slack: true
   policies: true
   backups: true
+  # The resource metrics API (cluster contract, resource metrics): off where the cluster
+  # serves its own, as GKE does (modules/gke's cluster_components).
+  metricsServer: true
   # Argo CD managing its own install (the `argocd` Application, PT-109). Off by default, so
   # a running cluster adopts it only when cluster.sh sets it (its next `up` or `install`),
   # where the Helm records are handed over in the same run, not on the merge.

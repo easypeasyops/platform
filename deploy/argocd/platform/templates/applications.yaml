@@ -74,6 +74,7 @@ spec:
   {{- include "platform.chartSources" (dict "root" $ "chart" $v.charts.barmanCloud "release" "plugin-barman-cloud" "values" "deploy/kind/barman-cloud-values.yaml") | nindent 2 }}
   destination: { server: {{ $dest }}, namespace: cnpg-system }
   {{- include "platform.syncPolicy" (dict) | nindent 2 }}
+{{- if $v.components.metricsServer }}
 ---
 # metrics-server: CPU usage for the HorizontalPodAutoscaler. A vendored upstream manifest
 # plus one kind-only patch (deploy/platform/metrics-server/).
@@ -86,6 +87,7 @@ spec:
     path: deploy/platform/metrics-server
   destination: { server: {{ $dest }}, namespace: kube-system }
   {{- include "platform.syncPolicy" (dict) | nindent 2 }}
+{{- end }}
 ---
 # Envoy Gateway: the controller behind the cluster's front door (Gateway API).
 {{ include "platform.meta" (dict "name" "envoy-gateway" "wave" 0) }}

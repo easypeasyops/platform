@@ -1,0 +1,58 @@
+name: Terraform plan
+
+# The GCP foundation on main is what GCP has: a plan with changes fails (PT-118). CI acts as
+# the CI service account through Workload Identity Federation, with no stored key.
+#
+# Dormant until the foundation is bootstrapped (RUNBOOK.md, The GCP foundation): its last
+# step sets the repository variables below, and until then the job is skipped. It runs
+# after the merge, so it is not part of ci.yml's gate. The provider admits only this file,
+# from main (infra/gcp/foundation/wif.tf, ci_workflows): renaming it locks it out.
+on:
+  push:
+    branches: [main]
+    paths: ["infra/**", ".github/workflows/terraform-plan.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # the OIDC token Workload Identity Federation exchanges
+
+concurrency:
+  group: terraform-plan
+  cancel-in-progress: false # never interrupt a run holding the state lock
+
+jobs:
+  foundation:
+    name: foundation plan
+    if: vars.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TERRAFORM_VERSION: 1.17.2 # ci.yml's; Renovate moves both
+      TF_VAR_project_id: ${{ vars.GCP_PROJECT_ID }}
+      TF_VAR_billing_account: ${{ vars.GCP_BILLING_ACCOUNT }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_CI_SERVICE_ACCOUNT }}
+
+      - name: Who CI is
+        run: gcloud auth list --filter=status:ACTIVE --format='value(account)'
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: No changes
+        working-directory: infra/gcp/foundation
+        run: |
+          terraform init -input=false -lockfile=readonly \
+            -backend-config="bucket=${TF_VAR_project_id}-tfstate"
+          # -detailed-exitcode: 2 when there are changes, so drift fails the job.
+          terraform plan -input=false -lock-timeout=60s -detailed-exitcode
