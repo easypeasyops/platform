@@ -548,6 +548,31 @@ not here; Terraform stops at the cluster API, and Argo CD owns what is inside it
 | The state bucket is out of CI's storage admin | CI administers every bucket but that one by an IAM condition, and only reads and writes objects in it: it can't delete the bucket or turn its versioning off |
 | A budget, not a spending cap | Billing budgets alert (email at 50%, 90%, 100%, and on a forecast above the $10 a month); they don't stop anything. What keeps the cost down is that each run destroys what it made, and the reaper (PT-120) whatever a failed run left |
 
+## The GKE run
+
+`infra/gcp/modules/gke` (PT-119) is GKE's create step: a cluster that meets the
+[Cluster contract](#cluster-contract), and outputs exactly the list of what create hands
+to install, one output per item (`kube_context`, `api_server`, `pod_range`,
+`secret_store`, `gateway_service`, `cluster_components`; the bucket and the identities
+follow with the run's access). `infra/gcp/gke/` is
+the root a run applies: it reads the foundation's outputs from its state and keeps its own
+under `gke/<run_id>`. Written before any account existed: nothing here has run yet.
+
+| Choice | Why |
+| --- | --- |
+| GKE Standard, zonal, one node pool of one Spot `e2-standard-4` | Autopilot refuses privileged pods ([nodes](#c-nodes)). One zonal cluster's fee is within GKE's free tier. 16 GB, 4 vCPU: the platform's budgets (5421Mi, 905m), the apps (about 1.3 GiB) and GKE's own pods (about 1 GiB) fit with room; an `e2-standard-2` doesn't. Spot is about a third of the price, and a run that loses its node is run again |
+| Dataplane V2 | GKE's Cilium dataplane enforces NetworkPolicy itself; without it, NetworkPolicy needs Calico's pods on the node. What it sees of the API server is the one contract item left to confirm ([network policy](#c-netpol)) |
+| Private nodes, Cloud NAT, a VPC per run | No node has a public address; the registries, GitHub and Rekor are reached through NAT ([egress](#c-egress)). A VPC of the run's own is deleted with it, so a leftover can't hide in a shared one. The control plane may reach the nodes' webhook ports (8443, 9443), which GKE's own rules don't open |
+| The pod range is kind's, 10.244.0.0/16 | An app's prod values trust the pod range as their proxy; the same range on both keeps them unchanged |
+| GKE's Gateway API and Ingress off, its logging and monitoring of the system only | Envoy Gateway ships and owns the Gateway API CRDs; the platform has its own Prometheus and logs |
+| Everything named `platform-<run_id>` and labelled `run-id` | The reaper (PT-120) finds a failed run's leftovers by either; the VPC, subnet, router and firewall take no labels |
+
+**What a run costs**, at us-west1 list prices (November 2026, to be measured on the first
+run): the Spot node about $0.04 an hour, its disk and the PVCs under $0.01, the front
+door's load balancer $0.025, NAT $0.0014 plus $0.045 per GB it carries (a fresh cluster
+pulls a few GB of images: about $0.15 a run). About $0.25 for a one-hour run, $1 a month
+weekly, well inside the $10 budget.
+
 ## Checks
 
 What a schema can check, kubeconform checks on every manifest and on the platform chart
