@@ -28,6 +28,16 @@ admissionController:
       # memory: median +10% (PT-121)
       requests: { cpu: 30m, memory: 120Mi }
       limits: { memory: 384Mi }
+  # Read the databases' ScheduledBackups, which the restore drills' GeneratingPolicy matches:
+  # the admission controller checks its own access to what a policy matches, and without it
+  # the policy reports Ready false ("missing permissions ... scheduledbackups") though it
+  # generates all the same (PT-44). The reports controller needs the same read (below).
+  rbac:
+    clusterRole:
+      extraResources:
+        - apiGroups: [postgresql.cnpg.io]
+          resources: [scheduledbackups]
+          verbs: [get, list, watch]
 # We validate, and generate one thing: the background controller runs the restore drills'
 # GeneratingPolicy (a CronJob in restore-drill per database with backups, PT-44). Its
 # ClusterRole gets only what that needs, on top of the chart's: read the databases'
@@ -54,9 +64,8 @@ cleanupController:
   enabled: false
 reportsController:
   enabled: true
-  # Read the databases' ScheduledBackups, which the restore drills' GeneratingPolicy matches:
-  # without it the policy reports Ready false ("missing permissions ... scheduledbackups"),
-  # though it generates all the same (PT-44).
+  # Reads the databases' ScheduledBackups, as the admission controller does (above), for
+  # the restore drills' GeneratingPolicy (PT-44).
   rbac:
     clusterRole:
       extraResources:
