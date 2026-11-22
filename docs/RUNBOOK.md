@@ -1387,3 +1387,65 @@ kubectl -n <ns> patch rollout <rollout> --type merge -p '{"spec":{"paused":false
 kubectl -n <ns> patch rollout <rollout> --subresource=status --type merge \
   -p '{"status":{"pauseConditions":null,"controllerPause":false,"currentStepIndex":<n>}}'
 ```
+
+## The GCP foundation
+
+`infra/gcp/foundation/` (PT-118) is the GCP project's Terraform: its APIs and the bucket
+that holds Terraform's state. Nothing in it touches the laptop cluster. It is applied from
+Emrah's laptop with his own credentials; CI checks the code offline (ci.yml, `terraform`).
+
+It needs, once, from outside Terraform: a Google account with billing, and a project with
+billing linked. Its ID is `<project_id>` below; nothing in git names it.
+
+### Bootstrap
+
+The state bucket is made by the configuration whose state it holds, so the first apply
+keeps its state on the laptop and moves it into the bucket afterwards.
+
+1. In the console: create the project (no organisation is fine) and link it to the
+   billing account (Billing, Account management, My projects).
+2. On the laptop, with `gcloud` and Terraform 1.17 (`brew install hashicorp/tap/terraform`):
+
+   ```sh
+   gcloud auth login
+   gcloud auth application-default login     # the credentials Terraform uses
+   gcloud config set project <project_id>
+   cd infra/gcp/foundation
+   echo 'project_id = "<project_id>"' > terraform.tfvars   # git-ignored
+   ```
+
+3. The first apply, with a local backend: `backend_override.tf` replaces the `gcs` backend
+   for as long as it exists (git-ignored).
+
+   ```sh
+   printf 'terraform {\n  backend "local" {}\n}\n' > backend_override.tf
+   terraform init
+   terraform apply                           # read the plan first
+   ```
+
+4. Move the state into the bucket, then check there is nothing left to do:
+
+   ```sh
+   rm backend_override.tf
+   terraform init -migrate-state -backend-config=bucket=<project_id>-tfstate
+   rm terraform.tfstate terraform.tfstate.backup
+   terraform plan                            # No changes.
+   gcloud storage ls gs://<project_id>-tfstate/foundation/   # default.tfstate
+   ```
+
+From then on, `terraform init` here takes `-backend-config=bucket=<project_id>-tfstate`.
+
+### Tear it all down
+
+The bucket can't be deleted while it holds the state, so the state comes back to the
+laptop first.
+
+```sh
+cd infra/gcp/foundation
+printf 'terraform {\n  backend "local" {}\n}\n' > backend_override.tf
+terraform init -migrate-state                # the bucket's state into ./terraform.tfstate
+gcloud storage rm --all-versions --recursive "gs://<project_id>-tfstate/**"
+terraform destroy
+rm backend_override.tf terraform.tfstate*
+gcloud projects delete <project_id>          # what is left in it; undo within 30 days
+```

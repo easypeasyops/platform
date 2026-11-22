@@ -1,8 +1,9 @@
 // Renovate bumps the pins Dependabot can't read (dependabot.yaml has the rest): it opens a PR
 // when one of them has a new release, and CI decides whether it's safe to merge.
 //
-// Only the regex managers below run. Renovate's own managers stay off, so the pinned
-// GitHub Actions keep one bumper (Dependabot), not two.
+// Only the regex managers below and the Terraform ones (infra/: its providers with their
+// .terraform.lock.hcl, and tflint's plugins) run. Renovate's other managers stay off, so the
+// pinned GitHub Actions keep one bumper (Dependabot), not two.
 //
 // Upstream bumps never merge on their own: a chart bump reaches the cluster, prod included,
 // on merge, so a person reads the upstream release notes first. A chart's comment in
@@ -21,7 +22,7 @@
 {
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
   extends: ["config:recommended", "schedule:weekly"],
-  enabledManagers: ["custom.regex"],
+  enabledManagers: ["custom.regex", "terraform", "tflint-plugin"],
   customManagers: [
     {
       // The upstream charts the platform chart pins: version and digest move together.
@@ -42,6 +43,22 @@
         "(?<depName>ghcr\\.io/yannh/kubeconform|rhysd/actionlint):(?<currentValue>[\\w.-]+)",
       ],
       datasourceTemplate: "docker",
+    },
+    {
+      // The Terraform and tflint that ci.yml's terraform job installs.
+      customType: "regex",
+      managerFilePatterns: ["/^\\.github/workflows/ci\\.yml$/"],
+      matchStrings: ["TERRAFORM_VERSION: (?<currentValue>\\S+)"],
+      depNameTemplate: "hashicorp/terraform",
+      datasourceTemplate: "github-releases",
+      extractVersionTemplate: "^v(?<version>.+)$",
+    },
+    {
+      customType: "regex",
+      managerFilePatterns: ["/^\\.github/workflows/ci\\.yml$/"],
+      matchStrings: ["TFLINT_VERSION: (?<currentValue>\\S+)"],
+      depNameTemplate: "terraform-linters/tflint",
+      datasourceTemplate: "github-releases",
     },
     {
       // An app's pins, version and digest together; depName is the app and depType the env,
@@ -89,8 +106,9 @@
       automerge: false,
     },
     {
-      // The upstream charts and the tool images: minor and patch updates in one PR.
-      matchFileNames: ["deploy/argocd/platform/values.yaml", ".github/workflows/ci.yml"],
+      // The upstream charts, the tool images, and Terraform's providers and tools: minor and
+      // patch updates in one PR.
+      matchFileNames: ["deploy/argocd/platform/values.yaml", ".github/workflows/ci.yml", "infra/**"],
       matchUpdateTypes: ["minor", "patch"],
       groupName: "upstream minor and patch",
     },
