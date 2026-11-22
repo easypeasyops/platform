@@ -136,7 +136,8 @@ ranges: it closes the internet and every other port, and admits any private addr
 platform restricts egress, so there was no rule to copy. Narrower, for kind, would be
 Docker's address pools (`172.16.0.0/12`, `192.168.0.0/16`), which leave out the pod and
 Service ranges; that needs a value the platform sets for every app (the ApplicationSet),
-which it doesn't do yet.
+which it doesn't do yet. Another cluster's engine may see another address and port
+(Cluster contract, [network policy](#c-netpol)).
 
 **The env list is the app's.** The chart renders `env` as it is, in order: which variables
 an app reads is not the chart's business. Each entry is a template, so it can read
@@ -295,7 +296,8 @@ else is put in the cluster by hand. From then on Argo CD manages its own install
 makes what only kind needs: the cluster and the front door's forwarders, which stand in for
 a cloud's load balancer. `cluster.sh install` is everything above, on whatever cluster the
 kube context points at, and names nothing kind-specific. Another cluster gets its own
-`create` (a cloud's Terraform, PT-114) and the same `install`.
+`create` (a cloud's Terraform, PT-114) and the same `install`; what one must provide is the
+[Cluster contract](#cluster-contract).
 
 ```mermaid
 flowchart TB
@@ -317,7 +319,7 @@ flowchart TB
 | No finalizer on the children | Deleting a child, or the root, orphans its resources instead of deleting the monitoring stack or the admission webhook |
 | Server-side apply and diff | Several charts' CRDs are too big for client-side apply, and fields other controllers write (webhook CA bundles) are not drift |
 | Argo CD under itself, bootstrapped by Helm | The usual pattern: Helm installs it once, then its `argocd` Application owns the same pin and values, so a change to them lands on merge like any other (PT-109; until then one needed `cluster.sh up`). A bad change can stop the thing that would sync its fix, so: its CRDs are never pruned, `cluster.sh up` leaves it to the Application but `ARGOCD_HELM=1` re-installs it with Helm, and the RUNBOOK (Argo CD broke itself) says when. Helm's release records and field ownership are removed once the Application has adopted it, as for the charts before it (PT-104) |
-| metrics-server vendored | The release manifest, byte for byte, with its SHA-256; a kustomize patch adds the kind-only flag |
+| metrics-server vendored | The release manifest, byte for byte, with its SHA-256; a kustomize patch adds the kind-only flag ([resource metrics](#c-metrics)) |
 
 ### Components
 
@@ -332,7 +334,7 @@ and digests are in `deploy/argocd/platform/values.yaml`; values in `deploy/kind/
 | cert-manager | `cert-manager` · `cert-manager` | Issues the certificates CloudNativePG and the Barman Cloud plugin talk mutual TLS over |
 | CloudNativePG | `cloudnative-pg` · `cnpg-system` | Operator that runs each app's Postgres from the `Cluster` its chart renders: failover, base backups, point-in-time recovery |
 | Barman Cloud plugin | `barman-cloud` · `cnpg-system` | CloudNativePG's backups (base backups and WAL) to the bucket |
-| SeaweedFS | `backups` · `backups` | The S3 bucket the backups go to, reachable only by backup and restore pods (kind only: a cloud bucket elsewhere) |
+| SeaweedFS | `backups` · `backups` | The S3 bucket the backups go to, reachable only by backup and restore pods (kind only: a cloud bucket elsewhere, [bucket](#c-bucket)) |
 | Envoy Gateway | `envoy-gateway` · `envoy-gateway-system` | Gateway API implementation: runs the Envoy proxies of the front door and ships the Gateway API CRDs |
 | Gateway | `gateway` · `gateway` | The front door: one Gateway, routed by hostname, with an `http` listener for apps and a `tools` one for the platform's UIs |
 | Tool routes | `tool-routes` · `argocd` | HTTPRoutes for Argo CD, Grafana, Prometheus and Alertmanager on the `tools` listener |
@@ -361,7 +363,7 @@ What the children are for:
   on the users' listener. An app that is a tool (the ServiceMonitor page) is added to
   `tools` by its namespace's name, never by a label, and its route names the listener (the
   service chart's `gateway.sectionName`), so it isn't served on `http` as well. On the laptop, forwarder containers beside the kind node publish
-  both on 127.0.0.1; they outlive releases and sleep, which a `kubectl port-forward` doesn't.
+  both on 127.0.0.1 (kind only, [LoadBalancer](#c-loadbalancer)); they outlive releases and sleep, which a `kubectl port-forward` doesn't.
 - **Monitoring and logs.** kube-prometheus-stack: the operator's CRDs make scraping, rules
   and dashboards part of each app's chart. Alertmanager routes by namespace to Slack.
   VictoriaLogs keeps every pod's log lines, sent by a collector, and the cluster's events,
@@ -406,7 +408,7 @@ What the children are for:
   chart renders: failover, base backups and point-in-time recovery from an operator
   instead of a hand-rolled StatefulSet and dumps. Backups go through the Barman Cloud
   plugin, which talks to the operator over mutual TLS (hence cert-manager), to a bucket in
-  its own namespace (SeaweedFS in kind), reachable only by backup and restore pods.
+  its own namespace (SeaweedFS in kind, [bucket](#c-bucket)), reachable only by backup and restore pods.
 - **Argo Rollouts**, with its Gateway API traffic-router plugin, pinned by version and
   checksum. Upstream publishes no checksums: ours were computed when pinned, which guards
   against a later swap, not a bad original.
@@ -431,13 +433,13 @@ CLI (offline cases and the real registry) and asserts the gate and the policy ag
 | Policy | Rule | In kind |
 | --- | --- | --- |
 | `require-release-provenance` (ImageValidatingPolicy) | The rule above, for every container of a Pod (init and ephemeral included) in an app namespace, and for the Pod templates of Deployments, StatefulSets, Jobs, CronJobs, ReplicaSets and DaemonSets | Deny |
-| `app-allowed-images` (ValidatingPolicy) | Pods in an app's namespaces run only that app's release, or the images the chart and its drills bring: Postgres 17, Redis 8, k6, CloudNativePG's. In kind, also the app's own local build (`<app>:dev`, `<app>:e2e`) | Deny |
+| `app-allowed-images` (ValidatingPolicy) | Pods in an app's namespaces run only that app's release, or the images the chart and its drills bring: Postgres 17, Redis 8, k6, CloudNativePG's. In kind, also the app's own local build (`<app>:dev`, `<app>:e2e`; [egress](#c-egress)) | Deny |
 
 - **They need each other.** The first looks only at our images, so alone it is dodged by
   running some other image; the second closes that. Local builds are how the cluster is
   developed, so they pass through one named exception (`localBuild`): the namespace's own
   app's name with a `:dev` or `:e2e` tag, nothing in front, checked per image. A real
-  cluster drops it.
+  cluster drops it ([egress](#c-egress)).
 - **Tags are refused, not resolved** (`mutateDigest: false`): what was verified is what runs.
 - **Fail closed.** The gate refuses without `gh`, the network or an attestation; the
   policy's webhook refuses new Pods if Kyverno, the registry or Rekor can't be reached.
@@ -466,15 +468,65 @@ flowchart LR
 
 | Choice | Why |
 | --- | --- |
-| A store inside the cluster (External Secrets' Kubernetes provider) | No secrets server to run, unseal or back up on a laptop. A real cluster points the ClusterSecretStores at a secret manager and no consumer changes |
+| A store inside the cluster (External Secrets' Kubernetes provider) | No secrets server to run, unseal or back up on a laptop. A real cluster points the ClusterSecretStores at a secret manager and no consumer changes ([secret backend](#c-secrets)) |
 | Several ClusterSecretStores, each with its own reader | A store's conditions say which namespaces may use it, not which Secret each may read. So what the app namespaces can reach is bounded by the reader's Role: `backup-bucket` may get the bucket's keys only, an app's store that app's one Secret only, and only namespaces labelled with that app may use it |
 | Generated values written once, into an immutable Secret | `refreshPolicy: CreatedOnce` so a resync never rotates a password everything uses; `immutable: true` because a recreated ExternalSecret's first sync would otherwise overwrite it silently. A value is replaced only by deleting it |
 | Consumers derive the rest | The ExternalSecret beside the chart that reads it templates the user name or config file around the stored value, and syncs before the workload |
-| Loaded by hand what can't be generated | Slack's bot token or an app's API key comes from somewhere else: `scripts/load-slack.sh` (once, into Keychain; `cluster.sh up` copies it), `scripts/load-app-env.sh` and RUNBOOK say how, and the value never passes through git, chat or a ticket. Nothing the platform needs to come up may wait on one: Slack is wired only where `cluster.sh` finds the token in the store (`components.slack`), so a cluster installs without it; with Slack on (unless `SLACK=0`), `up` then fails at the end, so a missing token is never silent |
+| Loaded by hand what can't be generated | Slack's bot token or an app's API key comes from somewhere else: `scripts/load-slack.sh` (once, into Keychain, on the laptop only; `cluster.sh up` copies it: [secret backend](#c-secrets)), `scripts/load-app-env.sh` and RUNBOOK say how, and the value never passes through git, chat or a ticket. Nothing the platform needs to come up may wait on one: Slack is wired only where `cluster.sh` finds the token in the store (`components.slack`), so a cluster installs without it; with Slack on (unless `SLACK=0`), `up` then fails at the end, so a missing token is never silent |
 
 The database's credentials are not here: CloudNativePG generates them into the app's
 namespace. `tests/test_secret_store.py` checks each reader's reach and that `cluster.sh`
 makes no platform secret.
+
+## Cluster contract
+
+What the platform needs from any cluster it runs on (PT-115). The app contract is what an app
+gets from the platform; this is what the platform gets from the cluster beneath it. kind is
+one implementation, made by `cluster.sh create`; a managed cloud (GKE, PT-114) is the second,
+made by its own create step. `cluster.sh install` is the same on both and assumes only what
+this table lists. The GKE column is the plan, not yet run.
+
+| Item | Why | kind today | GKE |
+| --- | --- | --- | --- |
+| <a id="c-kubernetes"></a>**Kubernetes 1.37 or later**, conformant | Every manifest and the rendered charts are validated against 1.37.0 (kubeconform in `ci.yml`), and that is what runs: the laptop's node is v1.37.0. A floor of what is tested, not of a feature that needs it | kind's default node image for its release (kind v0.33.0 on the laptop; CI uses `helm/kind-action`'s default). Not pinned in `deploy/kind/cluster.yaml` | A release channel's version at or above the floor |
+| <a id="c-nodes"></a>**Nodes: one architecture, room for the platform, privileged pods** | `install` reads the first node's architecture for the Argo Rollouts plugin (amd64 or arm64). The platform's requests are budgeted (`tests/test_cpu_budget.py`, `tests/test_memory_budget.py`). node-exporter and the log collector read the node's files at Pod Security `privileged` | One node: 11902Mi on the laptop, 4000m CPU in CI | GKE Standard (Autopilot refuses privileged pods), a node pool of one architecture sized to the budgets plus GKE's own system pods |
+| <a id="c-storage"></a>**A default StorageClass**, ReadWriteOnce | Each app's Postgres (the chart's `Cluster`), Prometheus, Grafana's plugins, VictoriaLogs and the bucket keep data on PVCs | `standard` (default), rancher.io/local-path, under the node's disk. The platform's values name it (below) | `standard-rwo` (default), Persistent Disk through its CSI driver |
+| <a id="c-metrics"></a>**The resource metrics API** (`metrics.k8s.io`) | The HPAs and `kubectl top` | The platform's `metrics-server` child, with `--kubelet-insecure-tls` (kind's kubelets serve self-signed certificates) | GKE runs its own metrics-server in `kube-system`: the platform's child must be off there |
+| <a id="c-loadbalancer"></a>**A LoadBalancer implementation** for the Gateway | Envoy Gateway serves the front door from a Service; on a cluster it is reached through a load balancer | None: the proxy's Service is a NodePort on fixed ports (`deploy/kind/gateway.yaml`), and forwarder containers beside the node publish 8080 and 8090 on 127.0.0.1 | A `LoadBalancer` Service (Envoy Gateway's default) on a Google Cloud load balancer; the tools' listener on an internal one |
+| <a id="c-bucket"></a>**An object-store bucket** and a way for backup pods to get its credentials | CloudNativePG's Barman Cloud plugin archives WAL and base backups to `<bucket>/<namespace>`; the restore drills read them back | SeaweedFS in the `backups` namespace, `s3://cnpg-backups` at `http://seaweedfs.backups.svc:8333` (the chart's `database.cluster.backup` defaults). Static keys: generated once into the store, copied into each app namespace by the `backup-bucket` store | A GCS bucket outside the cluster; the plugin's `googleCredentials` with Workload Identity on each database's ServiceAccount, no keys. The chart renders `s3Credentials` only today |
+| <a id="c-secrets"></a>**A secret backend External Secrets supports** | Every platform and app secret is read through the ClusterSecretStores (`platform`, `backup-bucket`, one per app); consumers name only the store | External Secrets' Kubernetes provider on the `secret-store` namespace. The Slack bot token comes from the laptop's Keychain (`scripts/lib/slack.sh`) | Google Secret Manager, each store with its own Workload Identity, so a store still reaches only its own secrets. The stores' names and conditions stay |
+| <a id="c-egress"></a>**Egress to the registries, GitHub and Sigstore** | Argo CD reads git from github.com and the platform's charts from ghcr.io, quay.io and registry-1.docker.io; nodes pull images from the same; Kyverno verifies every release against ghcr.io and Rekor (`rekor.sigstore.dev`) and fails closed without them; Alertmanager posts to Slack | The laptop's network, through Docker. Apps' local builds come from the node instead (`kind load`), which the allowlist's `localBuild` admits | Public nodes, or private nodes with Cloud NAT. Every image from a registry: no `localBuild` |
+| <a id="c-netpol"></a>**A network-policy engine, and how it sees the API server** | NetworkPolicies are the boundary for Redis, the databases, the bucket and the drills. An app with `rbac.clusterRead` reaches the API server only through an `ipBlock` rule (The service chart, above), and which address and port that rule must name is the engine's choice | kindnet (kube-network-policies) judges after kube-proxy's DNAT: the node's address on 6443, so the chart's defaults are the private ranges on 6443 | Dataplane V2 (Cilium). The `kubernetes` Service's endpoint is the control plane's address on 443, which the defaults don't match (a public endpoint isn't in the private ranges); the first GKE run confirms what the rule must name |
+
+**What stands in on kind.** Each kind-only piece in the repo, and the item it stands in for.
+
+| Workaround | Where | Stands in for |
+| --- | --- | --- |
+| The node's image is kind's default, and `GOMEMLIMIT` patched onto the API server | `deploy/kind/cluster.yaml` | [Kubernetes](#c-kubernetes), [nodes](#c-nodes): a managed control plane is the provider's |
+| `storageClassName: standard` named in three values (Prometheus, Grafana's plugins, VictoriaLogs) | `deploy/kind/monitoring-values.yaml`, `victoria-logs-values.yaml` | [Default StorageClass](#c-storage): naming none would use each cluster's default |
+| `--kubelet-insecure-tls` | `deploy/platform/metrics-server/kustomization.yaml` | [Resource metrics](#c-metrics) |
+| NodePort Service on 30080 and 30081, and the front door's socat forwarders | `deploy/kind/gateway.yaml`, `cluster.sh create` | [LoadBalancer](#c-loadbalancer) |
+| SeaweedFS, its generated keys, and the chart's default bucket endpoint | `deploy/kind/backups.yaml`, `deploy/secrets/generated.yaml`, `charts/service/values.yaml` | [Bucket](#c-bucket) |
+| The Kubernetes provider on one namespace; Slack's token from Keychain | `deploy/secrets/store.yaml`, `scripts/lib/slack.sh` | [Secret backend](#c-secrets) |
+| `localBuild` (`<app>:dev`, `<app>:e2e`) in the allowlist | `deploy/policies/allowed-images.yaml` | [Egress](#c-egress): images that never left the laptop. Both policies are Deny on kind too (PT-111) |
+| `networkPolicy.apiServerTo` (private ranges) and `apiServerPort` (6443) defaults | `charts/service/values.yaml` | [Network policy](#c-netpol) |
+| The pod range fixed at 10.244.0.0/16, which an app's prod values trust as its proxy | `deploy/kind/cluster.yaml` (the values are the app's) | [Nodes](#c-nodes): the cluster's pod range |
+| `cluster.sh wake` (restarts the controller manager after a sleep) | `scripts/cluster.sh` | Nothing: a laptop's sleep, not a contract item |
+
+**What create hands to install.** A create step makes a cluster that meets the table and
+hands `install` these; they become `modules/gke`'s outputs (PT-119). kind's are fixed today.
+
+- **Kube context**: the API endpoint and credentials, as a context `install` gets in `CONTEXT` (kind: `kind-shortly`).
+- **API server as the policy engine sees it**: the address range and port for `networkPolicy.apiServerTo` and `apiServerPort` (kind: the private ranges, 6443).
+- **Pod range**: what an app may trust as its proxy (kind: 10.244.0.0/16).
+- **Bucket**: its URL, its endpoint (none for GCS) and its credential mode, static keys or workload identity (kind: `s3://cnpg-backups`, the SeaweedFS Service, keys).
+- **Identities to bind**: the workload identity pool and, for each ClusterSecretStore and for the databases' ServiceAccounts, the cloud identity it acts as (kind: none).
+- **Secret store**: the provider and where it is (kind: Kubernetes, `secret-store`; GKE: Secret Manager and its project).
+- **Gateway Service**: its type and any annotations, such as an internal load balancer for the tools (kind: NodePort, 30080 and 30081).
+- **Components the cluster already has**: those the platform must not install (kind: none; GKE: metrics-server).
+
+The architecture and the StorageClass are not outputs: `install` reads the one from the
+nodes, and the other is the cluster's default.
 
 ## Checks
 
@@ -489,10 +541,11 @@ is in the app's repo, against the platform commit it pins.
 
 ## Known limitations
 
-- Local kind only. The values under `deploy/kind/` and the cluster's name (`shortly`) still
+- Local kind only, so far the one implementation of the [Cluster contract](#cluster-contract). The values under `deploy/kind/` and the cluster's name (`shortly`) still
   carry the first app's name.
 - Both policies decide at admission: a policy change doesn't evict running pods. In kind
-  the allowlist admits the app's own `:dev`/`:e2e` build, which nothing verifies.
+  the allowlist admits the app's own `:dev`/`:e2e` build, which nothing verifies
+  ([egress](#c-egress)).
 - The bucket runs in the cluster it backs up, on the same node, and every app's database
   shares one bucket identity: separation of credentials and network, not of failure domains.
 - The secret store is Kubernetes Secrets in one namespace: whoever may read Secrets there
