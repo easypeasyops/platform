@@ -1233,6 +1233,53 @@ runbook may add checks of its data (shortly's restore drill in links).
 | The copy never becomes healthy; its logs say no backup was found | No base backup yet, or none before `--target-time` | `kubectl -n <app>-<env> get backups.postgresql.cnpg.io`; a target inside the retention window and after the first base backup |
 | Errors connecting to `seaweedfs.backups.svc` | The bucket's NetworkPolicy admits restores only from `restore-drill` | The backup bucket, above |
 
+## Restore drills
+
+Every day at 04:30 (America/Los_Angeles), each database with backups is restored into a
+scratch copy and checked (PT-44). The CronJob `restore-drill/drill-<namespace>` runs
+`scripts/restore-db.sh --drill <namespace>/<cluster>`: a Cluster `drill-<namespace>` in
+`restore-drill`, bootstrapped from the database's latest base backup and WAL, healthy within
+5 minutes, then deleted. Kyverno makes one CronJob per ScheduledBackup
+(`deploy/policies/restore-drill.yaml`), so a new app's database gets its drill with no edit
+here and a removed one loses it. The drill runs as `restore-drill/restore-drill`: it only
+reads the source's Cluster and ObjectStore, and restores with the bucket keys in Secret
+`drill-backup` (`deploy/restore-drill/`). A drill missed while the laptop slept starts on
+waking, up to 6 hours late.
+
+```sh
+kubectl -n restore-drill get cronjobs,jobs              # one CronJob per database, the last runs
+kubectl -n restore-drill logs job/<job>                 # "ok: ... restored ... in 69s, 1 tables"
+kubectl -n restore-drill get clusters                   # empty between drills
+```
+
+**Reading a failed drill** (`DatabaseRestoreDrillFailed`). The failed Job is kept until the
+next run; its log's last line says which step failed:
+
+| Its log says | Cause | Fix |
+| --- | --- | --- |
+| `no Cluster ...` or `no ObjectStore ...` | The database or its backups went away and the CronJob is left over, or its name doesn't match the chart's `<release>-db` | `kubectl -n <ns> get cluster,objectstore,scheduledbackup`; the policy deletes the CronJob with its ScheduledBackup |
+| `the copy never became healthy`, the copy's logs "no target backup found" | No base backup yet, or none the copy can read | `kubectl -n <ns> get backups.postgresql.cnpg.io`; CloudNativePG alerts, below |
+| `the copy never became healthy`, errors connecting to `seaweedfs.backups.svc` or on credentials | The bucket, its NetworkPolicy, or Secret `drill-backup` | The backup bucket, above; `kubectl -n restore-drill get externalsecret drill-backup` (Ready True) |
+| `forbidden` | The drill's RBAC (`deploy/restore-drill/restore-drill.yaml`) doesn't allow a step the script now takes | Change them together |
+| The Job never started a pod | Admission or the image volume (`kubectl -n restore-drill describe job <job>`) | The pod's events |
+
+A Cluster `drill-<ns>` left in `restore-drill` (the Job was killed mid-way) is removed by the
+next run; to remove it now, propose `kubectl -n restore-drill delete cluster/drill-<ns>
+objectstore/drill-<ns>-source`.
+
+**Running one by hand.** First the memory check in Restore an app database (a copy is one
+more Postgres on the node), then:
+
+```sh
+kubectl -n restore-drill create job --from=cronjob/drill-<ns> drill-<ns>-manual-$(date +%Y%m%d%H%M)
+kubectl -n restore-drill logs -f job/drill-<ns>-manual-<...>
+```
+
+`DatabaseRestoreDrillStale` means no drill of a database has passed for 2 days, or it has no
+CronJob at all. Missing CronJob: `kubectl get generatingpolicy restore-drill` and
+`kubectl -n kyverno get pods` (its background controller does the generating). Present
+but not passing: read its last Job as above.
+
 ## The database canary
 
 `dbcanary-ops` is a database the platform owns (PT-106; `tools/dbcanary/`, registered in
@@ -1283,6 +1330,8 @@ database's namespace and `cluster` its Cluster (`<release>-db`). Rules:
 | `DatabaseBackupTooOld` | A database's last successful base backup is more than 24 hours old, or it never had one | `kubectl -n <ns> get backups.postgresql.cnpg.io --sort-by=.metadata.creationTimestamp \| tail -5` (the last ones' phase); `kubectl -n <ns> describe backups.postgresql.cnpg.io <name>` (why it failed); `kubectl -n <ns> get scheduledbackup,objectstore` |
 | `DatabaseBackupNotWatched` | A database has backups on (a ScheduledBackup) and Prometheus has had no backup metric from it for 30 minutes, so `DatabaseBackupTooOld` can't see it | Prometheus's Targets page (http://prometheus.localhost:8090/targets), `<ns>/<release>-db`: missing means the app's `monitoring.enabled` is off (turn it on in the app's values); down means the scrape fails (`kubectl -n <ns> get pods -l cnpg.io/cluster=<release>-db`, the NetworkPolicy on port 9187) |
 | `BarmanCloudPluginDown` | The plugin's Deployment has had no available replica for 10 minutes: no database archives WAL or takes a base backup | `kubectl -n cnpg-system get deploy,pods`; `kubectl -n cnpg-system logs deploy/plugin-barman-cloud --tail=50` (add `--previous` after a crash); `kubectl -n cnpg-system describe pod -l app.kubernetes.io/name=plugin-barman-cloud` (OOMKilled, image pull, certificate volume) |
+| `DatabaseRestoreDrillFailed` | The latest daily restore drill of the database in `exported_namespace` failed | Restore drills, above: `kubectl -n restore-drill logs job/<job_name>` |
+| `DatabaseRestoreDrillStale` | No restore drill of the database has passed for 2 days, or it has no drill CronJob | Restore drills, above |
 
 | What you find | Cause | Fix |
 | --- | --- | --- |
