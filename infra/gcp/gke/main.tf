@@ -48,4 +48,6 @@ module "gke" {
   zone                 = "${local.foundation.region}-${var.zone_suffix}"
   run_id               = var.run_id
   node_service_account = local.foundation.gke_node_service_account
+  backup_principals    = var.backup_principals
+  secret_stores        = var.secret_stores
 }

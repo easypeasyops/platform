@@ -14,6 +14,16 @@ output "pod_range" {
   value       = module.gke.pod_range
 }
 
+output "bucket" {
+  description = "The backup bucket's URL, endpoint and credential mode."
+  value       = module.gke.bucket
+}
+
+output "identities" {
+  description = "The workload identity pool and the principals bound to the bucket and the secrets."
+  value       = module.gke.identities
+}
+
 output "secret_store" {
   description = "The secret backend and where it is."
   value       = module.gke.secret_store

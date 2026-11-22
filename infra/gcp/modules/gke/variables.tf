@@ -51,3 +51,18 @@ variable "pod_range" {
   type        = string
   default     = "10.244.0.0/16"
 }
+
+variable "backup_principals" {
+  description = "Who reads and writes the backup bucket: Kubernetes service accounts by namespace and name (a database's is its Cluster's name), or a whole namespace when service_account is null (restore-drill, whose scratch Clusters are named per drill)."
+  type = list(object({
+    namespace       = string
+    service_account = optional(string)
+  }))
+  default = []
+}
+
+variable "secret_stores" {
+  description = "Each ClusterSecretStore's Kubernetes service account (in namespace secret-store) and the Secret Manager secrets it may read: a store reaches only its own (cluster contract, secret backend)."
+  type        = map(list(string))
+  default     = {}
+}
