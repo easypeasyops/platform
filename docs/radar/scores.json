@@ -269,6 +269,60 @@
       "evidence": "Argo CD now manages its own install: cluster.sh bootstraps it once, then its own Application owns it, and the first values-only change to it went through Argo CD with no cluster.sh up (PT-109). That closes the gap that everything except Argo CD was GitOps. CI tests keep the platform's memory and CPU requests inside the node's budget, now derived from its 12 GB (PT-107, PT-121). cluster.sh fails up when Slack is on without its token, and SLACK=0 switches it off (PT-97).",
       "gaps": "The last next step is partly done: a missing Slack token now stops cluster.sh, but nothing alerts when it or an app's hand-loaded key goes missing later. cluster.sh wake is still manual after the laptop sleeps. Tools use the admin login with no SSO. The root Application is applied by cluster.sh, not synced from git.",
       "next": "Alert when a hand-loaded secret the platform expects is missing from the store."
+    },
+    {
+      "week": "2026-11-22",
+      "commit": "3e2c0cd",
+      "axis": "Supply-chain security",
+      "score": 4.5,
+      "evidence": "Unchanged at the core: images by digest with SLSA provenance, checked at deploy and at admission in Deny, Trivy, SHA-pinned actions and the signed chart. New: the GCP Terraform's providers are locked (.terraform.lock.hcl, init with -lockfile=readonly in CI) and Renovate moves them, Terraform and tflint (PT-118). CI's only cloud access is by Workload Identity Federation, admitted for named workflows on main.",
+      "gaps": "Unchanged: no e2e step applies a foreign or unsigned image and expects it refused, so Deny is proven only by offline tests. The local-build exception admits an image nothing verifies. The Argo Rollouts plugin checksums were still computed here, not published upstream.",
+      "next": "Add an e2e step that applies a foreign image and an image without provenance to an app namespace and fails unless both are refused."
+    },
+    {
+      "week": "2026-11-22",
+      "commit": "3e2c0cd",
+      "axis": "Reliability and recovery",
+      "score": 3.5,
+      "evidence": "The last next step is done: a Kyverno GeneratingPolicy makes a daily restore-drill CronJob for every database with backups, with no edit for a new one (PT-44). DatabaseRestoreDrillFailed and DatabaseRestoreDrillStale (none passed for 2 days) alert, with promtool tests, and RUNBOOK says what to do. Kyverno's controllers now read ScheduledBackups, so the policy is Ready. The chart can give a database's backups a workload identity instead of keys (1.8.0, PT-119).",
+      "gaps": "No CI run proves a drill passes: the kind e2e doesn't back up a database and run its drill, so a broken drill shows only the next morning on the laptop. One kind node is still one failure domain for every replica, database and the backup bucket, and each Argo CD component runs one replica. The GKE run that would give a second cluster is dormant.",
+      "next": "Run the generated restore drill in the kind e2e: back up the template app's database, run its drill, and fail unless it passes."
+    },
+    {
+      "week": "2026-11-22",
+      "commit": "3e2c0cd",
+      "axis": "Observability",
+      "score": 4.0,
+      "evidence": "Two new alerts with promtool tests: a restore drill failed, or none passed for 2 days (PT-44). Platform components now log warnings and errors only, and the log store is sized to what it holds, 800 MiB cap for 30 days. Metrics, logs, events, probes, burn-rate SLO alerts and the weekly chaos drill are unchanged.",
+      "gaps": "Unchanged: no trace backend, so the chart's otel endpoint sends nowhere. The 30-day error budget looks back at most 10 days, because that's how long Prometheus keeps data. Alerting still can't report its own outage; the heartbeat is only planned (RUNBOOK, PT-14).",
+      "next": "Run an OpenTelemetry collector and a trace store, and set otel.endpoint for every app."
+    },
+    {
+      "week": "2026-11-22",
+      "commit": "3e2c0cd",
+      "axis": "Delivery safety",
+      "score": 4.5,
+      "evidence": "Unchanged at the core: app-e2e deploys the template app on kind with the PR's own platform and chart, the ci gate waits on it, and a nightly e2e runs real apps on main. New, dormant: a weekly GKE e2e creates a cluster, installs the platform with the gke profile, runs the same checks as kind (scripts/lib/e2e-checks.sh) and tears it down in order, with a reaper for a run that dies (PT-120). The platform chart is now rendered and validated with the gke profile in CI.",
+      "gaps": "The GKE run hasn't run: no repository variable for Workload Identity is set, so it is skipped. Unchanged: the PR e2e runs only the template app, so aipostit's database and workers are checked nightly, after a merge. A merge reaches the cluster, prod included, within a minute, with no staged rollout of the platform itself.",
+      "next": "Run aipostit's e2e in the PR's app-e2e too, so a real app with a database and workers gates a platform merge."
+    },
+    {
+      "week": "2026-11-22",
+      "commit": "3e2c0cd",
+      "axis": "Developer experience",
+      "score": 4.5,
+      "evidence": "DESIGN.md now has the cluster contract: what the platform needs from any cluster, kind's stand-ins and what create hands install (PT-115). PROFILE=<name> layers a cluster's values over kind's with no branch on its name, tested in test_profiles.py (PT-119). The front door is a LoadBalancer Service, as on a cloud (PT-117). new-app.py and its CI tests are unchanged.",
+      "gaps": "Unchanged: adding a new app's repo to Renovate and loading its keys are still by hand. A new app's first deploy is proven only by the end-to-end runs done when it was built, not on a schedule.",
+      "next": "Have new-app.py add the new repo to Renovate and load its keys, so onboarding has no step by hand."
+    },
+    {
+      "week": "2026-11-22",
+      "commit": "3e2c0cd",
+      "axis": "Operability and automation",
+      "score": 4.5,
+      "evidence": "The GCP side is written as code and checked in CI with no credentials: Terraform for the project, state bucket, Workload Identity Federation, a budget with alerts, and a zonal GKE module, with fmt, validate and tflint in the required ci gate (PT-118, PT-119). A plan on main, the weekly GKE run and its reaper are ready but dormant. The apps' ApplicationSet is in the platform chart, off (PT-119).",
+      "gaps": "None of the GCP automation has run yet: it waits on the foundation's bootstrap by hand. Unchanged: nothing alerts when Slack's token or an app's hand-loaded key goes missing later. cluster.sh wake is still manual after the laptop sleeps. Tools use the admin login with no SSO. The root Application is applied by cluster.sh, not synced from git.",
+      "next": "Alert when a hand-loaded secret the platform expects is missing from the store."
     }
   ],
   "meta": [
