@@ -75,24 +75,24 @@ charts:
     digest: sha256:87de4bac1be47355a92f388467ec7651e179e26177c103925d5e0245d46ead12
   kubePrometheusStack: # Prometheus Operator, Prometheus, Alertmanager, Grafana
     repo: oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack
-    version: 93.3.0
-    digest: sha256:12b96b769049bbac5021d1bf544476ed3b1f42df7216d8eb7a70e98007a655a1
+    version: 93.11.1
+    digest: sha256:694f3e8ccc96d317eaca20b9718d971de52d9914d35970b2ba6d69ad8ea9bcd0
   victoriaLogs: # VictoriaLogs v1.53.0 (single node): where the pods' logs are kept
     repo: oci://ghcr.io/victoriametrics/helm-charts/victoria-logs-single
-    version: 0.13.13
-    digest: sha256:d4d5a6ba52a248757bb6cbf6643ccb9c285b0224b44784c7ba86bbc1a74ac36d
+    version: 0.13.14
+    digest: sha256:6e3f7c02490cf0b466fde00ce10ca4ab11bcfa4f349bc03285b827343b3fca0e
   logCollector: # vlagent v1.53.0: sends every pod's log lines to VictoriaLogs
     repo: oci://ghcr.io/victoriametrics/helm-charts/victoria-logs-collector
-    version: 0.3.9
-    digest: sha256:c3403105e753070a545b5d414479f6336ac8d9ee55f5e3d0a517da73a3e35c04
+    version: 0.3.10
+    digest: sha256:02670a1042d09f77d848302c280473ecfe5102f4b2cc6118bc707744d1772399
   nodeExporter: # node-exporter v1.12.1: the node's CPU, memory and disk, for Prometheus
     repo: oci://ghcr.io/prometheus-community/charts/prometheus-node-exporter
-    version: 5.1.0
-    digest: sha256:3001c54dd6248a0a31d25bb963f3d3f95ba9b7fbccd5d366f910461acf039f48
+    version: 5.2.0
+    digest: sha256:4422191e9ffe05a2181a5cf64f3f203baaa65a6898f87247d9d0e0bb2a331154
   blackboxExporter: # blackbox exporter v0.29.1: probes each app through the front door, as a user would
     repo: oci://ghcr.io/prometheus-community/charts/prometheus-blackbox-exporter
-    version: 11.21.3
-    digest: sha256:128e142cda55d0d4ca4cc84dde39c0d325b9805645ba87885e664fecbdfb1599
+    version: 11.26.2
+    digest: sha256:1b0a5cfa202ebd503470cd4a8e8ec10a0de34ffd9ed26b8995bbea9178434c5d
   externalSecrets: # External Secrets Operator v2.14.0: secrets from the store (deploy/secrets/)
     repo: oci://ghcr.io/external-secrets/charts/external-secrets
     version: 2.15.0
@@ -103,8 +103,8 @@ charts:
     digest: sha256:e482675aec32862d323a9218293ff7de81192337998615e4378c56498473f240
   cloudnativePG: # CloudNativePG 1.30.1: the apps' Postgres
     repo: oci://ghcr.io/cloudnative-pg/charts/cloudnative-pg
-    version: 0.29.1
-    digest: sha256:3245fa051bb21d0dd9246272f57a2760b4234817a164a3167d2a1e7fb9f63fd9
+    version: 0.29.2
+    digest: sha256:3bfb3670ccb80c7f2e6bef3189c1599ad4b6d6f0a52fb745f986ac5b511d2fc0
   barmanCloud: # Barman Cloud plugin v0.15.1: CloudNativePG's backups to the bucket
     repo: oci://ghcr.io/cloudnative-pg/charts/plugin-barman-cloud
     version: 0.9.0
@@ -113,8 +113,8 @@ charts:
   # from this pin and deploy/kind/argocd-values.yaml; the `argocd` Application, the same.
   argocd:
     repo: oci://ghcr.io/argoproj/argo-helm/argo-cd
-    version: 10.11.1
-    digest: sha256:2ac5224a5c201789f96aa9e085673d80732591d1b3e815a8a825a4db6d1d7c88
+    version: 10.20.0
+    digest: sha256:c3af2fe30ca6ed4a27d0c590e91e04f99b8bb4237527cc80f0b721f70ee3263a
   kyverno: # Kyverno v1.19.1, the engine tests/test_admission_policies.py runs
     repo: oci://ghcr.io/kyverno/charts/kyverno
     version: 3.10.0
